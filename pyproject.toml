@@ -1,0 +1,94 @@
+[project]
+name = "autodungeon"
+version = "0.1.0"
+description = "Multi-agent D&D game engine where AI agents autonomously play Dungeons & Dragons together"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{ name = "autodungeon contributors" }]
+keywords = ["ai", "dnd", "dungeons-dragons", "langgraph", "multi-agent"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "langgraph>=0.2.0",
+    "langchain-google-genai>=2.0.0",
+    "langchain-anthropic>=0.2.0",
+    "langchain-ollama>=0.2.0",
+    "streamlit>=1.40.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "pyyaml>=6.0.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.0.0",
+    "ruff>=0.8.0",
+    "pyright>=1.1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+only-include = [
+    "app.py",
+    "graph.py",
+    "agents.py",
+    "memory.py",
+    "models.py",
+    "tools.py",
+    "persistence.py",
+    "config.py",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["autodungeon"]
+
+[tool.pyright]
+pythonVersion = "3.10"
+typeCheckingMode = "strict"
+reportMissingImports = true
+reportMissingTypeStubs = false
+reportPrivateUsage = false
+# pydantic-settings doesn't ship complete type stubs; downgrade these to warnings
+reportUnknownMemberType = "warning"
+reportUnknownVariableType = "warning"
+reportUntypedBaseClass = "warning"
+venvPath = "."
+venv = ".venv"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"

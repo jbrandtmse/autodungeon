@@ -1,0 +1,18 @@
+# Default LLM Configuration
+default_provider: gemini
+default_model: gemini-1.5-flash
+
+# Per-agent defaults (can override)
+agents:
+  dm:
+    provider: gemini
+    model: gemini-1.5-flash
+    token_limit: 8000
+  summarizer:
+    provider: gemini
+    model: gemini-1.5-flash
+    token_limit: 4000
+
+# Game defaults
+party_size: 4
+auto_save: true

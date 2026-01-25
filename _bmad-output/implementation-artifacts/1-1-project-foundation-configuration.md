@@ -1,6 +1,6 @@
 # Story 1.1: Project Foundation & Configuration
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -30,42 +30,42 @@ so that **I can install dependencies, configure API keys, and run the applicatio
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Initialize Python project with uv (AC: #1)
-  - [ ] 1.1 Run `uv init autodungeon` to create project scaffold
-  - [ ] 1.2 Configure pyproject.toml with project metadata
-  - [ ] 1.3 Add all required dependencies via `uv add`
-  - [ ] 1.4 Verify `uv sync` creates venv and installs all packages
+- [x] Task 1: Initialize Python project with uv (AC: #1)
+  - [x] 1.1 Run `uv init autodungeon` to create project scaffold
+  - [x] 1.2 Configure pyproject.toml with project metadata
+  - [x] 1.3 Add all required dependencies via `uv add`
+  - [x] 1.4 Verify `uv sync` creates venv and installs all packages
 
-- [ ] Task 2: Create project directory structure (AC: #4)
-  - [ ] 2.1 Create flat layout with all required module files (empty placeholders)
-  - [ ] 2.2 Create `config/` directory with `defaults.yaml`
-  - [ ] 2.3 Create `config/characters/` directory for character templates
-  - [ ] 2.4 Create `styles/` directory with placeholder `theme.css`
-  - [ ] 2.5 Create `campaigns/` directory with `.gitkeep`
-  - [ ] 2.6 Create `tests/` directory with `conftest.py` placeholder
+- [x] Task 2: Create project directory structure (AC: #4)
+  - [x] 2.1 Create flat layout with all required module files (empty placeholders)
+  - [x] 2.2 Create `config/` directory with `defaults.yaml`
+  - [x] 2.3 Create `config/characters/` directory for character templates
+  - [x] 2.4 Create `styles/` directory with placeholder `theme.css`
+  - [x] 2.5 Create `campaigns/` directory with `.gitkeep`
+  - [x] 2.6 Create `tests/` directory with `conftest.py` placeholder
 
-- [ ] Task 3: Implement environment variable configuration (AC: #2)
-  - [ ] 3.1 Create `.env.example` with all required API key placeholders
-  - [ ] 3.2 Add `.env` to `.gitignore`
-  - [ ] 3.3 Create `config.py` with python-dotenv loading
-  - [ ] 3.4 Implement API key validation (warn if missing, don't crash)
+- [x] Task 3: Implement environment variable configuration (AC: #2)
+  - [x] 3.1 Create `.env.example` with all required API key placeholders
+  - [x] 3.2 Add `.env` to `.gitignore`
+  - [x] 3.3 Create `config.py` with python-dotenv loading
+  - [x] 3.4 Implement API key validation (warn if missing, don't crash)
 
-- [ ] Task 4: Implement Pydantic Settings configuration (AC: #3)
-  - [ ] 4.1 Create `AppConfig` Pydantic Settings model in `config.py`
-  - [ ] 4.2 Load defaults from `config/defaults.yaml`
-  - [ ] 4.3 Implement environment variable override hierarchy
-  - [ ] 4.4 Export singleton config instance for application use
+- [x] Task 4: Implement Pydantic Settings configuration (AC: #3)
+  - [x] 4.1 Create `AppConfig` Pydantic Settings model in `config.py`
+  - [x] 4.2 Load defaults from `config/defaults.yaml`
+  - [x] 4.3 Implement environment variable override hierarchy
+  - [x] 4.4 Export singleton config instance for application use
 
-- [ ] Task 5: Setup development tooling
-  - [ ] 5.1 Configure Ruff for linting/formatting in pyproject.toml
-  - [ ] 5.2 Configure Pyright for type checking
-  - [ ] 5.3 Configure pytest for testing
-  - [ ] 5.4 Create basic test to verify config loading works
+- [x] Task 5: Setup development tooling
+  - [x] 5.1 Configure Ruff for linting/formatting in pyproject.toml
+  - [x] 5.2 Configure Pyright for type checking
+  - [x] 5.3 Configure pytest for testing
+  - [x] 5.4 Create basic test to verify config loading works
 
-- [ ] Task 6: Create minimal app.py entry point
-  - [ ] 6.1 Create Streamlit app that loads config
-  - [ ] 6.2 Display config status (which API keys are set)
-  - [ ] 6.3 Verify app runs with `streamlit run app.py`
+- [x] Task 6: Create minimal app.py entry point
+  - [x] 6.1 Create Streamlit app that loads config
+  - [x] 6.2 Display config status (which API keys are set)
+  - [x] 6.3 Verify app runs with `streamlit run app.py`
 
 ## Dev Notes
 
@@ -258,11 +258,104 @@ Write tests that verify:
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.5 (claude-opus-4-5-20251101)
 
 ### Debug Log References
 
+N/A
+
 ### Completion Notes List
 
+- Installed `uv` via pip since it wasn't available in PATH
+- Created pyproject.toml with all required dependencies and dev tools
+- Configured hatchling build system with explicit file includes for flat layout
+- All 89 packages installed successfully via `uv sync --all-extras`
+- Implemented `config.py` with:
+  - `AppConfig` Pydantic Settings model
+  - YAML defaults loading from `config/defaults.yaml`
+  - Environment variable override hierarchy (env vars take precedence over YAML)
+  - `validate_api_keys()` function that returns warnings (no crashes)
+  - `get_config()` singleton pattern
+- Implemented `app.py` Streamlit entry point:
+  - Loads and displays configuration status
+  - Shows which API keys are configured
+  - Displays warnings for missing API keys
+  - Shows current default values
+- Configured Pyright with relaxed settings for pydantic-settings (missing type stubs)
+- All 11 tests pass covering:
+  - Environment variable loading
+  - YAML defaults loading
+  - Override hierarchy (env > yaml)
+  - API key validation warnings
+  - Singleton config pattern
+  - App entry point functionality
+
 ### File List
+
+New files:
+- pyproject.toml
+- app.py
+- graph.py
+- agents.py
+- memory.py
+- models.py
+- tools.py
+- persistence.py
+- config.py
+- config/defaults.yaml
+- config/characters/ (directory)
+- styles/theme.css
+- campaigns/.gitkeep
+- tests/__init__.py
+- tests/conftest.py
+- tests/test_config.py
+- tests/test_app.py
+- .venv/ (virtual environment)
+- uv.lock
+
+Pre-existing files (unchanged):
+- .env.example
+- .gitignore
+- README.md
+- CLAUDE.md
+- LICENSE
+
+### Change Log
+
+- 2026-01-25: Story 1.1 implementation complete - project foundation established with uv, Pydantic Settings configuration, and development tooling
+- 2026-01-25: Code review fixes applied (see Senior Developer Review below)
+
+## Senior Developer Review (AI)
+
+**Reviewer:** Dev Agent (Claude Opus 4.5)
+**Date:** 2026-01-25
+**Outcome:** Changes Requested → Fixed
+
+### Issues Found & Fixed
+
+| ID | Severity | Issue | Resolution |
+|----|----------|-------|------------|
+| H1 | HIGH | All implementation files untracked in git | Pending: requires user to commit |
+| M1 | MEDIUM | `app.py:45` empty page_icon | Fixed: added "🎲" emoji |
+| M2 | MEDIUM | Missing `__all__` in config.py | Fixed: added explicit exports |
+| M3 | MEDIUM | Test isolation - singleton not reset | Fixed: added autouse fixture in conftest.py |
+| M4 | MEDIUM | `import os` inside method | Fixed: moved to module level |
+| L1 | LOW | Empty conftest.py | Fixed: added singleton reset fixture |
+
+### Files Modified by Review
+
+- `app.py` - Added page_icon emoji
+- `config.py` - Added `__all__`, moved `import os` to module level
+- `tests/conftest.py` - Added autouse fixture for test isolation
+- `tests/test_config.py` - Removed manual singleton reset (now handled by fixture)
+
+### Verification
+
+- All 11 tests pass
+- Ruff: All checks passed
+- Pyright: 0 errors, 0 warnings
+
+### Remaining Action
+
+**H1 requires manual commit** - All implementation files exist but are untracked in git. User should stage and commit these files to complete the story.
 
