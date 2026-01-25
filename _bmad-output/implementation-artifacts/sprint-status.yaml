@@ -1,0 +1,100 @@
+# generated: 2026-01-25
+# project: autodungeon
+# project_key: autodungeon
+# tracking_system: file-system
+# story_location: _bmad-output/implementation-artifacts
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog -> in-progress: Automatically when first story is created (via create-story)
+#   - in-progress -> done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - SM typically creates next story after previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+
+generated: 2026-01-25
+project: autodungeon
+project_key: autodungeon
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+
+development_status:
+  # Epic 1: Core Game Engine (8 stories)
+  epic-1: in-progress
+  1-1-project-foundation-configuration: ready-for-dev
+  1-2-core-game-state-models: backlog
+  1-3-llm-provider-integration: backlog
+  1-4-dice-rolling-system: backlog
+  1-5-dm-agent-implementation: backlog
+  1-6-pc-agent-implementation: backlog
+  1-7-langgraph-turn-orchestration: backlog
+  1-8-character-configuration-system: backlog
+  epic-1-retrospective: optional
+
+  # Epic 2: Streamlit Viewer Experience (6 stories)
+  epic-2: backlog
+  2-1-streamlit-application-shell: backlog
+  2-2-campfire-theme-css-foundation: backlog
+  2-3-narrative-message-display: backlog
+  2-4-party-panel-character-cards: backlog
+  2-5-session-header-controls: backlog
+  2-6-real-time-narrative-flow: backlog
+  epic-2-retrospective: optional
+
+  # Epic 3: Human Participation (6 stories)
+  epic-3: backlog
+  3-1-watch-mode-autopilot: backlog
+  3-2-drop-in-mode: backlog
+  3-3-release-control-character-switching: backlog
+  3-4-nudge-system: backlog
+  3-5-pause-resume-speed-control: backlog
+  3-6-keyboard-shortcuts: backlog
+  epic-3-retrospective: optional
+
+  # Epic 4: Session Persistence & Recovery (5 stories)
+  epic-4: backlog
+  4-1-auto-checkpoint-system: backlog
+  4-2-checkpoint-browser-restore: backlog
+  4-3-campaign-organization-multi-session-continuity: backlog
+  4-4-transcript-export: backlog
+  4-5-error-handling-recovery: backlog
+  epic-4-retrospective: optional
+
+  # Epic 5: Memory & Narrative Continuity (5 stories)
+  epic-5: backlog
+  5-1-short-term-context-buffer: backlog
+  5-2-session-summary-generation: backlog
+  5-3-in-session-memory-references: backlog
+  5-4-cross-session-memory-character-facts: backlog
+  5-5-memory-compression-system: backlog
+  epic-5-retrospective: optional
+
+  # Epic 6: LLM Configuration UI (5 stories)
+  epic-6: backlog
+  6-1-configuration-modal-structure: backlog
+  6-2-api-key-management-ui: backlog
+  6-3-per-agent-model-selection: backlog
+  6-4-context-limit-configuration: backlog
+  6-5-mid-campaign-provider-switching: backlog
+  epic-6-retrospective: optional
