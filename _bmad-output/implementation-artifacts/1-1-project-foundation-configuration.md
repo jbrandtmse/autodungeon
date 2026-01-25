@@ -1,6 +1,6 @@
 # Story 1.1: Project Foundation & Configuration
 
-Status: review
+Status: done
 
 ## Story
 
