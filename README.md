@@ -41,7 +41,19 @@ autodungeon creates a self-playing D&D party where multiple AI agents roleplay a
 
 This project has completed comprehensive planning and architecture design. Implementation is underway.
 
+### Epic Progress
+
+| Epic | Description | Status |
+|------|-------------|--------|
+| 1 | Core Game Engine | 🟡 In Progress |
+| 2 | Streamlit Viewer Experience | ⚪ Backlog |
+| 3 | Human Participation | ⚪ Backlog |
+| 4 | Session Persistence & Recovery | ⚪ Backlog |
+| 5 | Memory & Narrative Continuity | ⚪ Backlog |
+| 6 | LLM Configuration UI | ⚪ Backlog |
+
 See the [planning artifacts](_bmad-output/planning-artifacts/) for:
+
 - [Product Requirements Document](_bmad-output/planning-artifacts/prd.md) - 55 functional requirements
 - [Architecture Decisions](_bmad-output/planning-artifacts/architecture.md) - Technical design choices
 - [Epic/Story Breakdown](_bmad-output/planning-artifacts/epics.md) - Implementation roadmap

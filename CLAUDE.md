@@ -10,6 +10,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - There may be newer approaches or best practices you're not aware of
 - Working with libraries/APIs that may have evolved since your knowledge cutoff
 
+**Epic status tracking:** At the start/end of each epic, update the Epic Progress table in README.md to reflect current status.
+
 ## Project Overview
 
 **autodungeon** is a multi-agent D&D game engine where AI agents autonomously play Dungeons & Dragons together. One DM agent orchestrates the game while N PC agents roleplay as adventurers. Humans can watch passively, drop in to control a character, or let it run fully autonomous.
