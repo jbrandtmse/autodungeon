@@ -1,5 +1,8 @@
 # autodungeon
 
+> **⚠️ UNDER HEAVY DEVELOPMENT**
+> This project is actively being built. Features may be incomplete, broken, or change without notice. Not yet ready for production use.
+
 **Multi-agent D&D game engine where AI plays Dungeons & Dragons together.**
 
 *"Nostalgia for D&D, made accessible for people who can't coordinate 4 friends."*
