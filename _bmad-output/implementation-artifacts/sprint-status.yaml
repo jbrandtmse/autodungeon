@@ -46,7 +46,7 @@ development_status:
   1-2-core-game-state-models: done
   1-3-llm-provider-integration: done
   1-4-dice-rolling-system: done
-  1-5-dm-agent-implementation: backlog
+  1-5-dm-agent-implementation: done
   1-6-pc-agent-implementation: backlog
   1-7-langgraph-turn-orchestration: backlog
   1-8-character-configuration-system: backlog

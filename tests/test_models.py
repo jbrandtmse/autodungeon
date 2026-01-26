@@ -210,6 +210,123 @@ class TestCharacterConfig:
         assert restored.token_limit == original.token_limit
 
 
+class TestDMConfig:
+    """Tests for DMConfig model."""
+
+    def test_dm_config_creation_with_defaults(self) -> None:
+        """Test DMConfig can be created with default values."""
+        from models import DMConfig
+
+        config = DMConfig()
+        assert config.name == "Dungeon Master"
+        assert config.provider == "gemini"
+        assert config.model == "gemini-1.5-flash"
+        assert config.token_limit == 8000
+        assert config.color == "#D4A574"
+
+    def test_dm_config_creation_with_custom_values(self) -> None:
+        """Test DMConfig can be created with custom values."""
+        from models import DMConfig
+
+        config = DMConfig(
+            name="Game Master",
+            provider="claude",
+            model="claude-3-sonnet-20240229",
+            token_limit=16000,
+            color="#FF6B6B",
+        )
+        assert config.name == "Game Master"
+        assert config.provider == "claude"
+        assert config.model == "claude-3-sonnet-20240229"
+        assert config.token_limit == 16000
+        assert config.color == "#FF6B6B"
+
+    def test_dm_config_invalid_color_format(self) -> None:
+        """Test DMConfig raises ValidationError for invalid color format."""
+        from models import DMConfig
+
+        with pytest.raises(ValidationError) as exc_info:
+            DMConfig(color="gold")  # Should be hex format
+        errors = exc_info.value.errors()
+        assert any("color" in str(e).lower() for e in errors)
+
+    def test_dm_config_invalid_provider(self) -> None:
+        """Test DMConfig raises ValidationError for unsupported provider."""
+        from models import DMConfig
+
+        with pytest.raises(ValidationError) as exc_info:
+            DMConfig(provider="openai")  # Not a supported provider
+        errors = exc_info.value.errors()
+        assert any("provider" in str(e).lower() for e in errors)
+
+    def test_dm_config_provider_normalized_to_lowercase(self) -> None:
+        """Test DMConfig normalizes provider to lowercase."""
+        from models import DMConfig
+
+        config = DMConfig(provider="GEMINI")
+        assert config.provider == "gemini"
+
+        config = DMConfig(provider="Claude")
+        assert config.provider == "claude"
+
+    def test_dm_config_all_supported_providers(self) -> None:
+        """Test DMConfig accepts all supported providers."""
+        from models import DMConfig
+
+        for provider in ["gemini", "claude", "ollama"]:
+            config = DMConfig(provider=provider)
+            assert config.provider == provider
+
+    def test_dm_config_negative_token_limit(self) -> None:
+        """Test DMConfig raises ValidationError for negative token_limit."""
+        from models import DMConfig
+
+        with pytest.raises(ValidationError) as exc_info:
+            DMConfig(token_limit=-100)
+        errors = exc_info.value.errors()
+        assert any("token_limit" in str(e).lower() for e in errors)
+
+    def test_dm_config_json_serialization(self) -> None:
+        """Test DMConfig can serialize to JSON."""
+        from models import DMConfig
+
+        config = DMConfig(provider="claude", model="claude-3-haiku-20240307")
+
+        json_str = config.model_dump_json()
+        data = json.loads(json_str)
+
+        assert data["provider"] == "claude"
+        assert data["model"] == "claude-3-haiku-20240307"
+        assert data["name"] == "Dungeon Master"
+
+    def test_dm_config_json_roundtrip(self) -> None:
+        """Test DMConfig serialization roundtrip works correctly."""
+        from models import DMConfig
+
+        original = DMConfig(
+            name="Custom DM",
+            provider="ollama",
+            model="llama3",
+            token_limit=4000,
+            color="#123456",
+        )
+
+        json_str = original.model_dump_json()
+        restored = DMConfig.model_validate_json(json_str)
+
+        assert restored.name == original.name
+        assert restored.provider == original.provider
+        assert restored.model == original.model
+        assert restored.token_limit == original.token_limit
+        assert restored.color == original.color
+
+    def test_dm_config_in_all_exports(self) -> None:
+        """Test DMConfig is exported in __all__."""
+        import models
+
+        assert "DMConfig" in models.__all__
+
+
 class TestGameConfig:
     """Tests for GameConfig model."""
 
@@ -300,7 +417,7 @@ class TestGameState:
 
     def test_game_state_structure(self) -> None:
         """Test GameState has all required fields with correct types."""
-        from models import AgentMemory, GameConfig, GameState
+        from models import AgentMemory, DMConfig, GameConfig, GameState
 
         # Create a valid GameState
         state: GameState = {
@@ -312,6 +429,7 @@ class TestGameState:
                 "rogue": AgentMemory(token_limit=4000),
             },
             "game_config": GameConfig(),
+            "dm_config": DMConfig(),
             "whisper_queue": [],
             "human_active": False,
             "controlled_character": None,
@@ -323,10 +441,11 @@ class TestGameState:
         assert "fighter" in state["agent_memories"]
         assert state["human_active"] is False
         assert state["controlled_character"] is None
+        assert state["dm_config"].name == "Dungeon Master"
 
     def test_game_state_agent_memories_is_agent_memory_dict(self) -> None:
         """Test that agent_memories contains AgentMemory instances."""
-        from models import AgentMemory, GameConfig, GameState
+        from models import AgentMemory, DMConfig, GameConfig, GameState
 
         memory = AgentMemory(long_term_summary="Test")
         state: GameState = {
@@ -335,6 +454,7 @@ class TestGameState:
             "current_turn": "",
             "agent_memories": {"test_agent": memory},
             "game_config": GameConfig(),
+            "dm_config": DMConfig(),
             "whisper_queue": [],
             "human_active": False,
             "controlled_character": None,
@@ -349,7 +469,7 @@ class TestFactoryFunctions:
 
     def test_create_initial_game_state(self) -> None:
         """Test create_initial_game_state produces valid state."""
-        from models import create_initial_game_state
+        from models import DMConfig, create_initial_game_state
 
         state = create_initial_game_state()
 
@@ -360,6 +480,9 @@ class TestFactoryFunctions:
         assert state["whisper_queue"] == []
         assert state["human_active"] is False
         assert state["controlled_character"] is None
+        # Check dm_config is included
+        assert isinstance(state["dm_config"], DMConfig)
+        assert state["dm_config"].provider == "gemini"
 
     def test_create_agent_memory(self) -> None:
         """Test create_agent_memory factory function."""

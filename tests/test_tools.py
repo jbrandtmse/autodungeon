@@ -570,3 +570,48 @@ class TestRollDiceComprehensive:
             assert result.total == -9
             assert result.modifier == -10
             assert result.rolls == {"1d4": [1]}
+
+
+class TestDMRollDice:
+    """Tests for dm_roll_dice LangChain tool."""
+
+    def test_dm_roll_dice_returns_string(self) -> None:
+        """Test that dm_roll_dice returns a string."""
+        from tools import dm_roll_dice
+
+        with patch("tools.random.randint", return_value=15):
+            result = dm_roll_dice.invoke("1d20")
+            assert isinstance(result, str)
+
+    def test_dm_roll_dice_formatted_output(self) -> None:
+        """Test dm_roll_dice returns formatted result."""
+        from tools import dm_roll_dice
+
+        with patch("tools.random.randint", return_value=18):
+            result = dm_roll_dice.invoke("1d20+5")
+            assert "1d20+5" in result
+            assert "23" in result  # 18 + 5
+
+    def test_dm_roll_dice_is_langchain_tool(self) -> None:
+        """Test dm_roll_dice is a LangChain tool with proper metadata."""
+        from tools import dm_roll_dice
+
+        # Tool should have name and description
+        assert dm_roll_dice.name == "dm_roll_dice"
+        assert "dice" in dm_roll_dice.description.lower()
+
+    def test_dm_roll_dice_in_all_exports(self) -> None:
+        """Test dm_roll_dice is exported in __all__."""
+        import tools
+
+        assert "dm_roll_dice" in tools.__all__
+
+    def test_dm_roll_dice_includes_breakdown(self) -> None:
+        """Test dm_roll_dice result includes roll breakdown."""
+        from tools import dm_roll_dice
+
+        with patch("tools.random.randint", side_effect=[4, 5, 6]):
+            result = dm_roll_dice.invoke("3d6")
+            # Should contain the rolls
+            assert "3d6" in result
+            assert "15" in result  # 4 + 5 + 6

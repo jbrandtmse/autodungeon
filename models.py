@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field, field_validator
 __all__ = [
     "AgentMemory",
     "CharacterConfig",
+    "DMConfig",
     "GameConfig",
     "GameState",
     "create_agent_memory",
@@ -105,6 +106,58 @@ class CharacterConfig(BaseModel):
         return v
 
 
+# Supported LLM providers (duplicated from agents.py to avoid circular import)
+_SUPPORTED_PROVIDERS = frozenset(["gemini", "claude", "ollama"])
+
+
+class DMConfig(BaseModel):
+    """Configuration for the Dungeon Master agent.
+
+    Defines the DM's display settings and LLM provider configuration.
+    The DM orchestrates the game, narrates scenes, and controls NPCs.
+
+    Attributes:
+        name: Display name for the DM (default: "Dungeon Master").
+        provider: LLM provider: "gemini", "claude", or "ollama".
+        model: Model name (e.g., "gemini-1.5-flash").
+        token_limit: Context limit for the DM's memory window.
+        color: Hex color for UI display (gold/amber tone).
+    """
+
+    name: str = Field(default="Dungeon Master", description="DM display name")
+    provider: str = Field(default="gemini", description="LLM provider")
+    model: str = Field(default="gemini-1.5-flash", description="Model name")
+    token_limit: int = Field(
+        default=8000,
+        ge=1,
+        description="Context limit for DM",
+    )
+    color: str = Field(default="#D4A574", description="Hex color for UI")
+
+    @field_validator("provider")
+    @classmethod
+    def provider_is_supported(cls, v: str) -> str:
+        """Validate that provider is a supported LLM provider."""
+        normalized = v.lower()
+        if normalized not in _SUPPORTED_PROVIDERS:
+            supported = ", ".join(sorted(_SUPPORTED_PROVIDERS))
+            raise ValueError(
+                f"provider must be one of: {supported}, got: {v}"
+            )
+        return normalized
+
+    @field_validator("color")
+    @classmethod
+    def color_is_hex(cls, v: str) -> str:
+        """Validate that color is a valid hex color format."""
+        hex_pattern = re.compile(r"^#[0-9A-Fa-f]{6}$")
+        if not hex_pattern.match(v):
+            raise ValueError(
+                f"color must be a valid hex color (e.g., #D4A574), got: {v}"
+            )
+        return v
+
+
 class GameConfig(BaseModel):
     """Game-level configuration settings.
 
@@ -146,6 +199,7 @@ class GameState(TypedDict):
         agent_memories: Per-agent memory with isolated context.
             Keys are agent names, values are AgentMemory instances.
         game_config: Game-level settings.
+        dm_config: Dungeon Master agent configuration.
         whisper_queue: Private messages between agents (DM-to-player hints).
         human_active: Whether a human has taken control.
         controlled_character: Name of the character the human controls, or None.
@@ -156,6 +210,7 @@ class GameState(TypedDict):
     current_turn: str
     agent_memories: dict[str, AgentMemory]
     game_config: GameConfig
+    dm_config: DMConfig
     whisper_queue: list[str]
     human_active: bool
     controlled_character: str | None
@@ -189,6 +244,7 @@ def create_initial_game_state() -> GameState:
         current_turn="",
         agent_memories={},
         game_config=GameConfig(),
+        dm_config=DMConfig(),
         whisper_queue=[],
         human_active=False,
         controlled_character=None,

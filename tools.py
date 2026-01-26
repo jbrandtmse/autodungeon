@@ -3,10 +3,12 @@
 import random
 import re
 
+from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
 __all__ = [
     "DiceResult",
+    "dm_roll_dice",
     "roll_dice",
     "MAX_DICE_COUNT",
     "MAX_DICE_SIDES",
@@ -182,3 +184,24 @@ def roll_dice(notation: str | None) -> DiceResult:
         modifier=modifier,
         total=total,
     )
+
+
+@tool
+def dm_roll_dice(notation: str) -> str:
+    """Roll dice for skill checks, attacks, saving throws, or damage.
+
+    Use this tool when:
+    - A player attempts something with uncertain outcome (skill checks)
+    - Combat attacks or damage need to be resolved
+    - Saving throws against effects are required
+    - Random determination enhances the story
+
+    Args:
+        notation: D&D dice notation (e.g., "1d20+5", "2d6+3", "d20")
+
+    Returns:
+        Formatted roll result for narrative integration, including
+        the breakdown of individual dice and the total.
+    """
+    result = roll_dice(notation)
+    return str(result)
