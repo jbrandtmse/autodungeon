@@ -13,26 +13,36 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_ollama import ChatOllama
 
 from config import get_config
-from models import AgentMemory, DMConfig, GameState
-from tools import dm_roll_dice
+from models import AgentMemory, CharacterConfig, DMConfig, GameState
+from tools import dm_roll_dice, pc_roll_dice
 
 __all__ = [
+    "CLASS_GUIDANCE",
     "DEFAULT_MODELS",
     "DM_CONTEXT_PLAYER_ENTRIES_LIMIT",
     "DM_CONTEXT_RECENT_EVENTS_LIMIT",
     "DM_SYSTEM_PROMPT",
     "LLMConfigurationError",
+    "PC_CONTEXT_RECENT_EVENTS_LIMIT",
+    "PC_SYSTEM_PROMPT_TEMPLATE",
     "SUPPORTED_PROVIDERS",
     "_build_dm_context",
+    "_build_pc_context",
+    "build_pc_system_prompt",
     "create_dm_agent",
+    "create_pc_agent",
     "dm_turn",
     "get_default_model",
     "get_llm",
+    "pc_turn",
 ]
 
 # Context building limits for DM
 DM_CONTEXT_RECENT_EVENTS_LIMIT = 10  # Max recent events from DM's buffer
 DM_CONTEXT_PLAYER_ENTRIES_LIMIT = 3  # Max entries per PC agent's buffer
+
+# Context building limits for PC agents
+PC_CONTEXT_RECENT_EVENTS_LIMIT = 10  # Max recent events from PC's buffer
 
 # DM System Prompt with improv principles and encounter mode awareness
 DM_SYSTEM_PROMPT = """You are the Dungeon Master for a D&D adventure. Your role is to narrate scenes, \
@@ -103,6 +113,72 @@ Keep your responses focused and engaging:
 - Include NPC dialogue when relevant (use quotation marks)
 - End with a hook or prompt for player action when appropriate
 - Avoid walls of text - aim for punchy, dramatic moments"""
+
+# PC System Prompt Template with placeholders for character-specific content
+PC_SYSTEM_PROMPT_TEMPLATE = """You are {name}, a {character_class}.
+
+## Your Personality
+{personality}
+
+## Roleplay Guidelines
+
+You are playing this character in a D&D adventure. Follow these guidelines:
+
+- **First person only** - Always speak and act as {name}, using "I" and "me"
+- **Stay in character** - Your responses should reflect your personality traits
+- **Be consistent** - Remember your character's motivations and relationships
+- **Collaborate** - Build on what others say and do; don't contradict established facts
+
+## Class Behavior
+
+{class_guidance}
+
+## Actions and Dialogue
+
+When responding:
+- Describe your character's actions in first person: "I draw my sword and..."
+- Use direct dialogue with quotation marks: "Stay back!" I warn them.
+- Express your character's emotions and internal thoughts
+- React authentically to what's happening around you
+
+## Dice Rolling
+
+Use the dice rolling tool when:
+- You attempt something with uncertain outcome
+- You want to make a skill check (Perception, Stealth, etc.)
+- The DM hasn't already rolled for you
+
+Keep responses focused - you're one character in a party, not the narrator."""
+
+# Class-specific behavior guidance for PC agents
+CLASS_GUIDANCE: dict[str, str] = {
+    "Fighter": """As a Fighter, you:
+- Prefer direct action and combat solutions
+- Protect your allies and hold the front line
+- Value honor, courage, and martial prowess
+- Speak plainly and act decisively""",
+    "Rogue": """As a Rogue, you:
+- Look for clever solutions and hidden angles
+- Prefer stealth, deception, and precision over brute force
+- Keep an eye on valuables and escape routes
+- Are naturally suspicious and observant""",
+    "Wizard": """As a Wizard, you:
+- Approach problems with knowledge and arcane insight
+- Value learning, research, and magical solutions
+- Think before acting, considering magical implications
+- Reference your spellbook and arcane studies""",
+    "Cleric": """As a Cleric, you:
+- Support and protect your allies
+- Channel divine power through faith
+- Consider the moral and spiritual aspects of situations
+- Offer guidance, healing, and wisdom""",
+}
+
+# Default guidance for classes not in CLASS_GUIDANCE
+_DEFAULT_CLASS_GUIDANCE = """As a {character_class}, you:
+- Act according to your class abilities and training
+- Make decisions consistent with your background
+- Support your party with your unique skills"""
 
 # Supported LLM providers (immutable)
 SUPPORTED_PROVIDERS: frozenset[str] = frozenset(["gemini", "claude", "ollama"])
@@ -211,6 +287,47 @@ def create_dm_agent(config: DMConfig) -> Runnable:  # type: ignore[type-arg]
     return base_model.bind_tools([dm_roll_dice])
 
 
+def build_pc_system_prompt(config: CharacterConfig) -> str:
+    """Build a personalized system prompt for a PC agent.
+
+    Creates a complete system prompt by injecting the character's
+    name, class, personality, and class-specific guidance into
+    the PC_SYSTEM_PROMPT_TEMPLATE.
+
+    Args:
+        config: Character configuration with name, class, and personality.
+
+    Returns:
+        Complete system prompt string personalized for the character.
+    """
+    class_guidance = CLASS_GUIDANCE.get(
+        config.character_class,
+        _DEFAULT_CLASS_GUIDANCE.format(character_class=config.character_class),
+    )
+    return PC_SYSTEM_PROMPT_TEMPLATE.format(
+        name=config.name,
+        character_class=config.character_class,
+        personality=config.personality,
+        class_guidance=class_guidance,
+    )
+
+
+def create_pc_agent(config: CharacterConfig) -> Runnable:  # type: ignore[type-arg]
+    """Create a PC agent with tool bindings.
+
+    Factory function that creates a PC chat model configured with
+    the dice rolling tool for skill checks and actions.
+
+    Args:
+        config: Character configuration with provider and model settings.
+
+    Returns:
+        Configured chat model with dice rolling tool bound.
+    """
+    base_model = get_llm(config.provider, config.model)
+    return base_model.bind_tools([pc_roll_dice])
+
+
 def _build_dm_context(state: GameState) -> str:
     """Build the context string for the DM from all agent memories.
 
@@ -248,6 +365,38 @@ def _build_dm_context(state: GameState) -> str:
 
     if agent_knowledge:
         context_parts.append("## Player Knowledge\n" + "\n".join(agent_knowledge))
+
+    return "\n\n".join(context_parts)
+
+
+def _build_pc_context(state: GameState, agent_name: str) -> str:
+    """Build the context string for a PC agent from their own memory only.
+
+    PC agents have strict memory isolation - they can ONLY see their own
+    AgentMemory. This is the opposite of the DM's asymmetric access.
+
+    Args:
+        state: Current game state.
+        agent_name: The name of the PC agent (lowercase).
+
+    Returns:
+        Formatted context string containing only this PC's memory.
+    """
+    context_parts: list[str] = []
+
+    # PC agents ONLY access their own memory - strict isolation
+    pc_memory = state["agent_memories"].get(agent_name)
+    if pc_memory:
+        # Add long-term summary if available
+        if pc_memory.long_term_summary:
+            context_parts.append(f"## What You Remember\n{pc_memory.long_term_summary}")
+
+        # Add recent events from short-term buffer
+        if pc_memory.short_term_buffer:
+            recent = "\n".join(
+                pc_memory.short_term_buffer[-PC_CONTEXT_RECENT_EVENTS_LIMIT:]
+            )
+            context_parts.append(f"## Recent Events\n{recent}")
 
     return "\n\n".join(context_parts)
 
@@ -301,14 +450,95 @@ def dm_turn(state: GameState) -> GameState:
     new_buffer.append(f"[DM]: {response_content}")
     new_memories["dm"] = dm_memory.model_copy(update={"short_term_buffer": new_buffer})
 
-    # Return new state
+    # Return new state with current_turn updated to "dm"
+    # This is critical for route_to_next_agent to know who just acted
     return GameState(
         ground_truth_log=new_log,
         turn_queue=state["turn_queue"],
-        current_turn=state["current_turn"],
+        current_turn="dm",
         agent_memories=new_memories,
         game_config=state["game_config"],
         dm_config=state["dm_config"],
+        characters=state["characters"],
+        whisper_queue=state["whisper_queue"],
+        human_active=state["human_active"],
+        controlled_character=state["controlled_character"],
+    )
+
+
+def pc_turn(state: GameState, agent_name: str) -> GameState:
+    """Execute a PC agent's turn in the game loop.
+
+    LangGraph node function that handles a PC's action/dialogue generation.
+    PC agents have strict memory isolation - they only see their own memory.
+
+    Note: This function takes an extra agent_name parameter to identify
+    which PC is acting. When added to LangGraph (Story 1.7), this will be
+    wrapped in lambdas or partial functions.
+
+    Args:
+        state: Current game state (never mutated).
+        agent_name: The name of the PC agent (lowercase, e.g., "shadowmere").
+
+    Returns:
+        New GameState with PC's response appended to logs.
+
+    Raises:
+        KeyError: If the agent_name is not found in characters dict.
+    """
+    # Get character config from state
+    character_config = state["characters"][agent_name]
+
+    # Create agent with tools bound
+    pc_agent = create_pc_agent(character_config)
+
+    # Build system prompt personalized for this character
+    system_prompt = build_pc_system_prompt(character_config)
+
+    # Build context from PC's own memory only (strict isolation)
+    context = _build_pc_context(state, agent_name)
+
+    # Build messages for the model
+    messages: list[BaseMessage] = [SystemMessage(content=system_prompt)]
+    if context:
+        messages.append(HumanMessage(content=f"Your current knowledge:\n\n{context}"))
+    messages.append(HumanMessage(content="It's your turn. What do you do?"))
+
+    # Invoke the model
+    response = pc_agent.invoke(messages)
+
+    # Extract content from response (type ignore for langchain stubs)
+    content = response.content  # type: ignore[union-attr]
+    response_content: str = content if isinstance(content, str) else str(content)  # type: ignore[arg-type]
+
+    # Create new state (never mutate input)
+    new_log = state["ground_truth_log"].copy()
+    new_log.append(f"[{character_config.name}]: {response_content}")
+
+    # Update PC's memory
+    new_memories = {k: v.model_copy() for k, v in state["agent_memories"].items()}
+    pc_memory = new_memories.get(agent_name)
+    if pc_memory is None:
+        pc_memory = AgentMemory(token_limit=character_config.token_limit)
+        new_memories[agent_name] = pc_memory
+
+    # Append to short-term buffer
+    new_buffer = pc_memory.short_term_buffer.copy()
+    new_buffer.append(f"[{character_config.name}]: {response_content}")
+    new_memories[agent_name] = pc_memory.model_copy(
+        update={"short_term_buffer": new_buffer}
+    )
+
+    # Return new state with current_turn updated to this agent's name
+    # This is critical for route_to_next_agent to know who just acted
+    return GameState(
+        ground_truth_log=new_log,
+        turn_queue=state["turn_queue"],
+        current_turn=agent_name,
+        agent_memories=new_memories,
+        game_config=state["game_config"],
+        dm_config=state["dm_config"],
+        characters=state["characters"],
         whisper_queue=state["whisper_queue"],
         human_active=state["human_active"],
         controlled_character=state["controlled_character"],
