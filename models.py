@@ -22,13 +22,22 @@ __all__ = [
     "DMConfig",
     "GameConfig",
     "GameState",
+    "NarrativeMessage",
+    "MessageSegment",
     "create_agent_memory",
     "create_initial_game_state",
     "populate_game_state",
+    "parse_log_entry",
+    "parse_message_content",
 ]
 
 # Supported LLM providers (used by both CharacterConfig and DMConfig)
 _SUPPORTED_PROVIDERS = frozenset(["gemini", "claude", "ollama"])
+
+# Module-level compiled regex patterns for message parsing
+# Pattern allows spaces in agent names (e.g., "brother aldric")
+LOG_ENTRY_PATTERN = re.compile(r"^\[([^\]]+)\]\s*(.*)$")
+ACTION_PATTERN = re.compile(r"\*([^*]+)\*")
 
 
 class AgentMemory(BaseModel):
@@ -227,6 +236,151 @@ class GameState(TypedDict):
     controlled_character: str | None
 
 
+class MessageSegment(BaseModel):
+    """A segment of parsed message content with its type.
+
+    Used by parse_message_content() to break down PC messages into
+    typed segments for rendering with appropriate styling.
+
+    Attributes:
+        segment_type: Type of segment - "dialogue", "action", or "narration"
+        text: The text content of this segment
+    """
+
+    segment_type: Literal["dialogue", "action", "narration"]
+    text: str
+
+
+class NarrativeMessage(BaseModel):
+    """A parsed message from the ground_truth_log.
+
+    Represents a single message extracted from the game log with
+    agent attribution and parsed content ready for rendering.
+
+    Attributes:
+        agent: The agent key (e.g., "dm", "fighter", "rogue")
+        content: The raw message content
+        timestamp: Optional timestamp (reserved for future use)
+    """
+
+    agent: str
+    content: str
+    timestamp: str | None = None
+
+    @property
+    def message_type(self) -> Literal["dm_narration", "pc_dialogue"]:
+        """Determine message type based on agent name.
+
+        Returns:
+            "dm_narration" if agent is "dm", otherwise "pc_dialogue"
+        """
+        return "dm_narration" if self.agent == "dm" else "pc_dialogue"
+
+
+def parse_log_entry(entry: str) -> NarrativeMessage:
+    """Parse a ground_truth_log entry into a NarrativeMessage.
+
+    Entry format: "[agent_name] message content"
+
+    Handles edge cases:
+    - Entry without brackets → treat as DM narration
+    - Empty agent `[]` → use fallback "unknown"
+    - Only parses first [agent] at start of string
+
+    Args:
+        entry: A raw log entry string
+
+    Returns:
+        NarrativeMessage with agent and content extracted
+    """
+    match = LOG_ENTRY_PATTERN.match(entry)
+    if match:
+        agent = match.group(1) or "unknown"
+        content = match.group(2)
+        return NarrativeMessage(agent=agent, content=content)
+    # No brackets at start - treat as DM narration
+    return NarrativeMessage(agent="dm", content=entry)
+
+
+def parse_message_content(content: str) -> list[MessageSegment]:
+    """Parse message content into typed segments.
+
+    Identifies dialogue (quoted text) and actions (*asterisk text*)
+    for rendering with appropriate styling.
+
+    Args:
+        content: Raw message content string
+
+    Returns:
+        List of MessageSegment with type and text for each segment
+    """
+    segments: list[MessageSegment] = []
+    pos = 0
+
+    while pos < len(content):
+        # Look for next special marker
+        action_start = content.find("*", pos)
+        quote_start = content.find('"', pos)
+
+        # Determine which comes first
+        if action_start == -1 and quote_start == -1:
+            # No more special markers - rest is narration
+            remaining = content[pos:]
+            if remaining:
+                segments.append(
+                    MessageSegment(segment_type="narration", text=remaining)
+                )
+            break
+
+        # Find the nearest marker
+        if action_start == -1:
+            next_marker = quote_start
+            marker_type = "quote"
+        elif quote_start == -1:
+            next_marker = action_start
+            marker_type = "action"
+        elif action_start < quote_start:
+            next_marker = action_start
+            marker_type = "action"
+        else:
+            next_marker = quote_start
+            marker_type = "quote"
+
+        # Add any narration before the marker
+        if next_marker > pos:
+            segments.append(
+                MessageSegment(segment_type="narration", text=content[pos:next_marker])
+            )
+
+        if marker_type == "action":
+            # Find closing asterisk
+            action_end = content.find("*", next_marker + 1)
+            if action_end == -1:
+                # No closing asterisk - treat as narration
+                segments.append(
+                    MessageSegment(segment_type="narration", text=content[next_marker:])
+                )
+                break
+            action_text = content[next_marker + 1 : action_end]
+            segments.append(MessageSegment(segment_type="action", text=action_text))
+            pos = action_end + 1
+        else:
+            # Find closing quote
+            quote_end = content.find('"', next_marker + 1)
+            if quote_end == -1:
+                # No closing quote - treat as narration
+                segments.append(
+                    MessageSegment(segment_type="narration", text=content[next_marker:])
+                )
+                break
+            dialogue_text = content[next_marker + 1 : quote_end]
+            segments.append(MessageSegment(segment_type="dialogue", text=dialogue_text))
+            pos = quote_end + 1
+
+    # Filter out empty segments (e.g., from ** double asterisks **)
+    return [s for s in segments if s.text]
+
+
 def create_agent_memory(token_limit: int = 8000) -> AgentMemory:
     """Factory function to create a new AgentMemory instance.
 
@@ -263,12 +417,16 @@ def create_initial_game_state() -> GameState:
     )
 
 
-def populate_game_state() -> GameState:
+def populate_game_state(include_sample_messages: bool = True) -> GameState:
     """Factory function to create a fully populated game state from config files.
 
     Loads character configs from YAML files in config/characters/, builds the
     turn queue with DM first followed by PC agents, and initializes agent
     memories with appropriate token limits.
+
+    Args:
+        include_sample_messages: If True, includes sample messages in ground_truth_log
+            to demonstrate message styling. Set to False for clean game starts.
 
     Returns:
         A GameState populated with characters, turn queue, and agent memories.
@@ -289,8 +447,13 @@ def populate_game_state() -> GameState:
     for char_name, char_config in characters.items():
         agent_memories[char_name] = AgentMemory(token_limit=char_config.token_limit)
 
+    # Sample messages demonstrating different message types and styling
+    sample_messages: list[str] = []
+    if include_sample_messages:
+        sample_messages = _get_sample_messages(characters)
+
     return GameState(
-        ground_truth_log=[],
+        ground_truth_log=sample_messages,
         turn_queue=turn_queue,
         current_turn="dm",
         agent_memories=agent_memories,
@@ -301,3 +464,79 @@ def populate_game_state() -> GameState:
         human_active=False,
         controlled_character=None,
     )
+
+
+def _get_sample_messages(characters: dict[str, CharacterConfig]) -> list[str]:
+    """Generate sample messages for demonstrating message styling.
+
+    Creates a sequence of DM and PC messages that showcase:
+    - DM narration (gold border, italic)
+    - PC dialogue with attribution (colored by class)
+    - Mixed dialogue and action text (*italicized*)
+
+    Args:
+        characters: Character configs keyed by lowercase name.
+
+    Returns:
+        List of log entries in "[agent] content" format.
+    """
+    # Find character names by class for sample messages
+    fighter_name = None
+    rogue_name = None
+    wizard_name = None
+    cleric_name = None
+
+    for name, config in characters.items():
+        char_class = config.character_class.lower()
+        if char_class == "fighter":
+            fighter_name = name
+        elif char_class == "rogue":
+            rogue_name = name
+        elif char_class == "wizard":
+            wizard_name = name
+        elif char_class == "cleric":
+            cleric_name = name
+
+    messages = [
+        (
+            "[dm] The tavern falls silent as the stranger enters, her cloak "
+            "dripping with rain. The firelight catches the glint of steel "
+            "beneath her traveling cloak."
+        ),
+    ]
+
+    if fighter_name:
+        messages.append(
+            f'[{fighter_name}] "Stand ready," *{characters[fighter_name].name} '
+            f'mutters, his hand moving to his sword hilt.* "Something feels '
+            'wrong about this."'
+        )
+
+    if rogue_name:
+        messages.append(
+            f"[{rogue_name}] *{characters[rogue_name].name} melts into the "
+            f'shadows near the bar, her eyes never leaving the newcomer.* "Let '
+            'her make the first move."'
+        )
+
+    if wizard_name:
+        messages.append(
+            f"[{wizard_name}] *{characters[wizard_name].name} sets down her "
+            f"wine glass, arcane symbols flickering briefly in her eyes.* "
+            '"She carries powerful enchantments. Be cautious."'
+        )
+
+    if cleric_name:
+        messages.append(
+            f'[{cleric_name}] "Peace, friends." *{characters[cleric_name].name} '
+            f'raises a calming hand.* "Perhaps she merely seeks shelter from '
+            'the storm."'
+        )
+
+    messages.append(
+        "[dm] The stranger approaches the bar, her boots leaving wet prints "
+        "on the worn wooden floor. She speaks to the barkeep in hushed tones, "
+        "then turns to survey the room. Her gaze lingers on your table."
+    )
+
+    return messages

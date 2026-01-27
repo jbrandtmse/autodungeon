@@ -4,12 +4,17 @@ This is the main application entry point. Run with:
     streamlit run app.py
 """
 
+import re
+from html import escape as escape_html
 from pathlib import Path
 
 import streamlit as st
 
 from config import AppConfig, get_config, validate_api_keys
 from models import GameState, populate_game_state
+
+# Module-level compiled regex for action text styling
+ACTION_PATTERN = re.compile(r"\*([^*]+)\*")
 
 
 def load_css() -> str:
@@ -22,6 +27,144 @@ def load_css() -> str:
     if css_path.exists():
         return css_path.read_text(encoding="utf-8")
     return ""
+
+
+def render_dm_message_html(content: str) -> str:
+    """Generate HTML for DM narration message.
+
+    Creates HTML structure with dm-message CSS class for gold border,
+    italic Lora text styling per UX spec.
+
+    Args:
+        content: The DM narration text content.
+
+    Returns:
+        HTML string for the DM message div.
+    """
+    escaped_content = escape_html(content)
+    return f'<div class="dm-message"><p>{escaped_content}</p></div>'
+
+
+def render_dm_message(content: str) -> None:
+    """Render DM narration message to Streamlit.
+
+    Args:
+        content: The DM narration text content.
+    """
+    st.markdown(render_dm_message_html(content), unsafe_allow_html=True)
+
+
+def format_pc_content(content: str) -> str:
+    """Format PC message content with action styling.
+
+    Wraps *asterisk text* in <span class="action-text">.
+    Content is HTML-escaped first, then action markers are converted.
+
+    Args:
+        content: Raw PC message content.
+
+    Returns:
+        HTML-safe content with action text styled.
+    """
+    escaped = escape_html(content)
+    return ACTION_PATTERN.sub(r'<span class="action-text">\1</span>', escaped)
+
+
+def render_pc_message_html(name: str, char_class: str, content: str) -> str:
+    """Generate HTML for PC dialogue message.
+
+    Creates HTML structure with pc-message CSS class and character-specific
+    styling. Action text (*asterisk*) is wrapped in action-text spans.
+
+    Args:
+        name: Character display name (e.g., "Theron").
+        char_class: Character class (e.g., "Fighter").
+        content: The PC dialogue/action content.
+
+    Returns:
+        HTML string for the PC message div.
+    """
+    class_slug = char_class.lower()
+    formatted_content = format_pc_content(content)
+    return (
+        f'<div class="pc-message {class_slug}">'
+        f'<span class="pc-attribution {class_slug}">{escape_html(name)}, '
+        f"the {escape_html(char_class)}:</span>"
+        f"<p>{formatted_content}</p>"
+        f"</div>"
+    )
+
+
+def render_pc_message(name: str, char_class: str, content: str) -> None:
+    """Render PC dialogue message to Streamlit.
+
+    Args:
+        name: Character display name.
+        char_class: Character class.
+        content: The PC dialogue/action content.
+    """
+    st.markdown(
+        render_pc_message_html(name, char_class, content),
+        unsafe_allow_html=True,
+    )
+
+
+def get_character_info(state: GameState, agent_name: str) -> tuple[str, str] | None:
+    """Get character info (name, class) for a PC agent.
+
+    Args:
+        state: Current game state with characters dict.
+        agent_name: Agent key (e.g., "rogue", "fighter", "dm").
+
+    Returns:
+        (character_name, character_class) tuple, or None if DM.
+    """
+    if agent_name == "dm":
+        return None  # DM uses implicit narrator styling
+    char_config = state.get("characters", {}).get(agent_name)
+    if char_config:
+        return (char_config.name, char_config.character_class)
+    return ("Unknown", "Adventurer")  # Fallback for unknown agents
+
+
+def render_narrative_messages(state: GameState) -> None:
+    """Render all messages from ground_truth_log.
+
+    Iterates through the log, parses each entry, determines message type,
+    and routes to appropriate renderer (DM or PC).
+
+    Args:
+        state: Current game state with ground_truth_log.
+    """
+    from models import parse_log_entry
+
+    log = state.get("ground_truth_log", [])
+
+    if not log:
+        # Show placeholder when no messages
+        st.markdown(
+            '<p class="narrative-placeholder">'
+            "The adventure awaits... Start a new game to begin."
+            "</p>",
+            unsafe_allow_html=True,
+        )
+        return
+
+    for entry in log:
+        message = parse_log_entry(entry)
+
+        if message.message_type == "dm_narration":
+            render_dm_message(message.content)
+        else:
+            # PC dialogue - look up character info
+            char_info = get_character_info(state, message.agent)
+            if char_info:
+                name, char_class = char_info
+            else:
+                # Fallback for unknown agents
+                name = message.agent.title()
+                char_class = "Adventurer"
+            render_pc_message(name, char_class, message.content)
 
 
 def initialize_session_state() -> None:
@@ -127,15 +270,14 @@ def render_main_content() -> None:
         unsafe_allow_html=True,
     )
 
-    # Narrative container placeholder (4.4)
-    st.markdown(
-        '<div class="narrative-container">'
-        '<p class="narrative-placeholder">'
-        "The adventure awaits... Start a new game to begin."
-        "</p>"
-        "</div>",
-        unsafe_allow_html=True,
-    )
+    # Narrative container with messages (Story 2.3)
+    st.markdown('<div class="narrative-container">', unsafe_allow_html=True)
+
+    # Render messages from ground_truth_log
+    game: GameState = st.session_state.get("game", {})
+    render_narrative_messages(game)
+
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def render_viewport_warning() -> None:

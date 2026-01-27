@@ -56,7 +56,7 @@ development_status:
   epic-2: in-progress
   2-1-streamlit-application-shell: done
   2-2-campfire-theme-css-foundation: done
-  2-3-narrative-message-display: backlog
+  2-3-narrative-message-display: done
   2-4-party-panel-character-cards: backlog
   2-5-session-header-controls: backlog
   2-6-real-time-narrative-flow: backlog
