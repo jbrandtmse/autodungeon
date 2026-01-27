@@ -173,7 +173,9 @@ def load_character_configs() -> dict[str, CharacterConfig]:
         try:
             config = CharacterConfig(**data)
         except ValidationError as e:
-            raise ValueError(f"Invalid character config in {yaml_file.name}: {e}") from e
+            raise ValueError(
+                f"Invalid character config in {yaml_file.name}: {e}"
+            ) from e
 
         # Key by lowercase name for turn_queue consistency
         configs[config.name.lower()] = config

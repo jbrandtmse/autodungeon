@@ -146,7 +146,103 @@ h2, h3, h4 {
 }
 
 /* ==========================================================================
-   Component Placeholders
+   Message Components (Story 2.2)
+   ========================================================================== */
+
+/* DM Message Block - narrator styling with gold border */
+.dm-message {
+  background: var(--bg-message);
+  border-left: 4px solid var(--color-dm);
+  padding: var(--space-md) var(--space-lg);
+  margin-bottom: var(--space-md);
+  border-radius: 0 8px 8px 0;
+}
+
+.dm-message p {
+  font-family: var(--font-narrative);
+  font-size: var(--text-dm);
+  line-height: 1.6;
+  color: var(--text-primary);
+  font-style: italic;
+  text-align: justify;
+  margin: 0;
+}
+
+/* PC Message Block - character-colored borders */
+.pc-message {
+  background: var(--bg-message);
+  padding: var(--space-md);
+  margin-bottom: var(--space-md);
+  border-radius: 8px;
+  border-left: 3px solid var(--text-secondary);
+}
+
+.pc-message p {
+  font-family: var(--font-narrative);
+  font-size: var(--text-pc);
+  line-height: 1.6;
+  color: var(--text-primary);
+  text-align: justify;
+  margin: 0;
+}
+
+/* PC Attribution - "Name, the Class:" format */
+.pc-attribution {
+  font-family: var(--font-narrative);
+  font-size: var(--text-name);
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-xs);
+}
+
+/* Action text styling - italicized for actions/narration vs dialogue */
+.action-text {
+  font-style: italic;
+  color: var(--text-secondary);
+}
+
+/* Character-specific PC message classes */
+.pc-message.fighter { border-left-color: var(--color-fighter); }
+.pc-message.rogue { border-left-color: var(--color-rogue); }
+.pc-message.wizard { border-left-color: var(--color-wizard); }
+.pc-message.cleric { border-left-color: var(--color-cleric); }
+
+/* Character-specific PC attribution classes */
+.pc-attribution.fighter { color: var(--color-fighter); }
+.pc-attribution.rogue { color: var(--color-rogue); }
+.pc-attribution.wizard { color: var(--color-wizard); }
+.pc-attribution.cleric { color: var(--color-cleric); }
+
+/* ==========================================================================
+   Session Header (Story 2.2)
+   ========================================================================== */
+
+/* Session header - chronicle style */
+.session-header {
+  text-align: center;
+  padding: var(--space-lg) 0;
+  border-bottom: 1px solid var(--bg-secondary);
+  margin-bottom: var(--space-lg);
+}
+
+.session-title {
+  font-family: var(--font-narrative);
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--color-dm);
+  letter-spacing: 0.05em;
+  margin: 0;
+}
+
+.session-subtitle {
+  font-family: var(--font-ui);
+  font-size: var(--text-system);
+  color: var(--text-secondary);
+  margin-top: var(--space-xs);
+}
+
+/* ==========================================================================
+   Character Cards (Story 2.2)
    ========================================================================== */
 
 /* Party panel in sidebar */
@@ -157,13 +253,28 @@ h2, h3, h4 {
   margin-top: var(--space-md);
 }
 
-/* Character card placeholder */
+/* Character card with character-color left border */
 .character-card {
-  background-color: var(--bg-message);
-  border-radius: 4px;
-  padding: var(--space-sm);
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  padding: var(--space-md);
   margin-bottom: var(--space-sm);
-  border-left: 3px solid var(--color-dm);
+  border-left: 3px solid var(--text-secondary);
+}
+
+/* Controlled state - glow effect, filled background */
+.character-card.controlled {
+  background: var(--bg-message);
+  border-left-width: 4px;
+  box-shadow: 0 0 12px rgba(232, 168, 73, 0.2);
+}
+
+/* Character name styling */
+.character-name {
+  font-family: var(--font-ui);
+  font-size: var(--text-name);
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
 /* Character class label in party panel */
@@ -172,25 +283,126 @@ h2, h3, h4 {
   color: var(--text-secondary);
 }
 
-/* Mode indicator */
-.mode-indicator {
-  display: inline-block;
-  padding: var(--space-xs) var(--space-sm);
-  background-color: var(--bg-message);
+/* Character-specific card classes */
+.character-card.fighter { border-left-color: var(--color-fighter); }
+.character-card.rogue { border-left-color: var(--color-rogue); }
+.character-card.wizard { border-left-color: var(--color-wizard); }
+.character-card.cleric { border-left-color: var(--color-cleric); }
+
+/* Character-specific name classes */
+.character-name.fighter { color: var(--color-fighter); }
+.character-name.rogue { color: var(--color-rogue); }
+.character-name.wizard { color: var(--color-wizard); }
+.character-name.cleric { color: var(--color-cleric); }
+
+/* ==========================================================================
+   Drop-In Button (Story 2.2)
+   ========================================================================== */
+
+/* Drop-In button - outline style with character theming */
+.drop-in-button {
+  background: transparent;
+  border: 1px solid var(--text-secondary);
+  color: var(--text-secondary);
   border-radius: 4px;
+  padding: 6px 12px;
+  font-family: var(--font-ui);
   font-size: var(--text-system);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  width: 100%;
+  margin-top: var(--space-xs);
+}
+
+.drop-in-button:hover {
+  background: var(--text-secondary);
+  color: var(--bg-primary);
+}
+
+.drop-in-button.active {
+  background: var(--accent-warm);
+  border-color: var(--accent-warm);
+  color: var(--bg-primary);
+}
+
+/* Character-specific Drop-In button classes */
+.drop-in-button.fighter { border-color: var(--color-fighter); color: var(--color-fighter); }
+.drop-in-button.fighter:hover { background: var(--color-fighter); color: var(--bg-primary); }
+.drop-in-button.rogue { border-color: var(--color-rogue); color: var(--color-rogue); }
+.drop-in-button.rogue:hover { background: var(--color-rogue); color: var(--bg-primary); }
+.drop-in-button.wizard { border-color: var(--color-wizard); color: var(--color-wizard); }
+.drop-in-button.wizard:hover { background: var(--color-wizard); color: var(--bg-primary); }
+.drop-in-button.cleric { border-color: var(--color-cleric); color: var(--color-cleric); }
+.drop-in-button.cleric:hover { background: var(--color-cleric); color: var(--bg-primary); }
+
+/* ==========================================================================
+   Mode Indicator (Story 2.2)
+   ========================================================================== */
+
+/* Mode indicator - Watch/Play mode badges */
+.mode-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 4px 12px;
+  border-radius: 16px;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.mode-indicator.watch {
+  background: rgba(107, 142, 107, 0.2);
+  color: #6B8E6B;
+}
+
+.mode-indicator.play {
+  background: rgba(232, 168, 73, 0.2);
   color: var(--accent-warm);
 }
 
-/* Session header placeholder */
-.session-header {
-  background-color: var(--bg-secondary);
-  padding: var(--space-md);
-  border-radius: 8px;
-  margin-bottom: var(--space-lg);
+/* Pulsing dot animation for mode indicator */
+.pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: pulse 2s ease-in-out infinite;
 }
 
-/* Narrative container placeholder */
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.8); }
+}
+
+/* ==========================================================================
+   Input Context Bar (Story 2.2)
+   ========================================================================== */
+
+.input-context {
+  background: var(--bg-secondary);
+  border-left: 3px solid var(--accent-warm);
+  padding: var(--space-sm) var(--space-md);
+  margin-bottom: var(--space-sm);
+  border-radius: 0 4px 4px 0;
+}
+
+.input-context-text {
+  font-family: var(--font-ui);
+  font-size: var(--text-system);
+  color: var(--text-secondary);
+}
+
+.input-context-character {
+  color: var(--accent-warm);
+  font-weight: 500;
+}
+
+/* ==========================================================================
+   Narrative Container (Story 2.2)
+   ========================================================================== */
+
+/* Narrative container */
 .narrative-container {
   background-color: var(--bg-primary);
   min-height: 400px;
@@ -206,8 +418,68 @@ h2, h3, h4 {
 }
 
 /* ==========================================================================
-   Streamlit Widget Overrides
+   Streamlit Widget Overrides (Story 2.2)
    ========================================================================== */
+
+/* Text inputs and text areas */
+.stTextInput > div > div > input,
+.stTextArea > div > div > textarea {
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--bg-message);
+  border-radius: 4px;
+  font-family: var(--font-ui);
+}
+
+.stTextInput > div > div > input:focus,
+.stTextArea > div > div > textarea:focus {
+  border-color: var(--accent-warm);
+  box-shadow: 0 0 0 1px var(--accent-warm);
+}
+
+/* Buttons - following hierarchy (primary amber, secondary outline) */
+.stButton > button {
+  background-color: var(--accent-warm);
+  color: var(--bg-primary);
+  border: none;
+  border-radius: 4px;
+  font-family: var(--font-ui);
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+
+.stButton > button:hover {
+  background-color: #D49A3D;
+}
+
+/* Secondary button variant */
+.stButton > button[kind="secondary"] {
+  background-color: transparent;
+  border: 1px solid var(--text-secondary);
+  color: var(--text-primary);
+}
+
+/* Selectbox styling */
+.stSelectbox > div > div {
+  background-color: var(--bg-secondary);
+  border-color: var(--bg-message);
+}
+
+.stSelectbox [data-baseweb="select"] {
+  background-color: var(--bg-secondary);
+}
+
+/* Expander styling */
+.streamlit-expanderHeader {
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  border-radius: 4px;
+}
+
+/* Spinner styling */
+.stSpinner > div {
+  border-top-color: var(--accent-warm);
+}
 
 /* Info boxes */
 .stAlert {

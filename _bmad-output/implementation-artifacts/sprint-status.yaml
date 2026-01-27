@@ -55,7 +55,7 @@ development_status:
   # Epic 2: Streamlit Viewer Experience (6 stories)
   epic-2: in-progress
   2-1-streamlit-application-shell: done
-  2-2-campfire-theme-css-foundation: backlog
+  2-2-campfire-theme-css-foundation: done
   2-3-narrative-message-display: backlog
   2-4-party-panel-character-cards: backlog
   2-5-session-header-controls: backlog

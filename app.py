@@ -71,8 +71,10 @@ def render_sidebar(config: AppConfig) -> None:
         # Mode indicator placeholder (4.1)
         ui_mode = st.session_state.get("ui_mode", "watch")
         mode_label = "Watch Mode" if ui_mode == "watch" else "Play Mode"
+        mode_class = "watch" if ui_mode == "watch" else "play"
         st.markdown(
-            f'<div class="mode-indicator">{mode_label}</div>',
+            f'<div class="mode-indicator {mode_class}">'
+            f'<span class="pulse-dot"></span>{mode_label}</div>',
             unsafe_allow_html=True,
         )
 
@@ -86,11 +88,15 @@ def render_sidebar(config: AppConfig) -> None:
 
         if characters:
             for _char_name, char_config in characters.items():
+                # Convert class to lowercase slug for CSS class matching
+                class_slug = char_config.character_class.lower()
                 st.markdown(
-                    f'<div class="character-card" style="border-left-color: {char_config.color};">'
-                    f"<strong>{char_config.name}</strong><br/>"
+                    f'<div class="character-card {class_slug}">'
+                    f'<span class="character-name {class_slug}">'
+                    f"{char_config.name}</span><br/>"
                     f'<span class="character-class">'
                     f"{char_config.character_class}</span>"
+                    f'<button class="drop-in-button {class_slug}">Drop-In</button>'
                     f"</div>",
                     unsafe_allow_html=True,
                 )
@@ -115,7 +121,8 @@ def render_main_content() -> None:
     # Session header placeholder (4.3)
     st.markdown(
         '<div class="session-header">'
-        "<strong>Session</strong> - Game will begin when started"
+        '<h1 class="session-title">Session I</h1>'
+        '<p class="session-subtitle">Game will begin when started</p>'
         "</div>",
         unsafe_allow_html=True,
     )

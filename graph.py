@@ -124,7 +124,8 @@ def create_game_workflow(  # type: ignore[return-value]
         if agent_name != "dm":
             # type: ignore needed due to langgraph's complex generic typing
             workflow.add_node(
-                agent_name, lambda s, name=agent_name: pc_turn(s, name)  # type: ignore[misc, arg-type]
+                agent_name,
+                lambda s, name=agent_name: pc_turn(s, name),  # type: ignore[misc, arg-type]
             )
 
     # Add human intervention node (placeholder for Epic 3)
