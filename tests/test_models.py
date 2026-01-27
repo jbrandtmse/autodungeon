@@ -167,6 +167,48 @@ class TestCharacterConfig:
         errors = exc_info.value.errors()
         assert any("token_limit" in str(e).lower() for e in errors)
 
+    def test_character_config_invalid_provider(self) -> None:
+        """Test CharacterConfig raises ValidationError for unsupported provider."""
+        from models import CharacterConfig
+
+        with pytest.raises(ValidationError) as exc_info:
+            CharacterConfig(
+                name="Test",
+                character_class="Rogue",
+                personality="Sneaky",
+                color="#6B8E6B",
+                provider="openai",  # Not a supported provider
+            )
+        errors = exc_info.value.errors()
+        assert any("provider" in str(e).lower() for e in errors)
+
+    def test_character_config_provider_normalized_to_lowercase(self) -> None:
+        """Test CharacterConfig normalizes provider to lowercase."""
+        from models import CharacterConfig
+
+        config = CharacterConfig(
+            name="Test",
+            character_class="Rogue",
+            personality="Test",
+            color="#6B8E6B",
+            provider="CLAUDE",
+        )
+        assert config.provider == "claude"
+
+    def test_character_config_all_supported_providers(self) -> None:
+        """Test CharacterConfig accepts all supported providers."""
+        from models import CharacterConfig
+
+        for provider in ["gemini", "claude", "ollama"]:
+            config = CharacterConfig(
+                name="Test",
+                character_class="Rogue",
+                personality="Test",
+                color="#6B8E6B",
+                provider=provider,
+            )
+            assert config.provider == provider
+
     def test_character_config_json_serialization(self) -> None:
         """Test CharacterConfig can serialize to JSON."""
         from models import CharacterConfig
@@ -417,7 +459,7 @@ class TestGameState:
 
     def test_game_state_structure(self) -> None:
         """Test GameState has all required fields with correct types."""
-        from models import AgentMemory, DMConfig, GameConfig, GameState
+        from models import AgentMemory, CharacterConfig, DMConfig, GameConfig, GameState
 
         # Create a valid GameState
         state: GameState = {
@@ -430,6 +472,14 @@ class TestGameState:
             },
             "game_config": GameConfig(),
             "dm_config": DMConfig(),
+            "characters": {
+                "fighter": CharacterConfig(
+                    name="Thor",
+                    character_class="Fighter",
+                    personality="Bold",
+                    color="#8B4513",
+                ),
+            },
             "whisper_queue": [],
             "human_active": False,
             "controlled_character": None,
@@ -439,6 +489,7 @@ class TestGameState:
         assert len(state["turn_queue"]) == 3
         assert state["current_turn"] == "dm"
         assert "fighter" in state["agent_memories"]
+        assert "fighter" in state["characters"]
         assert state["human_active"] is False
         assert state["controlled_character"] is None
         assert state["dm_config"].name == "Dungeon Master"
@@ -455,6 +506,7 @@ class TestGameState:
             "agent_memories": {"test_agent": memory},
             "game_config": GameConfig(),
             "dm_config": DMConfig(),
+            "characters": {},
             "whisper_queue": [],
             "human_active": False,
             "controlled_character": None,
@@ -462,6 +514,33 @@ class TestGameState:
 
         assert isinstance(state["agent_memories"]["test_agent"], AgentMemory)
         assert state["agent_memories"]["test_agent"].long_term_summary == "Test"
+
+    def test_game_state_characters_field(self) -> None:
+        """Test that characters dict stores CharacterConfig instances."""
+        from models import CharacterConfig, DMConfig, GameConfig, GameState
+
+        char_config = CharacterConfig(
+            name="Shadowmere",
+            character_class="Rogue",
+            personality="Sardonic",
+            color="#6B8E6B",
+        )
+        state: GameState = {
+            "ground_truth_log": [],
+            "turn_queue": [],
+            "current_turn": "",
+            "agent_memories": {},
+            "game_config": GameConfig(),
+            "dm_config": DMConfig(),
+            "characters": {"shadowmere": char_config},
+            "whisper_queue": [],
+            "human_active": False,
+            "controlled_character": None,
+        }
+
+        assert "shadowmere" in state["characters"]
+        assert isinstance(state["characters"]["shadowmere"], CharacterConfig)
+        assert state["characters"]["shadowmere"].name == "Shadowmere"
 
 
 class TestFactoryFunctions:
@@ -499,3 +578,57 @@ class TestFactoryFunctions:
 
         memory = create_agent_memory(token_limit=4000)
         assert memory.token_limit == 4000
+
+
+class TestGameStateInitialization:
+    """Tests for initializing GameState with character configs."""
+
+    def test_initialize_game_state_with_characters(self) -> None:
+        """Test populate_game_state initializes characters and turn queue."""
+        from models import populate_game_state
+
+        state = populate_game_state()
+
+        # Should have 4 PC characters
+        assert len(state["characters"]) == 4
+
+        # DM config should be loaded from YAML
+        assert state["dm_config"].name == "Dungeon Master"
+        assert state["dm_config"].color == "#D4A574"
+
+        # Turn queue should have dm first, then PCs
+        assert state["turn_queue"][0] == "dm"
+        assert len(state["turn_queue"]) == 5  # dm + 4 PCs
+
+        # Agent memories should be initialized for all
+        assert "dm" in state["agent_memories"]
+        for char_name in state["characters"]:
+            assert char_name in state["agent_memories"]
+
+    def test_turn_queue_dm_first(self) -> None:
+        """Test that DM is always first in turn queue."""
+        from models import populate_game_state
+
+        state = populate_game_state()
+        assert state["turn_queue"][0] == "dm"
+
+    def test_agent_memories_initialized_with_correct_limits(self) -> None:
+        """Test agent memories use token limits from character configs."""
+        from models import populate_game_state
+
+        state = populate_game_state()
+
+        # DM should have 8000 (from dm.yaml)
+        assert state["agent_memories"]["dm"].token_limit == 8000
+
+        # PC agents should have their configured limits
+        for char_name, char_config in state["characters"].items():
+            memory = state["agent_memories"][char_name]
+            assert memory.token_limit == char_config.token_limit
+
+    def test_current_turn_starts_with_dm(self) -> None:
+        """Test that current_turn is initialized to dm."""
+        from models import populate_game_state
+
+        state = populate_game_state()
+        assert state["current_turn"] == "dm"

@@ -1,0 +1,6 @@
+# Dungeon Master configuration
+name: "Dungeon Master"
+provider: "gemini"
+model: "gemini-1.5-flash"
+token_limit: 8000
+color: "#D4A574"

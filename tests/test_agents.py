@@ -10,19 +10,26 @@ from langchain_core.messages import AIMessage
 import agents
 import config as config_module
 from agents import (
+    CLASS_GUIDANCE,
     DEFAULT_MODELS,
     DM_CONTEXT_PLAYER_ENTRIES_LIMIT,
     DM_CONTEXT_RECENT_EVENTS_LIMIT,
     DM_SYSTEM_PROMPT,
+    PC_CONTEXT_RECENT_EVENTS_LIMIT,
+    PC_SYSTEM_PROMPT_TEMPLATE,
     SUPPORTED_PROVIDERS,
     LLMConfigurationError,
     _build_dm_context,
+    _build_pc_context,
+    build_pc_system_prompt,
     create_dm_agent,
+    create_pc_agent,
     dm_turn,
     get_default_model,
     get_llm,
+    pc_turn,
 )
-from models import AgentMemory, DMConfig, create_initial_game_state
+from models import AgentMemory, CharacterConfig, DMConfig, create_initial_game_state
 
 
 @pytest.fixture(autouse=True)
@@ -269,6 +276,14 @@ class TestModuleExports:
             "_build_dm_context",
             "create_dm_agent",
             "dm_turn",
+            # PC agent exports
+            "PC_SYSTEM_PROMPT_TEMPLATE",
+            "CLASS_GUIDANCE",
+            "PC_CONTEXT_RECENT_EVENTS_LIMIT",
+            "build_pc_system_prompt",
+            "create_pc_agent",
+            "_build_pc_context",
+            "pc_turn",
         }
 
         assert set(agents.__all__) == expected_exports
@@ -483,7 +498,6 @@ class TestBuildDMContext:
 
     def test_build_dm_context_empty_state(self) -> None:
         """Test context building with empty agent memories."""
-        from agents import _build_dm_context
 
         state = create_initial_game_state()
         context = _build_dm_context(state)
@@ -492,7 +506,6 @@ class TestBuildDMContext:
 
     def test_build_dm_context_with_dm_long_term_summary(self) -> None:
         """Test context includes DM's long-term summary."""
-        from agents import _build_dm_context
 
         state = create_initial_game_state()
         state["agent_memories"]["dm"] = AgentMemory(
@@ -506,7 +519,6 @@ class TestBuildDMContext:
 
     def test_build_dm_context_with_dm_short_term_buffer(self) -> None:
         """Test context includes DM's recent events."""
-        from agents import _build_dm_context
 
         state = create_initial_game_state()
         state["agent_memories"]["dm"] = AgentMemory(
@@ -521,7 +533,6 @@ class TestBuildDMContext:
 
     def test_build_dm_context_reads_all_agent_memories(self) -> None:
         """Test DM context includes knowledge from all PC agents."""
-        from agents import _build_dm_context
 
         state = create_initial_game_state()
         state["agent_memories"]["rogue"] = AgentMemory(
@@ -541,7 +552,6 @@ class TestBuildDMContext:
 
     def test_build_dm_context_excludes_dm_from_player_knowledge(self) -> None:
         """Test DM's own memory is not duplicated in player knowledge section."""
-        from agents import _build_dm_context
 
         state = create_initial_game_state()
         state["agent_memories"]["dm"] = AgentMemory(
@@ -559,7 +569,6 @@ class TestBuildDMContext:
 
     def test_build_dm_context_limits_short_term_buffer(self) -> None:
         """Test context limits DM's short-term buffer to recent entries."""
-        from agents import DM_CONTEXT_RECENT_EVENTS_LIMIT, _build_dm_context
 
         state = create_initial_game_state()
         # Create more events than the limit
@@ -576,7 +585,6 @@ class TestBuildDMContext:
 
     def test_build_dm_context_limits_player_buffer(self) -> None:
         """Test context limits PC agent buffer to recent entries."""
-        from agents import DM_CONTEXT_PLAYER_ENTRIES_LIMIT, _build_dm_context
 
         state = create_initial_game_state()
         # Create more entries than the limit
@@ -591,7 +599,6 @@ class TestBuildDMContext:
 
     def test_build_dm_context_handles_empty_pc_buffers(self) -> None:
         """Test context handles PCs with empty buffers gracefully."""
-        from agents import _build_dm_context
 
         state = create_initial_game_state()
         state["agent_memories"]["rogue"] = AgentMemory(short_term_buffer=[])
@@ -634,4 +641,485 @@ class TestDMSystemPromptSerialization:
         # Backslash continuations in Python should not leave artifacts
         assert "\\\n" not in DM_SYSTEM_PROMPT
         # Should not have double spaces from bad joins
-        assert "  " not in DM_SYSTEM_PROMPT or "  -" in DM_SYSTEM_PROMPT  # Allow list indents
+        assert (
+            "  " not in DM_SYSTEM_PROMPT or "  -" in DM_SYSTEM_PROMPT
+        )  # Allow list indents
+
+
+# ============================================================
+# PC Agent Tests
+# ============================================================
+
+
+class TestPCSystemPromptTemplate:
+    """Tests for PC system prompt template."""
+
+    def test_pc_system_prompt_template_contains_personality_placeholders(self) -> None:
+        """Test that PC system prompt template has required placeholders."""
+        assert "{name}" in PC_SYSTEM_PROMPT_TEMPLATE
+        assert "{character_class}" in PC_SYSTEM_PROMPT_TEMPLATE
+        assert "{personality}" in PC_SYSTEM_PROMPT_TEMPLATE
+        assert "{class_guidance}" in PC_SYSTEM_PROMPT_TEMPLATE
+
+    def test_pc_system_prompt_template_contains_roleplay_instructions(self) -> None:
+        """Test that template contains first-person roleplay instructions."""
+        assert "First person" in PC_SYSTEM_PROMPT_TEMPLATE
+        assert '"I"' in PC_SYSTEM_PROMPT_TEMPLATE
+        assert "Stay in character" in PC_SYSTEM_PROMPT_TEMPLATE
+
+    def test_pc_system_prompt_template_contains_collaborative_guidelines(self) -> None:
+        """Test that template contains collaborative storytelling guidelines."""
+        assert "Collaborate" in PC_SYSTEM_PROMPT_TEMPLATE
+        assert "don't contradict" in PC_SYSTEM_PROMPT_TEMPLATE
+
+    def test_pc_system_prompt_template_contains_dice_instructions(self) -> None:
+        """Test that template contains dice rolling guidance."""
+        assert "dice rolling tool" in PC_SYSTEM_PROMPT_TEMPLATE
+        assert "skill check" in PC_SYSTEM_PROMPT_TEMPLATE
+
+
+class TestClassGuidance:
+    """Tests for CLASS_GUIDANCE dictionary."""
+
+    def test_class_guidance_contains_core_classes(self) -> None:
+        """Test that CLASS_GUIDANCE contains standard D&D classes."""
+        assert "Fighter" in CLASS_GUIDANCE
+        assert "Rogue" in CLASS_GUIDANCE
+        assert "Wizard" in CLASS_GUIDANCE
+        assert "Cleric" in CLASS_GUIDANCE
+
+    @pytest.mark.parametrize(
+        "class_name,expected_text",
+        [
+            ("Fighter", "direct action"),
+            ("Fighter", "protect your allies"),
+            ("Rogue", "stealth"),
+            ("Rogue", "deception"),
+            ("Wizard", "arcane"),
+            ("Wizard", "knowledge"),
+            ("Cleric", "divine power"),
+            ("Cleric", "healing"),
+        ],
+    )
+    def test_class_guidance_contains_class_specific_text(
+        self, class_name: str, expected_text: str
+    ) -> None:
+        """Test that each class guidance contains appropriate text."""
+        guidance = CLASS_GUIDANCE[class_name]
+        assert expected_text.lower() in guidance.lower()
+
+
+class TestBuildPCSystemPrompt:
+    """Tests for build_pc_system_prompt function."""
+
+    def test_build_pc_system_prompt_injects_character_name(self) -> None:
+        """Test that character name is injected into prompt."""
+        config = CharacterConfig(
+            name="Shadowmere",
+            character_class="Rogue",
+            personality="Sardonic wit",
+            color="#6B8E6B",
+        )
+        prompt = build_pc_system_prompt(config)
+
+        assert "Shadowmere" in prompt
+
+    def test_build_pc_system_prompt_injects_character_class(self) -> None:
+        """Test that character class is injected into prompt."""
+        config = CharacterConfig(
+            name="Test",
+            character_class="Wizard",
+            personality="Test",
+            color="#000000",
+        )
+        prompt = build_pc_system_prompt(config)
+
+        assert "Wizard" in prompt
+
+    def test_build_pc_system_prompt_injects_personality(self) -> None:
+        """Test that personality is injected into prompt."""
+        config = CharacterConfig(
+            name="Test",
+            character_class="Fighter",
+            personality="Brave and honorable, always protects the innocent",
+            color="#000000",
+        )
+        prompt = build_pc_system_prompt(config)
+
+        assert "Brave and honorable" in prompt
+
+    def test_build_pc_system_prompt_injects_class_guidance(self) -> None:
+        """Test that class-specific guidance is injected."""
+        config = CharacterConfig(
+            name="Test",
+            character_class="Rogue",
+            personality="Test",
+            color="#000000",
+        )
+        prompt = build_pc_system_prompt(config)
+
+        # Rogue guidance should be present
+        assert "stealth" in prompt.lower()
+        assert "deception" in prompt.lower()
+
+    def test_build_pc_system_prompt_uses_default_for_unknown_class(self) -> None:
+        """Test that unknown classes get default guidance."""
+        config = CharacterConfig(
+            name="Test",
+            character_class="Bard",  # Not in CLASS_GUIDANCE
+            personality="Test",
+            color="#000000",
+        )
+        prompt = build_pc_system_prompt(config)
+
+        # Should contain the class name and default guidance text
+        assert "Bard" in prompt
+        assert "class abilities" in prompt.lower()
+
+    @pytest.mark.parametrize(
+        "class_name,expected_text",
+        [
+            ("Fighter", "protect your allies"),
+            ("Rogue", "stealth, deception"),
+            ("Wizard", "arcane insight"),
+            ("Cleric", "divine power"),
+        ],
+    )
+    def test_class_guidance_injection(
+        self, class_name: str, expected_text: str
+    ) -> None:
+        """Test that correct class guidance is injected for each class."""
+        config = CharacterConfig(
+            name="Test",
+            character_class=class_name,
+            personality="Test personality",
+            color="#000000",
+        )
+        prompt = build_pc_system_prompt(config)
+
+        assert expected_text.lower() in prompt.lower()
+
+
+class TestCreatePCAgent:
+    """Tests for create_pc_agent factory function."""
+
+    @patch("agents.get_llm")
+    def test_create_pc_agent_returns_model_with_tools(
+        self, mock_get_llm: MagicMock
+    ) -> None:
+        """Test that create_pc_agent returns a model with tools bound."""
+        mock_model = MagicMock()
+        mock_model_with_tools = MagicMock()
+        mock_model.bind_tools.return_value = mock_model_with_tools
+        mock_get_llm.return_value = mock_model
+
+        config = CharacterConfig(
+            name="Test",
+            character_class="Fighter",
+            personality="Test",
+            color="#000000",
+        )
+        result = create_pc_agent(config)
+
+        assert result is mock_model_with_tools
+        mock_get_llm.assert_called_once_with(config.provider, config.model)
+        mock_model.bind_tools.assert_called_once()
+
+    @patch("agents.get_llm")
+    def test_create_pc_agent_uses_config_provider(
+        self, mock_get_llm: MagicMock
+    ) -> None:
+        """Test that create_pc_agent uses the provider from config."""
+        mock_model = MagicMock()
+        mock_model.bind_tools.return_value = MagicMock()
+        mock_get_llm.return_value = mock_model
+
+        config = CharacterConfig(
+            name="Test",
+            character_class="Rogue",
+            personality="Test",
+            color="#000000",
+            provider="claude",
+            model="claude-3-sonnet-20240229",
+        )
+        create_pc_agent(config)
+
+        mock_get_llm.assert_called_once_with("claude", "claude-3-sonnet-20240229")
+
+
+class TestBuildPCContext:
+    """Tests for _build_pc_context helper function."""
+
+    def test_build_pc_context_empty_state(self) -> None:
+        """Test context building with empty agent memories."""
+        state = create_initial_game_state()
+        context = _build_pc_context(state, "shadowmere")
+
+        assert context == ""
+
+    def test_build_pc_context_with_long_term_summary(self) -> None:
+        """Test context includes PC's long-term summary."""
+        state = create_initial_game_state()
+        state["agent_memories"]["shadowmere"] = AgentMemory(
+            long_term_summary="I have traveled far from my homeland"
+        )
+
+        context = _build_pc_context(state, "shadowmere")
+
+        assert "What You Remember" in context
+        assert "traveled far from my homeland" in context
+
+    def test_build_pc_context_with_short_term_buffer(self) -> None:
+        """Test context includes PC's recent events."""
+        state = create_initial_game_state()
+        state["agent_memories"]["shadowmere"] = AgentMemory(
+            short_term_buffer=["I entered the tavern", "I spoke to the barkeep"]
+        )
+
+        context = _build_pc_context(state, "shadowmere")
+
+        assert "Recent Events" in context
+        assert "entered the tavern" in context
+        assert "spoke to the barkeep" in context
+
+    def test_build_pc_context_only_sees_own_memory(self) -> None:
+        """Test PC ONLY sees their own memory (strict isolation)."""
+        state = create_initial_game_state()
+        state["agent_memories"]["shadowmere"] = AgentMemory(
+            short_term_buffer=["I am Shadowmere the rogue"]
+        )
+        state["agent_memories"]["thor"] = AgentMemory(
+            short_term_buffer=["I am Thor the mighty"]
+        )
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=["The DM narrates..."]
+        )
+
+        context = _build_pc_context(state, "shadowmere")
+
+        # Should see own memory
+        assert "Shadowmere" in context
+        # Should NOT see other PC's memory
+        assert "Thor" not in context
+        # Should NOT see DM's memory
+        assert "DM narrates" not in context
+
+    def test_build_pc_context_limits_short_term_buffer(self) -> None:
+        """Test context limits PC's short-term buffer to recent entries."""
+        state = create_initial_game_state()
+        # Create more events than the limit
+        events = [f"Event {i}" for i in range(15)]
+        state["agent_memories"]["shadowmere"] = AgentMemory(short_term_buffer=events)
+
+        context = _build_pc_context(state, "shadowmere")
+
+        # Should only include last PC_CONTEXT_RECENT_EVENTS_LIMIT events
+        assert f"Event {15 - PC_CONTEXT_RECENT_EVENTS_LIMIT}" in context
+        assert "Event 14" in context
+        # Earlier events should not be included
+        assert "Event 0" not in context
+
+    def test_build_pc_context_returns_empty_for_unknown_agent(self) -> None:
+        """Test context returns empty string for unknown agent name."""
+        state = create_initial_game_state()
+        state["agent_memories"]["shadowmere"] = AgentMemory(
+            short_term_buffer=["Some memory"]
+        )
+
+        context = _build_pc_context(state, "unknown_agent")
+
+        assert context == ""
+
+
+class TestPCTurn:
+    """Tests for pc_turn node function."""
+
+    @patch("agents.create_pc_agent")
+    def test_pc_turn_appends_to_ground_truth_log(
+        self, mock_create_pc_agent: MagicMock
+    ) -> None:
+        """Test that pc_turn appends PC response to ground_truth_log."""
+        mock_model = MagicMock()
+        mock_model.invoke.return_value = AIMessage(content="I draw my sword...")
+        mock_create_pc_agent.return_value = mock_model
+
+        state = create_initial_game_state()
+        state["characters"]["shadowmere"] = CharacterConfig(
+            name="Shadowmere",
+            character_class="Rogue",
+            personality="Sardonic",
+            color="#6B8E6B",
+        )
+
+        new_state = pc_turn(state, "shadowmere")
+
+        assert len(new_state["ground_truth_log"]) == 1
+        assert "[Shadowmere]:" in new_state["ground_truth_log"][0]
+        assert "I draw my sword" in new_state["ground_truth_log"][0]
+
+    @patch("agents.create_pc_agent")
+    def test_pc_turn_updates_pc_short_term_buffer(
+        self, mock_create_pc_agent: MagicMock
+    ) -> None:
+        """Test that pc_turn updates PC's short_term_buffer."""
+        mock_model = MagicMock()
+        mock_model.invoke.return_value = AIMessage(content="I check for traps")
+        mock_create_pc_agent.return_value = mock_model
+
+        state = create_initial_game_state()
+        state["characters"]["shadowmere"] = CharacterConfig(
+            name="Shadowmere",
+            character_class="Rogue",
+            personality="Careful",
+            color="#6B8E6B",
+        )
+
+        new_state = pc_turn(state, "shadowmere")
+
+        assert "shadowmere" in new_state["agent_memories"]
+        pc_memory = new_state["agent_memories"]["shadowmere"]
+        assert len(pc_memory.short_term_buffer) == 1
+        assert "[Shadowmere]: I check for traps" in pc_memory.short_term_buffer[0]
+
+    @patch("agents.create_pc_agent")
+    def test_pc_turn_does_not_mutate_input_state(
+        self, mock_create_pc_agent: MagicMock
+    ) -> None:
+        """Test that pc_turn returns new state and doesn't mutate input."""
+        mock_model = MagicMock()
+        mock_model.invoke.return_value = AIMessage(content="Test response")
+        mock_create_pc_agent.return_value = mock_model
+
+        state = create_initial_game_state()
+        state["characters"]["shadowmere"] = CharacterConfig(
+            name="Shadowmere",
+            character_class="Rogue",
+            personality="Test",
+            color="#6B8E6B",
+        )
+        original_log_len = len(state["ground_truth_log"])
+
+        new_state = pc_turn(state, "shadowmere")
+
+        # Original state unchanged
+        assert len(state["ground_truth_log"]) == original_log_len
+        # New state has updates
+        assert len(new_state["ground_truth_log"]) > original_log_len
+
+    @patch("agents.create_pc_agent")
+    def test_pc_turn_preserves_other_state_fields(
+        self, mock_create_pc_agent: MagicMock
+    ) -> None:
+        """Test that pc_turn preserves all other GameState fields."""
+        mock_model = MagicMock()
+        mock_model.invoke.return_value = AIMessage(content="Test")
+        mock_create_pc_agent.return_value = mock_model
+
+        state = create_initial_game_state()
+        state["characters"]["shadowmere"] = CharacterConfig(
+            name="Shadowmere",
+            character_class="Rogue",
+            personality="Test",
+            color="#6B8E6B",
+        )
+        state["turn_queue"] = ["dm", "shadowmere", "thor"]
+        state["current_turn"] = "shadowmere"
+        state["human_active"] = True
+        state["controlled_character"] = "thor"
+
+        new_state = pc_turn(state, "shadowmere")
+
+        assert new_state["turn_queue"] == ["dm", "shadowmere", "thor"]
+        assert new_state["current_turn"] == "shadowmere"
+        assert new_state["human_active"] is True
+        assert new_state["controlled_character"] == "thor"
+
+    @patch("agents.create_pc_agent")
+    def test_pc_turn_creates_pc_memory_if_missing(
+        self, mock_create_pc_agent: MagicMock
+    ) -> None:
+        """Test that pc_turn creates PC memory if not present."""
+        mock_model = MagicMock()
+        mock_model.invoke.return_value = AIMessage(content="First action")
+        mock_create_pc_agent.return_value = mock_model
+
+        state = create_initial_game_state()
+        state["characters"]["shadowmere"] = CharacterConfig(
+            name="Shadowmere",
+            character_class="Rogue",
+            personality="Test",
+            color="#6B8E6B",
+        )
+        assert "shadowmere" not in state["agent_memories"]
+
+        new_state = pc_turn(state, "shadowmere")
+
+        assert "shadowmere" in new_state["agent_memories"]
+        assert isinstance(new_state["agent_memories"]["shadowmere"], AgentMemory)
+
+    @patch("agents.create_pc_agent")
+    def test_pc_turn_uses_character_name_from_config(
+        self, mock_create_pc_agent: MagicMock
+    ) -> None:
+        """Test that pc_turn uses the character name from CharacterConfig."""
+        mock_model = MagicMock()
+        mock_model.invoke.return_value = AIMessage(content="Response")
+        mock_create_pc_agent.return_value = mock_model
+
+        state = create_initial_game_state()
+        # Use a different name than the key
+        state["characters"]["agent_key"] = CharacterConfig(
+            name="Thorin Ironforge",
+            character_class="Fighter",
+            personality="Test",
+            color="#8B4513",
+        )
+
+        new_state = pc_turn(state, "agent_key")
+
+        # Should use the character name, not the key
+        assert "[Thorin Ironforge]:" in new_state["ground_truth_log"][0]
+
+    @patch("agents.create_pc_agent")
+    def test_pc_turn_different_characters_have_different_voices(
+        self, mock_create_pc_agent: MagicMock
+    ) -> None:
+        """Test that different PC agents produce different responses."""
+        mock_model = MagicMock()
+        responses = iter(
+            [
+                AIMessage(content="I scout ahead quietly"),
+                AIMessage(content="By the gods, I charge!"),
+            ]
+        )
+        mock_model.invoke.side_effect = lambda msgs: next(responses)  # type: ignore[misc]
+        mock_create_pc_agent.return_value = mock_model
+
+        state = create_initial_game_state()
+        state["characters"]["shadowmere"] = CharacterConfig(
+            name="Shadowmere",
+            character_class="Rogue",
+            personality="Cautious",
+            color="#6B8E6B",
+        )
+        state["characters"]["thor"] = CharacterConfig(
+            name="Thor",
+            character_class="Fighter",
+            personality="Bold",
+            color="#8B4513",
+        )
+
+        state1 = pc_turn(state, "shadowmere")
+        state2 = pc_turn(state1, "thor")
+
+        # Both responses should be in the log
+        assert len(state2["ground_truth_log"]) == 2
+        assert "[Shadowmere]:" in state2["ground_truth_log"][0]
+        assert "[Thor]:" in state2["ground_truth_log"][1]
+
+    def test_pc_turn_raises_key_error_for_unknown_character(self) -> None:
+        """Test that pc_turn raises KeyError for unknown character."""
+        state = create_initial_game_state()
+
+        with pytest.raises(KeyError):
+            pc_turn(state, "unknown_character")

@@ -61,53 +61,58 @@ workflow_status:
       completed: "2026-01-24"
 
     ux_design:
-      status: "conditional"
+      status: "planning-artifacts/ux-design-specification.md"
       condition: "if_has_ui"
       agent: "ux-designer"
       workflow: "bmad:bmm:workflows:create-ux-design"
-      output: "planning-artifacts/ux-design.md"
+      output: "planning-artifacts/ux-design-specification.md"
       description: "UX patterns and interaction design"
       depends_on: ["planning.prd"]
+      completed: "2026-01-24"
 
   # ══════════════════════════════════════════════════════════════
   # PHASE 3: SOLUTIONING
   # ══════════════════════════════════════════════════════════════
   solutioning:
     architecture:
-      status: "required"
+      status: "planning-artifacts/architecture.md"
       agent: "architect"
       workflow: "bmad:bmm:workflows:create-architecture"
       output: "planning-artifacts/architecture.md"
       description: "Technical architecture decisions"
       depends_on: ["planning.prd"]
+      completed: "2026-01-24"
 
     readiness_check:
-      status: "required"
+      status: "skipped"
       agent: "architect"
       workflow: "bmad:bmm:workflows:check-implementation-readiness"
       output: "planning-artifacts/readiness-report.md"
       description: "Validate PRD, Architecture, and Epics alignment"
       depends_on: ["solutioning.architecture"]
+      note: "Skipped - proceeded directly to implementation"
 
     epics_and_stories:
-      status: "required"
+      status: "planning-artifacts/epics.md"
       agent: "pm"
       workflow: "bmad:bmm:workflows:create-epics-and-stories"
-      output: "planning-artifacts/epics/"
+      output: "planning-artifacts/epics.md"
       description: "Break down into implementable epics and stories"
       depends_on: ["solutioning.readiness_check"]
+      completed: "2026-01-24"
 
   # ══════════════════════════════════════════════════════════════
   # PHASE 4: IMPLEMENTATION (Tracked in sprint-status.yaml)
   # ══════════════════════════════════════════════════════════════
   implementation:
     sprint_planning:
-      status: "required"
+      status: "implementation-artifacts/sprint-status.yaml"
       agent: "sm"
       workflow: "bmad:bmm:workflows:sprint-planning"
       output: "implementation-artifacts/sprint-status.yaml"
       description: "Initialize sprint tracking from epics"
       depends_on: ["solutioning.epics_and_stories"]
+      completed: "2026-01-25"
 
     dev_cycles:
       status: "repeating"
@@ -120,12 +125,7 @@ workflow_status:
 # NEXT ACTION
 # ══════════════════════════════════════════════════════════════
 next:
-  workflow: "ux_design"
-  workflow_id: "bmad:bmm:workflows:create-ux-design"
-  agent: "ux-designer"
-  description: "Create UX Design patterns for autodungeon (conditional - if UI needed)"
-  alternative:
-    workflow: "architecture"
-    workflow_id: "bmad:bmm:workflows:create-architecture"
-    agent: "architect"
-    description: "Create Technical Architecture for autodungeon"
+  workflow: "dev_cycles"
+  workflow_id: "bmad:bmm:workflows:dev-story"
+  agent: "dev"
+  description: "Implement stories from sprint-status.yaml iteratively"

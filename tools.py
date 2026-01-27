@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 __all__ = [
     "DiceResult",
     "dm_roll_dice",
+    "pc_roll_dice",
     "roll_dice",
     "MAX_DICE_COUNT",
     "MAX_DICE_SIDES",
@@ -202,6 +203,26 @@ def dm_roll_dice(notation: str) -> str:
     Returns:
         Formatted roll result for narrative integration, including
         the breakdown of individual dice and the total.
+    """
+    result = roll_dice(notation)
+    return str(result)
+
+
+@tool
+def pc_roll_dice(notation: str) -> str:
+    """Roll dice for a skill check or action.
+
+    Use this when:
+    - You attempt something risky (climbing, sneaking, persuading)
+    - You want to check your perception or investigation
+    - You make an attack or use an ability
+    - The outcome of your action is uncertain
+
+    Args:
+        notation: D&D dice notation (e.g., "1d20+5", "1d20+3", "2d6")
+
+    Returns:
+        Formatted roll result showing the breakdown and total.
     """
     result = roll_dice(notation)
     return str(result)

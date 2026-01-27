@@ -1,2 +1,263 @@
 /* Campfire theme for autodungeon Streamlit UI */
-/* Theme implementation in Story 2.2 */
+/* Story 2.1: Streamlit Application Shell */
+
+/* Google Fonts import for Lora, Inter, and JetBrains Mono */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Lora:ital,wght@0,400;0,600;1,400&display=swap');
+
+/* ==========================================================================
+   CSS Variables (from UX Design Specification)
+   ========================================================================== */
+
+:root {
+  /* Background Colors */
+  --bg-primary: #1A1612;    /* Deep warm black - main canvas */
+  --bg-secondary: #2D2520;  /* Warm gray-brown - elevated surfaces */
+  --bg-message: #3D3530;    /* Message bubble background */
+
+  /* Text Colors */
+  --text-primary: #F5E6D3;  /* Warm off-white */
+  --text-secondary: #B8A896; /* Muted warm gray */
+
+  /* Accent */
+  --accent-warm: #E8A849;   /* Amber highlight */
+
+  /* Character Identity Colors */
+  --color-dm: #D4A574;      /* DM/Narrator - warm gold */
+  --color-fighter: #C45C4A; /* Fighter - bold red */
+  --color-rogue: #6B8E6B;   /* Rogue - forest green */
+  --color-wizard: #7B68B8;  /* Wizard - mystic purple */
+  --color-cleric: #4A90A4;  /* Cleric - calm blue */
+
+  /* Font Stack */
+  --font-narrative: 'Lora', Georgia, serif;
+  --font-ui: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* Font Sizes */
+  --text-dm: 18px;          /* DM narration */
+  --text-pc: 17px;          /* PC dialogue */
+  --text-name: 14px;        /* Character names, 600 weight */
+  --text-ui: 14px;          /* UI controls */
+  --text-system: 13px;      /* System text */
+
+  /* Spacing (8px base grid) */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+
+  /* Layout */
+  --sidebar-width: 240px;
+  --max-content-width: 800px;
+}
+
+/* ==========================================================================
+   Base Layout - Hide Streamlit defaults
+   ========================================================================== */
+
+/* Hide Streamlit branding and defaults, but keep sidebar toggle */
+#MainMenu { visibility: hidden; }
+footer { visibility: hidden; }
+
+/* Hide header content but keep the sidebar collapse button functional */
+[data-testid="stHeader"] {
+  background-color: transparent;
+}
+
+/* Style the sidebar collapse button to match theme */
+[data-testid="stSidebarCollapsedControl"] button {
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+[data-testid="stSidebarCollapsedControl"] button:hover {
+  background-color: var(--bg-message);
+}
+
+/* Apply dark theme background to entire app */
+.stApp {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+}
+
+/* ==========================================================================
+   Sidebar Styling - 240px fixed width
+   ========================================================================== */
+
+/* Streamlit sidebar container */
+[data-testid="stSidebar"] {
+  background-color: var(--bg-secondary);
+  width: var(--sidebar-width) !important;
+  min-width: var(--sidebar-width) !important;
+  max-width: var(--sidebar-width) !important;
+}
+
+[data-testid="stSidebar"] > div:first-child {
+  width: var(--sidebar-width) !important;
+  padding: var(--space-md);
+}
+
+/* Sidebar text styling */
+[data-testid="stSidebar"] h1,
+[data-testid="stSidebar"] h2,
+[data-testid="stSidebar"] h3 {
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+}
+
+[data-testid="stSidebar"] p,
+[data-testid="stSidebar"] span,
+[data-testid="stSidebar"] label {
+  color: var(--text-secondary);
+  font-size: var(--text-ui);
+}
+
+/* ==========================================================================
+   Main Content Area
+   ========================================================================== */
+
+/* Main content container */
+.main .block-container {
+  max-width: var(--max-content-width);
+  margin: 0 auto;
+  padding: var(--space-lg);
+}
+
+/* Headings */
+h1 {
+  color: var(--accent-warm);
+  font-family: var(--font-narrative);
+  font-weight: 600;
+}
+
+h2, h3, h4 {
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+}
+
+/* Narrative text styling */
+.narrative-text {
+  font-family: var(--font-narrative);
+  font-size: var(--text-dm);
+  color: var(--text-primary);
+  line-height: 1.6;
+}
+
+/* ==========================================================================
+   Component Placeholders
+   ========================================================================== */
+
+/* Party panel in sidebar */
+.party-panel {
+  background-color: var(--bg-message);
+  border-radius: 8px;
+  padding: var(--space-md);
+  margin-top: var(--space-md);
+}
+
+/* Character card placeholder */
+.character-card {
+  background-color: var(--bg-message);
+  border-radius: 4px;
+  padding: var(--space-sm);
+  margin-bottom: var(--space-sm);
+  border-left: 3px solid var(--color-dm);
+}
+
+/* Character class label in party panel */
+.character-class {
+  font-size: var(--text-system);
+  color: var(--text-secondary);
+}
+
+/* Mode indicator */
+.mode-indicator {
+  display: inline-block;
+  padding: var(--space-xs) var(--space-sm);
+  background-color: var(--bg-message);
+  border-radius: 4px;
+  font-size: var(--text-system);
+  color: var(--accent-warm);
+}
+
+/* Session header placeholder */
+.session-header {
+  background-color: var(--bg-secondary);
+  padding: var(--space-md);
+  border-radius: 8px;
+  margin-bottom: var(--space-lg);
+}
+
+/* Narrative container placeholder */
+.narrative-container {
+  background-color: var(--bg-primary);
+  min-height: 400px;
+  padding: var(--space-md);
+}
+
+/* Narrative placeholder text (before game starts) */
+.narrative-placeholder {
+  font-family: var(--font-narrative);
+  font-size: var(--text-dm);
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+/* ==========================================================================
+   Streamlit Widget Overrides
+   ========================================================================== */
+
+/* Info boxes */
+.stAlert {
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  border-radius: 4px;
+}
+
+/* Dividers */
+hr {
+  border-color: var(--bg-message);
+}
+
+/* ==========================================================================
+   Viewport Warning - Shows for screens < 1024px
+   ========================================================================== */
+
+.viewport-warning {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: var(--bg-primary);
+  z-index: 9999;
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  padding: 2rem;
+  text-align: center;
+}
+
+.viewport-warning h2 {
+  color: var(--accent-warm);
+  margin-bottom: var(--space-md);
+}
+
+.app-content {
+  display: block;
+}
+
+@media (max-width: 1023px) {
+  .viewport-warning {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .app-content {
+    display: none;
+  }
+}

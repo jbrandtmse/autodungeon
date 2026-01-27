@@ -24,7 +24,11 @@ __all__ = [
     "GameState",
     "create_agent_memory",
     "create_initial_game_state",
+    "populate_game_state",
 ]
+
+# Supported LLM providers (used by both CharacterConfig and DMConfig)
+_SUPPORTED_PROVIDERS = frozenset(["gemini", "claude", "ollama"])
 
 
 class AgentMemory(BaseModel):
@@ -105,9 +109,15 @@ class CharacterConfig(BaseModel):
             )
         return v
 
-
-# Supported LLM providers (duplicated from agents.py to avoid circular import)
-_SUPPORTED_PROVIDERS = frozenset(["gemini", "claude", "ollama"])
+    @field_validator("provider")
+    @classmethod
+    def provider_is_supported(cls, v: str) -> str:
+        """Validate that provider is a supported LLM provider."""
+        normalized = v.lower()
+        if normalized not in _SUPPORTED_PROVIDERS:
+            supported = ", ".join(sorted(_SUPPORTED_PROVIDERS))
+            raise ValueError(f"provider must be one of: {supported}, got: {v}")
+        return normalized
 
 
 class DMConfig(BaseModel):
@@ -141,9 +151,7 @@ class DMConfig(BaseModel):
         normalized = v.lower()
         if normalized not in _SUPPORTED_PROVIDERS:
             supported = ", ".join(sorted(_SUPPORTED_PROVIDERS))
-            raise ValueError(
-                f"provider must be one of: {supported}, got: {v}"
-            )
+            raise ValueError(f"provider must be one of: {supported}, got: {v}")
         return normalized
 
     @field_validator("color")
@@ -200,6 +208,8 @@ class GameState(TypedDict):
             Keys are agent names, values are AgentMemory instances.
         game_config: Game-level settings.
         dm_config: Dungeon Master agent configuration.
+        characters: Character configurations keyed by lowercase agent name.
+            Used by pc_turn to access CharacterConfig during turn execution.
         whisper_queue: Private messages between agents (DM-to-player hints).
         human_active: Whether a human has taken control.
         controlled_character: Name of the character the human controls, or None.
@@ -211,6 +221,7 @@ class GameState(TypedDict):
     agent_memories: dict[str, AgentMemory]
     game_config: GameConfig
     dm_config: DMConfig
+    characters: dict[str, CharacterConfig]
     whisper_queue: list[str]
     human_active: bool
     controlled_character: str | None
@@ -245,6 +256,47 @@ def create_initial_game_state() -> GameState:
         agent_memories={},
         game_config=GameConfig(),
         dm_config=DMConfig(),
+        characters={},
+        whisper_queue=[],
+        human_active=False,
+        controlled_character=None,
+    )
+
+
+def populate_game_state() -> GameState:
+    """Factory function to create a fully populated game state from config files.
+
+    Loads character configs from YAML files in config/characters/, builds the
+    turn queue with DM first followed by PC agents, and initializes agent
+    memories with appropriate token limits.
+
+    Returns:
+        A GameState populated with characters, turn queue, and agent memories.
+    """
+    # Import here to avoid circular import
+    from config import load_character_configs, load_dm_config
+
+    # Load configs from YAML files
+    dm_config = load_dm_config()
+    characters = load_character_configs()
+
+    # Build turn queue: DM first, then PCs (sorted for deterministic order)
+    turn_queue = ["dm"] + sorted(characters.keys())
+
+    # Initialize agent memories with appropriate token limits
+    agent_memories: dict[str, AgentMemory] = {}
+    agent_memories["dm"] = AgentMemory(token_limit=dm_config.token_limit)
+    for char_name, char_config in characters.items():
+        agent_memories[char_name] = AgentMemory(token_limit=char_config.token_limit)
+
+    return GameState(
+        ground_truth_log=[],
+        turn_queue=turn_queue,
+        current_turn="dm",
+        agent_memories=agent_memories,
+        game_config=GameConfig(),
+        dm_config=dm_config,
+        characters=characters,
         whisper_queue=[],
         human_active=False,
         controlled_character=None,

@@ -6,11 +6,16 @@ This module handles configuration from multiple sources:
 3. Runtime UI changes - Session-level overrides (future stories)
 """
 
+from __future__ import annotations
+
 import os
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
+
+if TYPE_CHECKING:
+    from models import CharacterConfig, DMConfig
 from dotenv import load_dotenv
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -20,6 +25,8 @@ __all__ = [
     "AgentsConfig",
     "AppConfig",
     "get_config",
+    "load_character_configs",
+    "load_dm_config",
     "validate_api_keys",
 ]
 
@@ -88,7 +95,7 @@ class AppConfig(BaseSettings):
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
 
     @classmethod
-    def load(cls) -> "AppConfig":
+    def load(cls) -> AppConfig:
         """Load config with YAML defaults + env overrides.
 
         Returns:
@@ -120,6 +127,92 @@ class AppConfig(BaseSettings):
             kwargs["auto_save"] = yaml_defaults.get("auto_save", True)
 
         return cls(**kwargs)
+
+
+def load_character_configs() -> dict[str, CharacterConfig]:
+    """Load all PC character configs from config/characters/*.yaml.
+
+    Discovers and loads all YAML files in the characters directory except dm.yaml.
+    Each character config is keyed by lowercase name for turn_queue consistency.
+
+    Returns:
+        Dict of CharacterConfig instances keyed by lowercase character name.
+        Returns empty dict if characters directory doesn't exist.
+
+    Raises:
+        ValueError: If a YAML file is malformed or contains invalid data.
+    """
+    # Import here to avoid circular import
+    from pydantic import ValidationError
+
+    from models import CharacterConfig
+
+    characters_dir = PROJECT_ROOT / "config" / "characters"
+    configs: dict[str, CharacterConfig] = {}
+
+    if not characters_dir.exists():
+        return configs
+
+    for yaml_file in characters_dir.glob("*.yaml"):
+        if yaml_file.stem == "dm":
+            continue  # DM handled separately by load_dm_config
+
+        try:
+            with open(yaml_file, encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+        except yaml.YAMLError as e:
+            raise ValueError(f"Invalid YAML in {yaml_file.name}: {e}") from e
+
+        if data is None:
+            continue
+
+        # Map YAML 'class' to Pydantic 'character_class' if needed
+        if "class" in data and "character_class" not in data:
+            data["character_class"] = data.pop("class")
+
+        try:
+            config = CharacterConfig(**data)
+        except ValidationError as e:
+            raise ValueError(f"Invalid character config in {yaml_file.name}: {e}") from e
+
+        # Key by lowercase name for turn_queue consistency
+        configs[config.name.lower()] = config
+
+    return configs
+
+
+def load_dm_config() -> DMConfig:
+    """Load DM configuration from config/characters/dm.yaml.
+
+    Returns:
+        DMConfig instance. Returns default DMConfig if file doesn't exist.
+
+    Raises:
+        ValueError: If dm.yaml is malformed or contains invalid data.
+    """
+    # Import here to avoid circular import
+    from pydantic import ValidationError
+
+    from models import DMConfig
+
+    dm_yaml_path = PROJECT_ROOT / "config" / "characters" / "dm.yaml"
+
+    if not dm_yaml_path.exists():
+        return DMConfig()
+
+    try:
+        with open(dm_yaml_path, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        raise ValueError(f"Invalid YAML in dm.yaml: {e}") from e
+
+    if data is None:
+        return DMConfig()
+
+    try:
+        return DMConfig(**data)
+    except ValidationError as e:
+        raise ValueError(f"Invalid DM config in dm.yaml: {e}") from e
 
 
 def validate_api_keys(config: AppConfig) -> list[str]:

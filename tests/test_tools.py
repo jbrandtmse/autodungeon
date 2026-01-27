@@ -615,3 +615,56 @@ class TestDMRollDice:
             # Should contain the rolls
             assert "3d6" in result
             assert "15" in result  # 4 + 5 + 6
+
+
+class TestPCRollDice:
+    """Tests for pc_roll_dice LangChain tool."""
+
+    def test_pc_roll_dice_returns_string(self) -> None:
+        """Test that pc_roll_dice returns a string."""
+        from tools import pc_roll_dice
+
+        with patch("tools.random.randint", return_value=15):
+            result = pc_roll_dice.invoke("1d20")
+            assert isinstance(result, str)
+
+    def test_pc_roll_dice_formatted_output(self) -> None:
+        """Test pc_roll_dice returns formatted result."""
+        from tools import pc_roll_dice
+
+        with patch("tools.random.randint", return_value=18):
+            result = pc_roll_dice.invoke("1d20+5")
+            assert "1d20+5" in result
+            assert "23" in result  # 18 + 5
+
+    def test_pc_roll_dice_is_langchain_tool(self) -> None:
+        """Test pc_roll_dice is a LangChain tool with proper metadata."""
+        from tools import pc_roll_dice
+
+        # Tool should have name and description
+        assert pc_roll_dice.name == "pc_roll_dice"
+        assert "dice" in pc_roll_dice.description.lower()
+
+    def test_pc_roll_dice_in_all_exports(self) -> None:
+        """Test pc_roll_dice is exported in __all__."""
+        import tools
+
+        assert "pc_roll_dice" in tools.__all__
+
+    def test_pc_roll_dice_includes_breakdown(self) -> None:
+        """Test pc_roll_dice result includes roll breakdown."""
+        from tools import pc_roll_dice
+
+        with patch("tools.random.randint", side_effect=[4, 5, 6]):
+            result = pc_roll_dice.invoke("3d6")
+            # Should contain the rolls
+            assert "3d6" in result
+            assert "15" in result  # 4 + 5 + 6
+
+    def test_pc_roll_dice_description_mentions_skill_check(self) -> None:
+        """Test pc_roll_dice description contains guidance for PCs."""
+        from tools import pc_roll_dice
+
+        # PC tool should have guidance about when to roll
+        description = pc_roll_dice.description.lower()
+        assert "skill check" in description or "risky" in description
