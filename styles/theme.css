@@ -336,6 +336,78 @@ h2, h3, h4 {
 .drop-in-button.cleric:hover { background: var(--color-cleric); color: var(--bg-primary); }
 
 /* ==========================================================================
+   Character Card Wrapper & Streamlit Button Overrides (Story 2.4)
+   ========================================================================== */
+
+/* Wrapper div that contains both the card and the Streamlit button */
+.character-card-wrapper {
+  margin-bottom: var(--space-sm);
+}
+
+/* Reset default Streamlit button styling inside character card wrappers */
+.character-card-wrapper .stButton > button {
+  background: transparent;
+  border: 1px solid var(--text-secondary);
+  color: var(--text-secondary);
+  border-radius: 4px;
+  padding: 6px 12px;
+  font-size: var(--text-system);
+  width: 100%;
+  margin-top: var(--space-xs);
+  transition: all 0.15s ease;
+}
+
+/* Fighter Drop-In button */
+.character-card-wrapper.fighter .stButton > button {
+  border-color: var(--color-fighter);
+  color: var(--color-fighter);
+}
+.character-card-wrapper.fighter .stButton > button:hover {
+  background: var(--color-fighter);
+  color: var(--bg-primary);
+}
+
+/* Rogue Drop-In button */
+.character-card-wrapper.rogue .stButton > button {
+  border-color: var(--color-rogue);
+  color: var(--color-rogue);
+}
+.character-card-wrapper.rogue .stButton > button:hover {
+  background: var(--color-rogue);
+  color: var(--bg-primary);
+}
+
+/* Wizard Drop-In button */
+.character-card-wrapper.wizard .stButton > button {
+  border-color: var(--color-wizard);
+  color: var(--color-wizard);
+}
+.character-card-wrapper.wizard .stButton > button:hover {
+  background: var(--color-wizard);
+  color: var(--bg-primary);
+}
+
+/* Cleric Drop-In button */
+.character-card-wrapper.cleric .stButton > button {
+  border-color: var(--color-cleric);
+  color: var(--color-cleric);
+}
+.character-card-wrapper.cleric .stButton > button:hover {
+  background: var(--color-cleric);
+  color: var(--bg-primary);
+}
+
+/* Controlled state - Release button uses amber accent */
+.character-card-wrapper.controlled .stButton > button {
+  background: var(--accent-warm);
+  border-color: var(--accent-warm);
+  color: var(--bg-primary);
+}
+.character-card-wrapper.controlled .stButton > button:hover {
+  background: #D49A3D;
+}
+
+/* ==========================================================================
    Mode Indicator (Story 2.2)
    ========================================================================== */
 

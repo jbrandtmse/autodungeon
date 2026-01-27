@@ -11,7 +11,7 @@ from pathlib import Path
 import streamlit as st
 
 from config import AppConfig, get_config, validate_api_keys
-from models import GameState, populate_game_state
+from models import CharacterConfig, GameState, populate_game_state
 
 # Module-level compiled regex for action text styling
 ACTION_PATTERN = re.compile(r"\*([^*]+)\*")
@@ -109,6 +109,57 @@ def render_pc_message(name: str, char_class: str, content: str) -> None:
     )
 
 
+def render_character_card_html(
+    name: str,
+    char_class: str,
+    controlled: bool = False,
+) -> str:
+    """Generate HTML for character card (testable without Streamlit).
+
+    Args:
+        name: Character display name (e.g., "Theron").
+        char_class: Character class (e.g., "Fighter").
+        controlled: Whether this character is currently controlled.
+
+    Returns:
+        HTML string for character card div.
+    """
+    # Escape class for CSS class attribute - only allow alphanumeric and hyphens
+    class_slug = "".join(c for c in char_class.lower() if c.isalnum() or c == "-")
+    controlled_class = " controlled" if controlled else ""
+    return (
+        f'<div class="character-card {class_slug}{controlled_class}">'
+        f'<span class="character-name {class_slug}">{escape_html(name)}</span><br/>'
+        f'<span class="character-class">{escape_html(char_class)}</span>'
+        f"</div>"
+    )
+
+
+def get_drop_in_button_label(controlled: bool) -> str:
+    """Get button label based on controlled state.
+
+    Args:
+        controlled: Whether this character is currently controlled.
+
+    Returns:
+        "Release" if controlled, "Drop-In" otherwise.
+    """
+    return "Release" if controlled else "Drop-In"
+
+
+def get_party_characters(state: GameState) -> dict[str, CharacterConfig]:
+    """Get party characters excluding DM.
+
+    Args:
+        state: Current game state with characters dict.
+
+    Returns:
+        Dict of agent_key -> CharacterConfig for PC characters only.
+    """
+    characters = state.get("characters", {})
+    return {key: config for key, config in characters.items() if key != "dm"}
+
+
 def get_character_info(state: GameState, agent_name: str) -> tuple[str, str] | None:
     """Get character info (name, class) for a PC agent.
 
@@ -204,6 +255,68 @@ def get_api_key_status(config: AppConfig) -> str:
     return "\n".join(lines)
 
 
+def handle_drop_in_click(agent_key: str) -> None:
+    """Handle Drop-In/Release button click.
+
+    Toggles control of a character. If not controlling, takes control.
+    If already controlling this character, releases control.
+
+    Args:
+        agent_key: The agent key (e.g., "fighter", "rogue").
+    """
+    controlled = st.session_state.get("controlled_character")
+    if controlled == agent_key:
+        # Release control
+        st.session_state["controlled_character"] = None
+        st.session_state["ui_mode"] = "watch"
+    else:
+        # Take control
+        st.session_state["controlled_character"] = agent_key
+        st.session_state["ui_mode"] = "play"
+
+
+def render_character_card(
+    agent_key: str, char_config: CharacterConfig, controlled: bool
+) -> None:
+    """Render a single character card with Drop-In button.
+
+    Uses a wrapper div with character-specific classes to enable CSS targeting
+    of both the card content and the Streamlit button that follows it.
+
+    Args:
+        agent_key: The agent key (e.g., "fighter", "rogue").
+        char_config: CharacterConfig object with name and character_class.
+        controlled: Whether this character is currently controlled.
+    """
+    # Get the class slug for CSS styling
+    class_slug = "".join(
+        c for c in char_config.character_class.lower() if c.isalnum() or c == "-"
+    )
+    controlled_class = " controlled" if controlled else ""
+
+    # Open a wrapper div that will contain both the card info and the button
+    # This wrapper has the character class for CSS targeting of child elements
+    st.markdown(
+        f'<div class="character-card-wrapper {class_slug}{controlled_class}">'
+        f'<div class="character-card {class_slug}{controlled_class}">'
+        f'<span class="character-name {class_slug}">'
+        f"{escape_html(char_config.name)}</span><br/>"
+        f'<span class="character-class">'
+        f"{escape_html(char_config.character_class)}</span>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+    # Render the functional Streamlit button (styled via CSS targeting the wrapper)
+    button_label = get_drop_in_button_label(controlled)
+    if st.button(button_label, key=f"drop_in_{agent_key}"):
+        handle_drop_in_click(agent_key)
+        st.rerun()
+
+    # Close the wrapper div
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
 def render_sidebar(config: AppConfig) -> None:
     """Render the sidebar with mode indicator, party panel, and config status.
 
@@ -223,26 +336,17 @@ def render_sidebar(config: AppConfig) -> None:
 
         st.markdown("---")
 
-        # Party panel placeholder (4.2)
+        # Party panel (Story 2.4)
         st.markdown("### Party")
 
         game: GameState = st.session_state.get("game", {})
-        characters = game.get("characters", {})
+        party_characters = get_party_characters(game)
+        controlled_character = st.session_state.get("controlled_character")
 
-        if characters:
-            for _char_name, char_config in characters.items():
-                # Convert class to lowercase slug for CSS class matching
-                class_slug = char_config.character_class.lower()
-                st.markdown(
-                    f'<div class="character-card {class_slug}">'
-                    f'<span class="character-name {class_slug}">'
-                    f"{char_config.name}</span><br/>"
-                    f'<span class="character-class">'
-                    f"{char_config.character_class}</span>"
-                    f'<button class="drop-in-button {class_slug}">Drop-In</button>'
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
+        if party_characters:
+            for agent_key, char_config in party_characters.items():
+                is_controlled = controlled_character == agent_key
+                render_character_card(agent_key, char_config, is_controlled)
         else:
             st.caption("No characters loaded")
 

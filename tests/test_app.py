@@ -1129,6 +1129,321 @@ class TestLogEntryEdgeCases:
         assert "\n" in msg.content
 
 
+# =============================================================================
+# Story 2.4: Party Panel & Character Cards Tests
+# =============================================================================
+
+
+class TestCharacterCardRendering:
+    """Tests for character card HTML generation (Story 2.4, Task 4)."""
+
+    def test_render_character_card_html_structure(self) -> None:
+        """Test character card rendering produces correct HTML structure."""
+        from app import render_character_card_html
+
+        html = render_character_card_html("Theron", "Fighter")
+        assert 'class="character-card fighter"' in html
+        assert 'class="character-name fighter"' in html
+        assert 'class="character-class"' in html
+        assert "Theron" in html
+        assert "Fighter" in html
+
+    def test_render_character_card_html_each_class(self) -> None:
+        """Test each character class gets correct CSS classes."""
+        from app import render_character_card_html
+
+        for name, char_class in [
+            ("Theron", "Fighter"),
+            ("Shadowmere", "Rogue"),
+            ("Elara", "Wizard"),
+            ("Brother Marcus", "Cleric"),
+        ]:
+            html = render_character_card_html(name, char_class)
+            class_slug = char_class.lower()
+            assert f'class="character-card {class_slug}"' in html
+            assert f'class="character-name {class_slug}"' in html
+
+    def test_render_character_card_html_controlled_state(self) -> None:
+        """Test controlled character has controlled class."""
+        from app import render_character_card_html
+
+        html = render_character_card_html("Theron", "Fighter", controlled=True)
+        assert 'class="character-card fighter controlled"' in html
+
+    def test_render_character_card_html_not_controlled(self) -> None:
+        """Test non-controlled character does not have controlled class."""
+        from app import render_character_card_html
+
+        html = render_character_card_html("Theron", "Fighter", controlled=False)
+        assert "controlled" not in html
+
+    def test_render_character_card_html_escapes_name(self) -> None:
+        """Test character name is HTML escaped."""
+        from app import render_character_card_html
+
+        html = render_character_card_html("<script>xss</script>", "Fighter")
+        assert "<script>" not in html
+        assert "&lt;script&gt;" in html
+
+    def test_render_character_card_html_escapes_class(self) -> None:
+        """Test character class is HTML escaped."""
+        from app import render_character_card_html
+
+        html = render_character_card_html("Theron", "<script>xss</script>")
+        assert "<script>" not in html
+        assert "&lt;script&gt;" in html
+
+
+class TestDropInButtonFunctionality:
+    """Tests for Drop-In/Release button functionality (Story 2.4, Task 2, 3)."""
+
+    def test_get_button_label_not_controlled(self) -> None:
+        """Test button label is 'Drop-In' when not controlled."""
+        from app import get_drop_in_button_label
+
+        label = get_drop_in_button_label(controlled=False)
+        assert label == "Drop-In"
+
+    def test_get_button_label_controlled(self) -> None:
+        """Test button label is 'Release' when controlled."""
+        from app import get_drop_in_button_label
+
+        label = get_drop_in_button_label(controlled=True)
+        assert label == "Release"
+
+
+class TestPartyPanelRendering:
+    """Tests for sidebar party panel rendering (Story 2.4, Task 1)."""
+
+    def test_get_party_characters_excludes_dm(self) -> None:
+        """Test get_party_characters excludes DM from party list."""
+        from app import get_party_characters
+        from models import populate_game_state
+
+        state = populate_game_state()
+        characters = get_party_characters(state)
+
+        # Should not include "dm" key
+        assert "dm" not in characters
+        # Should include PC characters
+        assert len(characters) >= 1
+
+    def test_get_party_characters_includes_pcs(self) -> None:
+        """Test get_party_characters includes PC characters."""
+        from app import get_party_characters
+        from models import populate_game_state
+
+        state = populate_game_state()
+        characters = get_party_characters(state)
+
+        # Should have character configs
+        for _agent_key, char_config in characters.items():
+            assert char_config.name
+            assert char_config.character_class
+
+    def test_get_party_characters_empty_state(self) -> None:
+        """Test get_party_characters with empty state."""
+        from app import get_party_characters
+
+        state = {}  # type: ignore
+        characters = get_party_characters(state)
+        assert characters == {}
+
+
+class TestHandleDropInClick:
+    """Tests for Drop-In button click handler (Story 2.4, Task 2.3, 2.4, 3.4)."""
+
+    def test_handle_drop_in_takes_control(self) -> None:
+        """Test clicking Drop-In takes control of character."""
+        mock_session_state = {
+            "controlled_character": None,
+            "ui_mode": "watch",
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_drop_in_click
+
+            handle_drop_in_click("fighter")
+
+            assert mock_session_state["controlled_character"] == "fighter"
+            assert mock_session_state["ui_mode"] == "play"
+
+    def test_handle_drop_in_releases_control(self) -> None:
+        """Test clicking Release releases control of character."""
+        mock_session_state = {
+            "controlled_character": "fighter",
+            "ui_mode": "play",
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_drop_in_click
+
+            handle_drop_in_click("fighter")  # Same character - toggle off
+
+            assert mock_session_state["controlled_character"] is None
+            assert mock_session_state["ui_mode"] == "watch"
+
+    def test_handle_drop_in_switches_character(self) -> None:
+        """Test clicking Drop-In on different character switches control."""
+        mock_session_state = {
+            "controlled_character": "fighter",
+            "ui_mode": "play",
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_drop_in_click
+
+            handle_drop_in_click("rogue")  # Different character
+
+            assert mock_session_state["controlled_character"] == "rogue"
+            assert mock_session_state["ui_mode"] == "play"
+
+
+class TestStreamlitButtonCSS:
+    """Tests for Streamlit button CSS styling in character cards (Story 2.4, Task 5)."""
+
+    def test_css_has_character_card_wrapper_styles(self) -> None:
+        """Test CSS includes character card wrapper class."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        assert ".character-card-wrapper" in css_content
+
+    def test_css_has_character_card_button_styles(self) -> None:
+        """Test CSS includes Streamlit button overrides for character card wrappers."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        assert ".character-card-wrapper .stButton > button" in css_content
+
+    def test_css_has_fighter_button_styles(self) -> None:
+        """Test CSS includes fighter character button styles."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        assert ".character-card-wrapper.fighter .stButton > button" in css_content
+        assert ".character-card-wrapper.fighter .stButton > button:hover" in css_content
+
+    def test_css_has_rogue_button_styles(self) -> None:
+        """Test CSS includes rogue character button styles."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        assert ".character-card-wrapper.rogue .stButton > button" in css_content
+        assert ".character-card-wrapper.rogue .stButton > button:hover" in css_content
+
+    def test_css_has_wizard_button_styles(self) -> None:
+        """Test CSS includes wizard character button styles."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        assert ".character-card-wrapper.wizard .stButton > button" in css_content
+        assert ".character-card-wrapper.wizard .stButton > button:hover" in css_content
+
+    def test_css_has_cleric_button_styles(self) -> None:
+        """Test CSS includes cleric character button styles."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        assert ".character-card-wrapper.cleric .stButton > button" in css_content
+        assert ".character-card-wrapper.cleric .stButton > button:hover" in css_content
+
+    def test_css_has_controlled_button_styles(self) -> None:
+        """Test CSS includes controlled state button styles."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        assert ".character-card-wrapper.controlled .stButton > button" in css_content
+        assert ".character-card-wrapper.controlled .stButton > button:hover" in css_content
+
+
+class TestPartyPanelIntegration:
+    """Integration tests for party panel rendering (Story 2.4, Task 6.5, 6.6)."""
+
+    def test_party_panel_renders_all_pc_characters(self) -> None:
+        """Test sidebar party panel renders all 4 PC characters, excluding DM."""
+        from app import get_party_characters
+        from models import populate_game_state
+
+        state = populate_game_state()
+        party = get_party_characters(state)
+
+        # Should have exactly 4 PC characters
+        assert len(party) == 4, f"Expected 4 PCs, got {len(party)}: {list(party.keys())}"
+
+        # DM should not be in the party
+        assert "dm" not in party
+
+        # Verify each character has required attributes
+        for agent_key, char_config in party.items():
+            assert char_config.name, f"Character {agent_key} missing name"
+            assert char_config.character_class, f"Character {agent_key} missing class"
+
+    def test_party_panel_character_classes_covered(self) -> None:
+        """Test all expected character classes are represented."""
+        from app import get_party_characters
+        from models import populate_game_state
+
+        state = populate_game_state()
+        party = get_party_characters(state)
+
+        # Get all character classes (lowercase for comparison)
+        classes = {c.character_class.lower() for c in party.values()}
+
+        # Should include the core D&D classes from the default config
+        # At minimum, verify we have variety (not all the same class)
+        assert len(classes) >= 2, "Party should have diverse character classes"
+
+    def test_controlled_character_state_toggle_cycle(self) -> None:
+        """Test full cycle: no control -> take control -> release control."""
+        mock_session_state = {
+            "controlled_character": None,
+            "ui_mode": "watch",
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_drop_in_click
+
+            # Initial state: no control
+            assert mock_session_state["controlled_character"] is None
+            assert mock_session_state["ui_mode"] == "watch"
+
+            # Take control of fighter
+            handle_drop_in_click("fighter")
+            assert mock_session_state["controlled_character"] == "fighter"
+            assert mock_session_state["ui_mode"] == "play"
+
+            # Release control (click same character)
+            handle_drop_in_click("fighter")
+            assert mock_session_state["controlled_character"] is None
+            assert mock_session_state["ui_mode"] == "watch"
+
+    def test_quick_switch_between_characters(self) -> None:
+        """Test switching control between characters without explicit release."""
+        mock_session_state = {
+            "controlled_character": "fighter",
+            "ui_mode": "play",
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_drop_in_click
+
+            # Switch directly from fighter to rogue
+            handle_drop_in_click("rogue")
+            assert mock_session_state["controlled_character"] == "rogue"
+            assert mock_session_state["ui_mode"] == "play"
+
+            # Switch directly from rogue to wizard
+            handle_drop_in_click("wizard")
+            assert mock_session_state["controlled_character"] == "wizard"
+            assert mock_session_state["ui_mode"] == "play"
+
+            # Switch directly from wizard to cleric
+            handle_drop_in_click("cleric")
+            assert mock_session_state["controlled_character"] == "cleric"
+            assert mock_session_state["ui_mode"] == "play"
+
+
 class TestAcceptanceCriteria:
     """Integration tests validating all acceptance criteria (Story 2.3)."""
 
