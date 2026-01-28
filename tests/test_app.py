@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 
 class TestAppEntryPoint:
     """Tests for app.py functionality."""
@@ -10704,3 +10706,744 @@ class TestCheckpointRestoreAcceptanceCriteria:
                 "[dm] Saved state message."
             ]
             assert mock_session_state["game"]["current_turn"] == "rogue"
+
+
+# =============================================================================
+# Story 4.3: Session Browser & Multi-Session Continuity Tests
+# =============================================================================
+
+
+class TestFormatSessionDate:
+    """Tests for format_session_date function (Story 4.3)."""
+
+    def test_format_session_date_iso_with_z(self) -> None:
+        """Test format_session_date with ISO timestamp ending in Z."""
+        from app import format_session_date
+
+        result = format_session_date("2026-01-28T14:30:00Z")
+        assert result == "Jan 28, 2026"
+
+    def test_format_session_date_iso_without_z(self) -> None:
+        """Test format_session_date with ISO timestamp without Z."""
+        from app import format_session_date
+
+        result = format_session_date("2026-01-28T14:30:00")
+        assert result == "Jan 28, 2026"
+
+    def test_format_session_date_different_months(self) -> None:
+        """Test format_session_date with various months."""
+        from app import format_session_date
+
+        assert format_session_date("2026-06-15T10:00:00Z") == "Jun 15, 2026"
+        assert format_session_date("2026-12-25T10:00:00Z") == "Dec 25, 2026"
+        assert format_session_date("2026-03-01T10:00:00Z") == "Mar 01, 2026"
+
+    def test_format_session_date_invalid_format(self) -> None:
+        """Test format_session_date returns 'Unknown date' for invalid format."""
+        from app import format_session_date
+
+        assert format_session_date("not-a-date") == "Unknown date"
+        assert format_session_date("") == "Unknown date"
+        assert format_session_date("2026/01/28") == "Unknown date"
+
+    def test_format_session_date_partial_format(self) -> None:
+        """Test format_session_date handles partial ISO format."""
+        from app import format_session_date
+
+        # Date only, no time component - should fail gracefully
+        result = format_session_date("2026-01-28")
+        assert result == "Jan 28, 2026"
+
+
+class TestIntToRomanExtended:
+    """Extended tests for int_to_roman function (Story 4.3)."""
+
+    def test_int_to_roman_single_digits(self) -> None:
+        """Test int_to_roman for 1-9."""
+        from app import int_to_roman
+
+        assert int_to_roman(1) == "I"
+        assert int_to_roman(4) == "IV"
+        assert int_to_roman(5) == "V"
+        assert int_to_roman(9) == "IX"
+
+    def test_int_to_roman_teens(self) -> None:
+        """Test int_to_roman for 10-19."""
+        from app import int_to_roman
+
+        assert int_to_roman(10) == "X"
+        assert int_to_roman(14) == "XIV"
+        assert int_to_roman(19) == "XIX"
+
+    def test_int_to_roman_tens(self) -> None:
+        """Test int_to_roman for tens values."""
+        from app import int_to_roman
+
+        assert int_to_roman(20) == "XX"
+        assert int_to_roman(40) == "XL"
+        assert int_to_roman(50) == "L"
+        assert int_to_roman(90) == "XC"
+
+    def test_int_to_roman_hundreds(self) -> None:
+        """Test int_to_roman for hundreds values."""
+        from app import int_to_roman
+
+        assert int_to_roman(100) == "C"
+        assert int_to_roman(400) == "CD"
+        assert int_to_roman(500) == "D"
+        assert int_to_roman(900) == "CM"
+
+    def test_int_to_roman_thousands(self) -> None:
+        """Test int_to_roman for thousands values."""
+        from app import int_to_roman
+
+        assert int_to_roman(1000) == "M"
+        assert int_to_roman(2000) == "MM"
+        assert int_to_roman(3000) == "MMM"
+
+    def test_int_to_roman_complex_numbers(self) -> None:
+        """Test int_to_roman for complex numbers."""
+        from app import int_to_roman
+
+        assert int_to_roman(1984) == "MCMLXXXIV"
+        assert int_to_roman(2024) == "MMXXIV"
+        assert int_to_roman(3999) == "MMMCMXCIX"
+
+    def test_int_to_roman_boundary_min(self) -> None:
+        """Test int_to_roman at minimum boundary (1)."""
+        from app import int_to_roman
+
+        assert int_to_roman(1) == "I"
+
+    def test_int_to_roman_boundary_max(self) -> None:
+        """Test int_to_roman at maximum boundary (3999)."""
+        from app import int_to_roman
+
+        assert int_to_roman(3999) == "MMMCMXCIX"
+
+    def test_int_to_roman_zero_raises(self) -> None:
+        """Test int_to_roman raises for 0."""
+        from app import int_to_roman
+
+        with pytest.raises(ValueError, match="out of range"):
+            int_to_roman(0)
+
+    def test_int_to_roman_negative_raises(self) -> None:
+        """Test int_to_roman raises for negative numbers."""
+        from app import int_to_roman
+
+        with pytest.raises(ValueError, match="out of range"):
+            int_to_roman(-1)
+
+    def test_int_to_roman_over_max_raises(self) -> None:
+        """Test int_to_roman raises for > 3999."""
+        from app import int_to_roman
+
+        with pytest.raises(ValueError, match="out of range"):
+            int_to_roman(4000)
+
+
+class TestRenderSessionCardHtml:
+    """Tests for render_session_card_html function (Story 4.3)."""
+
+    def test_render_session_card_html_basic(self) -> None:
+        """Test render_session_card_html generates correct HTML."""
+        from models import SessionMetadata
+
+        from app import render_session_card_html
+
+        metadata = SessionMetadata(
+            session_id="001",
+            session_number=1,
+            name="Test Adventure",
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T14:30:00Z",
+            character_names=["Theron", "Lyra"],
+            turn_count=42,
+        )
+
+        html = render_session_card_html(metadata)
+
+        assert 'class="session-card"' in html
+        assert "Session I" in html  # Roman numeral
+        assert "Test Adventure" in html
+        assert "Jan 28, 2026" in html
+        assert "42 turns" in html
+        assert "Theron" in html
+        assert "Lyra" in html
+
+    def test_render_session_card_html_empty_name(self) -> None:
+        """Test session card shows 'Unnamed Adventure' for empty name."""
+        from models import SessionMetadata
+
+        from app import render_session_card_html
+
+        metadata = SessionMetadata(
+            session_id="001",
+            session_number=1,
+            name="",
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T10:00:00Z",
+        )
+
+        html = render_session_card_html(metadata)
+        assert "Unnamed Adventure" in html
+
+    def test_render_session_card_html_many_characters(self) -> None:
+        """Test session card truncates character list with +N more."""
+        from models import SessionMetadata
+
+        from app import render_session_card_html
+
+        metadata = SessionMetadata(
+            session_id="001",
+            session_number=1,
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T10:00:00Z",
+            character_names=["Theron", "Lyra", "Magnus", "Aelith", "Zephyr"],
+        )
+
+        html = render_session_card_html(metadata)
+        # Should show first 3 and "+2 more"
+        assert "Theron" in html
+        assert "Lyra" in html
+        assert "Magnus" in html
+        assert "+2 more" in html
+        assert "Aelith" not in html
+
+    def test_render_session_card_html_escapes_special_chars(self) -> None:
+        """Test session card escapes HTML special characters."""
+        from models import SessionMetadata
+
+        from app import render_session_card_html
+
+        metadata = SessionMetadata(
+            session_id="001",
+            session_number=1,
+            name="<script>alert('XSS')</script>",
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T10:00:00Z",
+            character_names=["<b>Bold</b>"],
+        )
+
+        html = render_session_card_html(metadata)
+        assert "<script>" not in html
+        assert "&lt;script&gt;" in html
+        assert "<b>Bold</b>" not in html
+
+    def test_render_session_card_html_zero_turns(self) -> None:
+        """Test session card shows 0 turns correctly."""
+        from models import SessionMetadata
+
+        from app import render_session_card_html
+
+        metadata = SessionMetadata(
+            session_id="001",
+            session_number=1,
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T10:00:00Z",
+            turn_count=0,
+        )
+
+        html = render_session_card_html(metadata)
+        assert "0 turns" in html
+
+    def test_render_session_card_html_large_session_number(self) -> None:
+        """Test session card handles large session numbers."""
+        from models import SessionMetadata
+
+        from app import render_session_card_html
+
+        metadata = SessionMetadata(
+            session_id="2024",
+            session_number=2024,
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T10:00:00Z",
+        )
+
+        html = render_session_card_html(metadata)
+        assert "Session MMXXIV" in html
+
+
+class TestHandleSessionContinue:
+    """Tests for handle_session_continue function (Story 4.3)."""
+
+    def test_handle_session_continue_returns_false_no_checkpoints(
+        self, tmp_path: Path
+    ) -> None:
+        """Test handle_session_continue returns False when no checkpoints."""
+        mock_session_state: dict = {}
+
+        # Create session dir but no checkpoints
+        session_dir = tmp_path / "campaigns" / "session_001"
+        session_dir.mkdir(parents=True)
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("persistence.CAMPAIGNS_DIR", tmp_path / "campaigns"),
+            patch("app.get_latest_checkpoint", return_value=None),
+        ):
+            from app import handle_session_continue
+
+            result = handle_session_continue("001")
+
+        assert result is False
+
+    def test_handle_session_continue_returns_false_corrupt_checkpoint(
+        self, tmp_path: Path
+    ) -> None:
+        """Test handle_session_continue returns False for corrupt checkpoint."""
+        mock_session_state: dict = {}
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("app.get_latest_checkpoint", return_value=1),
+            patch("app.load_checkpoint", return_value=None),
+        ):
+            from app import handle_session_continue
+
+            result = handle_session_continue("001")
+
+        assert result is False
+
+    def test_handle_session_continue_sets_app_view_to_game(
+        self, tmp_path: Path
+    ) -> None:
+        """Test handle_session_continue sets app_view to 'game'."""
+        from models import populate_game_state
+        from persistence import save_checkpoint
+
+        # Create valid checkpoint
+        state = populate_game_state(include_sample_messages=False)
+        state["session_id"] = "001"
+
+        with patch("persistence.CAMPAIGNS_DIR", tmp_path / "campaigns"):
+            save_checkpoint(state, "001", 1)
+
+        mock_session_state: dict = {}
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("persistence.CAMPAIGNS_DIR", tmp_path / "campaigns"),
+        ):
+            from app import handle_session_continue
+
+            result = handle_session_continue("001")
+
+        assert result is True
+        assert mock_session_state["app_view"] == "game"
+        assert mock_session_state["current_session_id"] == "001"
+
+    def test_handle_session_continue_resets_ui_state(
+        self, tmp_path: Path
+    ) -> None:
+        """Test handle_session_continue resets UI state correctly."""
+        from models import populate_game_state
+        from persistence import save_checkpoint
+
+        state = populate_game_state(include_sample_messages=False)
+        state["session_id"] = "001"
+
+        with patch("persistence.CAMPAIGNS_DIR", tmp_path / "campaigns"):
+            save_checkpoint(state, "001", 1)
+
+        mock_session_state: dict = {
+            "ui_mode": "play",
+            "controlled_character": "fighter",
+            "human_active": True,
+            "is_generating": True,
+        }
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("persistence.CAMPAIGNS_DIR", tmp_path / "campaigns"),
+        ):
+            from app import handle_session_continue
+
+            handle_session_continue("001")
+
+        assert mock_session_state["ui_mode"] == "watch"
+        assert mock_session_state["controlled_character"] is None
+        assert mock_session_state["human_active"] is False
+        assert mock_session_state["is_generating"] is False
+
+    def test_handle_session_continue_generates_recap(
+        self, tmp_path: Path
+    ) -> None:
+        """Test handle_session_continue generates recap for turn > 0."""
+        from models import populate_game_state
+        from persistence import save_checkpoint
+
+        state = populate_game_state(include_sample_messages=False)
+        state["session_id"] = "001"
+        state["ground_truth_log"] = ["[dm] First event.", "[dm] Second event."]
+
+        with patch("persistence.CAMPAIGNS_DIR", tmp_path / "campaigns"):
+            save_checkpoint(state, "001", 2)
+
+        mock_session_state: dict = {}
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("persistence.CAMPAIGNS_DIR", tmp_path / "campaigns"),
+        ):
+            from app import handle_session_continue
+
+            handle_session_continue("001")
+
+        assert mock_session_state.get("show_recap") is True
+        assert "First event" in mock_session_state.get("recap_text", "")
+
+
+class TestHandleNewSessionClick:
+    """Tests for handle_new_session_click function (Story 4.3)."""
+
+    def test_handle_new_session_click_creates_session(
+        self, tmp_path: Path
+    ) -> None:
+        """Test handle_new_session_click creates new session."""
+        from persistence import list_sessions
+
+        mock_session_state: dict = {}
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("persistence.CAMPAIGNS_DIR", tmp_path / "campaigns"),
+        ):
+            from app import handle_new_session_click
+
+            handle_new_session_click()
+
+        with patch("persistence.CAMPAIGNS_DIR", tmp_path / "campaigns"):
+            sessions = list_sessions()
+
+        assert len(sessions) == 1
+        assert mock_session_state.get("app_view") == "game"
+
+    def test_handle_new_session_click_sets_game_state(
+        self, tmp_path: Path
+    ) -> None:
+        """Test handle_new_session_click sets game state."""
+        mock_session_state: dict = {}
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("persistence.CAMPAIGNS_DIR", tmp_path / "campaigns"),
+        ):
+            from app import handle_new_session_click
+
+            handle_new_session_click()
+
+        game = mock_session_state.get("game")
+        assert game is not None
+        assert "ground_truth_log" in game
+        assert "session_id" in game
+
+    def test_handle_new_session_click_clears_recap(
+        self, tmp_path: Path
+    ) -> None:
+        """Test handle_new_session_click clears recap state."""
+        mock_session_state: dict = {
+            "show_recap": True,
+            "recap_text": "Old recap",
+        }
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("persistence.CAMPAIGNS_DIR", tmp_path / "campaigns"),
+        ):
+            from app import handle_new_session_click
+
+            handle_new_session_click()
+
+        assert mock_session_state.get("show_recap") is False
+        assert mock_session_state.get("recap_text") == ""
+
+
+class TestHandleBackToSessionsClick:
+    """Tests for handle_back_to_sessions_click function (Story 4.3)."""
+
+    def test_handle_back_to_sessions_click_sets_view(self) -> None:
+        """Test handle_back_to_sessions_click sets app_view to session_browser."""
+        mock_session_state: dict = {"app_view": "game"}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_back_to_sessions_click
+
+            handle_back_to_sessions_click()
+
+        assert mock_session_state["app_view"] == "session_browser"
+
+    def test_handle_back_to_sessions_click_clears_recap(self) -> None:
+        """Test handle_back_to_sessions_click clears recap state."""
+        mock_session_state: dict = {
+            "app_view": "game",
+            "show_recap": True,
+            "recap_text": "Some recap",
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_back_to_sessions_click
+
+            handle_back_to_sessions_click()
+
+        assert mock_session_state["show_recap"] is False
+        assert mock_session_state["recap_text"] == ""
+
+
+class TestSessionBrowserCSS:
+    """Tests for session browser CSS classes (Story 4.3)."""
+
+    def test_css_has_session_browser_class(self) -> None:
+        """Test CSS contains session-browser class."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+        assert ".session-browser" in css_content
+
+    def test_css_has_session_card_class(self) -> None:
+        """Test CSS contains session-card class."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+        assert ".session-card" in css_content
+
+    def test_css_has_session_card_title_class(self) -> None:
+        """Test CSS contains session-card-title class."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+        assert ".session-card-title" in css_content
+
+    def test_css_has_session_card_name_class(self) -> None:
+        """Test CSS contains session-card-name class."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+        assert ".session-card-name" in css_content
+
+    def test_css_has_recap_modal_class(self) -> None:
+        """Test CSS contains recap-modal class."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+        assert ".recap-modal" in css_content
+
+    def test_css_has_recap_header_class(self) -> None:
+        """Test CSS contains recap-header class."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_content = css_path.read_text(encoding="utf-8")
+        assert ".recap-header" in css_content
+
+    def test_css_has_recap_item_class(self) -> None:
+        """Test CSS contains recap-item class."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+        assert ".recap-item" in css_content
+
+
+class TestStory43AppAcceptanceCriteria:
+    """Acceptance tests for Story 4.3 app functionality."""
+
+    def test_ac1_session_browser_lists_all_sessions(
+        self, tmp_path: Path
+    ) -> None:
+        """AC #1: Session browser shows all available sessions."""
+        from models import SessionMetadata
+        from persistence import list_sessions_with_metadata, save_session_metadata
+
+        # Create multiple sessions
+        for i in range(3):
+            session_id = f"{i + 1:03d}"
+            metadata = SessionMetadata(
+                session_id=session_id,
+                session_number=i + 1,
+                name=f"Adventure {i + 1}",
+                created_at="2026-01-28T10:00:00Z",
+                updated_at=f"2026-01-{i + 1:02d}T10:00:00Z",
+            )
+            with patch("persistence.CAMPAIGNS_DIR", tmp_path / "campaigns"):
+                save_session_metadata(session_id, metadata)
+
+        # Verify all sessions are listed
+        with patch("persistence.CAMPAIGNS_DIR", tmp_path / "campaigns"):
+            sessions = list_sessions_with_metadata()
+
+        assert len(sessions) == 3
+
+    def test_ac2_session_card_displays_metadata(self) -> None:
+        """AC #2: Session card shows name, date, turn count, characters."""
+        from models import SessionMetadata
+
+        from app import render_session_card_html
+
+        metadata = SessionMetadata(
+            session_id="001",
+            session_number=1,
+            name="Test Adventure",
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T14:00:00Z",
+            character_names=["Theron", "Lyra"],
+            turn_count=42,
+        )
+
+        html = render_session_card_html(metadata)
+
+        # Name displayed
+        assert "Test Adventure" in html
+        # Date displayed
+        assert "Jan 28, 2026" in html
+        # Turn count displayed
+        assert "42 turns" in html
+        # Characters displayed
+        assert "Theron" in html
+        assert "Lyra" in html
+
+    def test_ac3_continue_loads_checkpoint_and_generates_recap(
+        self, tmp_path: Path
+    ) -> None:
+        """AC #3: Continue loads checkpoint and shows recap."""
+        from models import populate_game_state
+        from persistence import save_checkpoint
+
+        state = populate_game_state(include_sample_messages=False)
+        state["session_id"] = "001"
+        state["ground_truth_log"] = ["[dm] Event 1.", "[dm] Event 2."]
+
+        with patch("persistence.CAMPAIGNS_DIR", tmp_path / "campaigns"):
+            save_checkpoint(state, "001", 2)
+
+        mock_session_state: dict = {}
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("persistence.CAMPAIGNS_DIR", tmp_path / "campaigns"),
+        ):
+            from app import handle_session_continue
+
+            result = handle_session_continue("001")
+
+        assert result is True
+        assert mock_session_state.get("show_recap") is True
+        assert mock_session_state.get("game") is not None
+
+    def test_ac4_new_session_creates_fresh_state(
+        self, tmp_path: Path
+    ) -> None:
+        """AC #4: New Session creates fresh game state."""
+        mock_session_state: dict = {}
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("persistence.CAMPAIGNS_DIR", tmp_path / "campaigns"),
+        ):
+            from app import handle_new_session_click
+
+            handle_new_session_click()
+
+        game = mock_session_state.get("game")
+        assert game is not None
+        # Fresh state should have no messages (sample_messages=False)
+        assert game.get("ground_truth_log") == []
+
+
+class TestSessionBrowserEdgeCases:
+    """Edge case tests for session browser functionality (Story 4.3)."""
+
+    def test_format_session_date_with_milliseconds(self) -> None:
+        """Test format_session_date handles ISO with milliseconds."""
+        from app import format_session_date
+
+        # Some ISO formats include milliseconds
+        result = format_session_date("2026-01-28T14:30:00.123456Z")
+        assert result == "Jan 28, 2026"
+
+    def test_format_session_date_with_timezone_offset(self) -> None:
+        """Test format_session_date handles ISO with timezone offset."""
+        from app import format_session_date
+
+        # ISO format with +00:00 offset (should parse correctly)
+        result = format_session_date("2026-01-28T14:30:00+00:00")
+        assert result == "Jan 28, 2026"
+
+    def test_render_session_card_html_no_characters(self) -> None:
+        """Test session card renders correctly with no characters."""
+        from models import SessionMetadata
+
+        from app import render_session_card_html
+
+        metadata = SessionMetadata(
+            session_id="001",
+            session_number=1,
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T10:00:00Z",
+            character_names=[],
+        )
+
+        html = render_session_card_html(metadata)
+        assert 'class="session-card"' in html
+        # Should not crash, characters section should be empty or have empty string
+
+    def test_render_session_card_html_unicode_name(self) -> None:
+        """Test session card handles Unicode characters in name."""
+        from models import SessionMetadata
+
+        from app import render_session_card_html
+
+        metadata = SessionMetadata(
+            session_id="001",
+            session_number=1,
+            name="\U0001F409 Dragon's Quest",
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T10:00:00Z",
+        )
+
+        html = render_session_card_html(metadata)
+        # Should handle Unicode without error
+        assert 'class="session-card"' in html
+
+    def test_render_session_card_html_exactly_3_characters(self) -> None:
+        """Test session card with exactly 3 characters (no truncation needed)."""
+        from models import SessionMetadata
+
+        from app import render_session_card_html
+
+        metadata = SessionMetadata(
+            session_id="001",
+            session_number=1,
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T10:00:00Z",
+            character_names=["Theron", "Lyra", "Magnus"],
+        )
+
+        html = render_session_card_html(metadata)
+        assert "Theron" in html
+        assert "Lyra" in html
+        assert "Magnus" in html
+        assert "+0 more" not in html  # Should not show truncation indicator
+
+
+class TestInitializeSessionStateStory43:
+    """Tests for session state initialization with Story 4.3 fields."""
+
+    def test_initialize_session_state_sets_app_view(self) -> None:
+        """Test initialize_session_state sets app_view to session_browser."""
+        mock_session_state: dict = {}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import initialize_session_state
+
+            initialize_session_state()
+
+        # When there are existing sessions, should show session_browser
+        # When no sessions, defaults to game or session_browser based on implementation
+        assert "app_view" in mock_session_state
+
+    def test_initialize_session_state_sets_recap_fields(self) -> None:
+        """Test initialize_session_state sets show_recap and recap_text."""
+        mock_session_state: dict = {}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import initialize_session_state
+
+            initialize_session_state()
+
+        assert "show_recap" in mock_session_state
+        assert "recap_text" in mock_session_state
+        assert mock_session_state["show_recap"] is False
+        assert mock_session_state["recap_text"] == ""

@@ -638,3 +638,248 @@ class TestGameStateInitialization:
 
         state = populate_game_state()
         assert state["current_turn"] == "dm"
+
+
+# =============================================================================
+# Story 4.3: SessionMetadata Model Tests
+# =============================================================================
+
+
+class TestSessionMetadataModel:
+    """Tests for SessionMetadata Pydantic model (Story 4.3)."""
+
+    def test_session_metadata_creation_with_required_fields(self) -> None:
+        """Test SessionMetadata can be created with required fields."""
+        from models import SessionMetadata
+
+        metadata = SessionMetadata(
+            session_id="001",
+            session_number=1,
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T10:00:00Z",
+        )
+
+        assert metadata.session_id == "001"
+        assert metadata.session_number == 1
+
+    def test_session_metadata_creation_with_all_fields(self) -> None:
+        """Test SessionMetadata can be created with all fields."""
+        from models import SessionMetadata
+
+        metadata = SessionMetadata(
+            session_id="042",
+            session_number=42,
+            name="Epic Adventure",
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T14:30:00Z",
+            character_names=["Theron", "Lyra", "Magnus"],
+            turn_count=100,
+        )
+
+        assert metadata.session_id == "042"
+        assert metadata.session_number == 42
+        assert metadata.name == "Epic Adventure"
+        assert len(metadata.character_names) == 3
+        assert metadata.turn_count == 100
+
+    def test_session_metadata_default_name(self) -> None:
+        """Test SessionMetadata defaults name to empty string."""
+        from models import SessionMetadata
+
+        metadata = SessionMetadata(
+            session_id="001",
+            session_number=1,
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T10:00:00Z",
+        )
+
+        assert metadata.name == ""
+
+    def test_session_metadata_default_character_names(self) -> None:
+        """Test SessionMetadata defaults character_names to empty list."""
+        from models import SessionMetadata
+
+        metadata = SessionMetadata(
+            session_id="001",
+            session_number=1,
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T10:00:00Z",
+        )
+
+        assert metadata.character_names == []
+
+    def test_session_metadata_default_turn_count(self) -> None:
+        """Test SessionMetadata defaults turn_count to 0."""
+        from models import SessionMetadata
+
+        metadata = SessionMetadata(
+            session_id="001",
+            session_number=1,
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T10:00:00Z",
+        )
+
+        assert metadata.turn_count == 0
+
+    def test_session_metadata_rejects_empty_session_id(self) -> None:
+        """Test SessionMetadata rejects empty session_id."""
+        import pytest
+        from pydantic import ValidationError
+
+        from models import SessionMetadata
+
+        with pytest.raises(ValidationError):
+            SessionMetadata(
+                session_id="",
+                session_number=1,
+                created_at="2026-01-28T10:00:00Z",
+                updated_at="2026-01-28T10:00:00Z",
+            )
+
+    def test_session_metadata_rejects_zero_session_number(self) -> None:
+        """Test SessionMetadata rejects session_number < 1."""
+        import pytest
+        from pydantic import ValidationError
+
+        from models import SessionMetadata
+
+        with pytest.raises(ValidationError):
+            SessionMetadata(
+                session_id="001",
+                session_number=0,
+                created_at="2026-01-28T10:00:00Z",
+                updated_at="2026-01-28T10:00:00Z",
+            )
+
+    def test_session_metadata_rejects_negative_session_number(self) -> None:
+        """Test SessionMetadata rejects negative session_number."""
+        import pytest
+        from pydantic import ValidationError
+
+        from models import SessionMetadata
+
+        with pytest.raises(ValidationError):
+            SessionMetadata(
+                session_id="001",
+                session_number=-1,
+                created_at="2026-01-28T10:00:00Z",
+                updated_at="2026-01-28T10:00:00Z",
+            )
+
+    def test_session_metadata_rejects_negative_turn_count(self) -> None:
+        """Test SessionMetadata rejects negative turn_count."""
+        import pytest
+        from pydantic import ValidationError
+
+        from models import SessionMetadata
+
+        with pytest.raises(ValidationError):
+            SessionMetadata(
+                session_id="001",
+                session_number=1,
+                created_at="2026-01-28T10:00:00Z",
+                updated_at="2026-01-28T10:00:00Z",
+                turn_count=-1,
+            )
+
+    def test_session_metadata_in_all_exports(self) -> None:
+        """Test SessionMetadata is in module __all__ exports."""
+        import models
+
+        assert "SessionMetadata" in models.__all__
+
+    def test_session_metadata_json_serialization(self) -> None:
+        """Test SessionMetadata can serialize to JSON."""
+        from models import SessionMetadata
+
+        metadata = SessionMetadata(
+            session_id="001",
+            session_number=1,
+            name="Test",
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T12:00:00Z",
+            character_names=["Hero"],
+            turn_count=5,
+        )
+
+        json_str = metadata.model_dump_json()
+        assert "001" in json_str
+        assert "Test" in json_str
+        assert "Hero" in json_str
+
+    def test_session_metadata_json_roundtrip(self) -> None:
+        """Test SessionMetadata survives JSON roundtrip."""
+        from models import SessionMetadata
+
+        original = SessionMetadata(
+            session_id="042",
+            session_number=42,
+            name="Roundtrip Test",
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T14:00:00Z",
+            character_names=["Alpha", "Beta"],
+            turn_count=99,
+        )
+
+        json_str = original.model_dump_json()
+        restored = SessionMetadata.model_validate_json(json_str)
+
+        assert restored.session_id == original.session_id
+        assert restored.session_number == original.session_number
+        assert restored.name == original.name
+        assert restored.character_names == original.character_names
+        assert restored.turn_count == original.turn_count
+
+    def test_session_metadata_accepts_boundary_session_number(self) -> None:
+        """Test SessionMetadata accepts session_number=1 (boundary)."""
+        from models import SessionMetadata
+
+        metadata = SessionMetadata(
+            session_id="001",
+            session_number=1,
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T10:00:00Z",
+        )
+
+        assert metadata.session_number == 1
+
+    def test_session_metadata_accepts_large_session_number(self) -> None:
+        """Test SessionMetadata accepts large session_number."""
+        from models import SessionMetadata
+
+        metadata = SessionMetadata(
+            session_id="9999",
+            session_number=9999,
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T10:00:00Z",
+        )
+
+        assert metadata.session_number == 9999
+
+    def test_session_metadata_accepts_large_turn_count(self) -> None:
+        """Test SessionMetadata accepts large turn_count."""
+        from models import SessionMetadata
+
+        metadata = SessionMetadata(
+            session_id="001",
+            session_number=1,
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T10:00:00Z",
+            turn_count=100000,
+        )
+
+        assert metadata.turn_count == 100000
+
+    def test_session_metadata_accepts_boundary_turn_count(self) -> None:
+        """Test SessionMetadata accepts turn_count=0 (boundary)."""
+        from models import SessionMetadata
+
+        metadata = SessionMetadata(
+            session_id="001",
+            session_number=1,
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T10:00:00Z",
+            turn_count=0,
+        )
+
+        assert metadata.turn_count == 0

@@ -3321,3 +3321,836 @@ class TestStory43AcceptanceCriteria:
         assert sessions[0].session_id == "002"
         assert sessions[1].session_id == "003"
         assert sessions[2].session_id == "001"
+
+
+# =============================================================================
+# Story 4.3: Extended Test Coverage - Edge Cases & Error Paths
+# =============================================================================
+
+
+class TestSessionMetadataEdgeCases:
+    """Edge case tests for SessionMetadata model (Story 4.3 expanded coverage)."""
+
+    def test_session_metadata_unicode_in_name(self) -> None:
+        """Test SessionMetadata handles Unicode characters in name."""
+        from models import SessionMetadata
+
+        metadata = SessionMetadata(
+            session_id="001",
+            session_number=1,
+            name="The Dragon's Lair \u2014 \u0394\u03c1\u03ac\u03ba\u03c9\u03bd",  # Greek "dragon"
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T10:00:00Z",
+        )
+
+        assert "\u0394\u03c1\u03ac\u03ba\u03c9\u03bd" in metadata.name
+
+    def test_session_metadata_emoji_in_name(self) -> None:
+        """Test SessionMetadata handles emoji in name."""
+        from models import SessionMetadata
+
+        metadata = SessionMetadata(
+            session_id="001",
+            session_number=1,
+            name="\U0001F409 Dragon Hunt \U0001F5E1\uFE0F",
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T10:00:00Z",
+        )
+
+        assert "\U0001F409" in metadata.name
+
+    def test_session_metadata_very_long_name(self) -> None:
+        """Test SessionMetadata handles very long name."""
+        from models import SessionMetadata
+
+        long_name = "A" * 1000
+        metadata = SessionMetadata(
+            session_id="001",
+            session_number=1,
+            name=long_name,
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T10:00:00Z",
+        )
+
+        assert len(metadata.name) == 1000
+
+    def test_session_metadata_many_character_names(self) -> None:
+        """Test SessionMetadata handles many character names."""
+        from models import SessionMetadata
+
+        character_names = [f"Character{i}" for i in range(100)]
+        metadata = SessionMetadata(
+            session_id="001",
+            session_number=1,
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T10:00:00Z",
+            character_names=character_names,
+        )
+
+        assert len(metadata.character_names) == 100
+
+    def test_session_metadata_special_chars_in_character_names(self) -> None:
+        """Test SessionMetadata handles special characters in character names."""
+        from models import SessionMetadata
+
+        metadata = SessionMetadata(
+            session_id="001",
+            session_number=1,
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T10:00:00Z",
+            character_names=["O'Brien", "D'Artagnan", "Ng\u01b0\u1eddi"],
+        )
+
+        assert "O'Brien" in metadata.character_names
+        assert "D'Artagnan" in metadata.character_names
+
+    def test_session_metadata_large_turn_count(self) -> None:
+        """Test SessionMetadata handles large turn count."""
+        from models import SessionMetadata
+
+        metadata = SessionMetadata(
+            session_id="001",
+            session_number=1,
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T10:00:00Z",
+            turn_count=999999,
+        )
+
+        assert metadata.turn_count == 999999
+
+    def test_session_metadata_negative_turn_count_rejected(self) -> None:
+        """Test SessionMetadata rejects negative turn_count."""
+        from pydantic import ValidationError
+
+        from models import SessionMetadata
+
+        with pytest.raises(ValidationError):
+            SessionMetadata(
+                session_id="001",
+                session_number=1,
+                created_at="2026-01-28T10:00:00Z",
+                updated_at="2026-01-28T10:00:00Z",
+                turn_count=-1,
+            )
+
+    def test_session_metadata_session_number_large(self) -> None:
+        """Test SessionMetadata handles large session numbers."""
+        from models import SessionMetadata
+
+        metadata = SessionMetadata(
+            session_id="9999",
+            session_number=9999,
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T10:00:00Z",
+        )
+
+        assert metadata.session_number == 9999
+
+    def test_session_metadata_json_serialization(self) -> None:
+        """Test SessionMetadata can serialize to JSON."""
+        from models import SessionMetadata
+
+        metadata = SessionMetadata(
+            session_id="001",
+            session_number=1,
+            name="Test Adventure",
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T12:00:00Z",
+            character_names=["Theron", "Lyra"],
+            turn_count=42,
+        )
+
+        json_str = metadata.model_dump_json()
+        assert "001" in json_str
+        assert "Test Adventure" in json_str
+        assert "Theron" in json_str
+
+    def test_session_metadata_json_roundtrip(self) -> None:
+        """Test SessionMetadata survives JSON roundtrip."""
+        from models import SessionMetadata
+
+        original = SessionMetadata(
+            session_id="001",
+            session_number=1,
+            name="Test \u2014 Adventure",
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T12:00:00Z",
+            character_names=["Theron", "Lyra"],
+            turn_count=42,
+        )
+
+        json_str = original.model_dump_json()
+        restored = SessionMetadata.model_validate_json(json_str)
+
+        assert restored.session_id == original.session_id
+        assert restored.name == original.name
+        assert restored.character_names == original.character_names
+
+
+class TestSessionMetadataPersistenceEdgeCases:
+    """Edge case tests for session metadata persistence (Story 4.3 expanded)."""
+
+    def test_save_session_metadata_unicode_name(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test save_session_metadata handles Unicode characters."""
+        from models import SessionMetadata
+        from persistence import load_session_metadata, save_session_metadata
+
+        metadata = SessionMetadata(
+            session_id="001",
+            session_number=1,
+            name="\U0001F409 Dragon's Lair \u2014 \u03b1\u03b2\u03b3",
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T10:00:00Z",
+        )
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_session_metadata("001", metadata)
+            loaded = load_session_metadata("001")
+
+        assert loaded is not None
+        assert loaded.name == metadata.name
+
+    def test_load_session_metadata_missing_fields(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test load_session_metadata handles YAML missing required fields."""
+        from persistence import load_session_metadata
+
+        session_dir = temp_campaigns_dir / "session_001"
+        session_dir.mkdir()
+        config_path = session_dir / "config.yaml"
+        # Missing required session_id field
+        config_path.write_text("session_number: 1\nname: Test\n", encoding="utf-8")
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            loaded = load_session_metadata("001")
+
+        assert loaded is None
+
+    def test_load_session_metadata_wrong_type_fields(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test load_session_metadata handles wrong field types."""
+        from persistence import load_session_metadata
+
+        session_dir = temp_campaigns_dir / "session_001"
+        session_dir.mkdir()
+        config_path = session_dir / "config.yaml"
+        # session_number should be int, not string
+        config_path.write_text(
+            "session_id: '001'\n"
+            "session_number: 'not_an_int'\n"
+            "created_at: '2026-01-28T10:00:00Z'\n"
+            "updated_at: '2026-01-28T10:00:00Z'\n",
+            encoding="utf-8",
+        )
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            loaded = load_session_metadata("001")
+
+        assert loaded is None
+
+    def test_load_session_metadata_empty_file(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test load_session_metadata handles empty YAML file."""
+        from persistence import load_session_metadata
+
+        session_dir = temp_campaigns_dir / "session_001"
+        session_dir.mkdir()
+        config_path = session_dir / "config.yaml"
+        config_path.write_text("", encoding="utf-8")
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            loaded = load_session_metadata("001")
+
+        assert loaded is None
+
+    def test_load_session_metadata_yaml_null(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test load_session_metadata handles YAML null."""
+        from persistence import load_session_metadata
+
+        session_dir = temp_campaigns_dir / "session_001"
+        session_dir.mkdir()
+        config_path = session_dir / "config.yaml"
+        config_path.write_text("null", encoding="utf-8")
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            loaded = load_session_metadata("001")
+
+        assert loaded is None
+
+    def test_save_session_metadata_creates_parent_dirs(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test save_session_metadata creates session directory if missing."""
+        from models import SessionMetadata
+        from persistence import save_session_metadata
+
+        metadata = SessionMetadata(
+            session_id="999",
+            session_number=999,
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T10:00:00Z",
+        )
+
+        session_dir = temp_campaigns_dir / "session_999"
+        assert not session_dir.exists()
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_session_metadata("999", metadata)
+
+        assert session_dir.exists()
+
+    def test_save_session_metadata_overwrites_existing(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test save_session_metadata overwrites existing config."""
+        from models import SessionMetadata
+        from persistence import load_session_metadata, save_session_metadata
+
+        # Save first version
+        metadata1 = SessionMetadata(
+            session_id="001",
+            session_number=1,
+            name="Original Name",
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T10:00:00Z",
+        )
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_session_metadata("001", metadata1)
+
+        # Save second version
+        metadata2 = SessionMetadata(
+            session_id="001",
+            session_number=1,
+            name="Updated Name",
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T12:00:00Z",
+        )
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_session_metadata("001", metadata2)
+            loaded = load_session_metadata("001")
+
+        assert loaded is not None
+        assert loaded.name == "Updated Name"
+
+
+class TestListSessionsWithMetadataEdgeCases:
+    """Edge case tests for list_sessions_with_metadata (Story 4.3 expanded)."""
+
+    def test_list_sessions_skips_mismatched_session_id(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test list_sessions_with_metadata skips config with mismatched session_id.
+
+        Security: prevents crafted config.yaml from claiming wrong session.
+        """
+        from models import SessionMetadata
+        from persistence import list_sessions_with_metadata, save_session_metadata
+
+        # Create valid session 001
+        valid_metadata = SessionMetadata(
+            session_id="001",
+            session_number=1,
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T10:00:00Z",
+        )
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_session_metadata("001", valid_metadata)
+
+        # Create malicious session 002 that claims to be 001
+        malicious_dir = temp_campaigns_dir / "session_002"
+        malicious_dir.mkdir()
+        malicious_config = malicious_dir / "config.yaml"
+        # config.yaml claims session_id="001" but is in session_002 directory
+        malicious_config.write_text(
+            "session_id: '001'\n"  # Mismatched!
+            "session_number: 1\n"
+            "created_at: '2026-01-28T10:00:00Z'\n"
+            "updated_at: '2026-01-28T10:00:00Z'\n",
+            encoding="utf-8",
+        )
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            sessions = list_sessions_with_metadata()
+
+        # Should only return the valid session, not the malicious one
+        assert len(sessions) == 1
+        assert sessions[0].session_id == "001"
+
+    def test_list_sessions_with_many_sessions(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test list_sessions_with_metadata with many sessions (50+)."""
+        from models import SessionMetadata
+        from persistence import list_sessions_with_metadata, save_session_metadata
+
+        # Create 50 sessions
+        for i in range(50):
+            session_id = f"{i+1:03d}"
+            metadata = SessionMetadata(
+                session_id=session_id,
+                session_number=i + 1,
+                created_at="2026-01-28T10:00:00Z",
+                updated_at=f"2026-01-{(i % 28) + 1:02d}T10:00:00Z",
+            )
+            with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+                save_session_metadata(session_id, metadata)
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            sessions = list_sessions_with_metadata()
+
+        assert len(sessions) == 50
+        # Should be sorted by updated_at descending
+
+    def test_list_sessions_skips_directory_without_config(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test list_sessions_with_metadata skips sessions without config.yaml."""
+        from models import SessionMetadata
+        from persistence import list_sessions_with_metadata, save_session_metadata
+
+        # Create valid session with config
+        metadata = SessionMetadata(
+            session_id="001",
+            session_number=1,
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T10:00:00Z",
+        )
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_session_metadata("001", metadata)
+
+        # Create session directory without config
+        (temp_campaigns_dir / "session_002").mkdir()
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            sessions = list_sessions_with_metadata()
+
+        assert len(sessions) == 1
+        assert sessions[0].session_id == "001"
+
+
+class TestGetNextSessionNumberEdgeCases:
+    """Edge case tests for get_next_session_number (Story 4.3 expanded)."""
+
+    def test_get_next_session_number_with_non_numeric_dirs(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test get_next_session_number ignores non-numeric session IDs."""
+        from persistence import get_next_session_number
+
+        # Create numeric sessions
+        (temp_campaigns_dir / "session_001").mkdir()
+        (temp_campaigns_dir / "session_002").mkdir()
+
+        # Create non-numeric session (should be ignored in max calculation)
+        (temp_campaigns_dir / "session_abc").mkdir()
+        (temp_campaigns_dir / "session_test_123").mkdir()
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            next_num = get_next_session_number()
+
+        assert next_num == 3
+
+    def test_get_next_session_number_only_non_numeric(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test get_next_session_number returns 1 when only non-numeric sessions."""
+        from persistence import get_next_session_number
+
+        # Create only non-numeric sessions
+        (temp_campaigns_dir / "session_abc").mkdir()
+        (temp_campaigns_dir / "session_test").mkdir()
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            next_num = get_next_session_number()
+
+        assert next_num == 1
+
+
+class TestCreateNewSessionEdgeCases:
+    """Edge case tests for create_new_session (Story 4.3 expanded)."""
+
+    def test_create_new_session_with_empty_character_names(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test create_new_session with empty character names list."""
+        from persistence import create_new_session, load_session_metadata
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            session_id = create_new_session(character_names=[])
+            metadata = load_session_metadata(session_id)
+
+        assert metadata is not None
+        assert metadata.character_names == []
+
+    def test_create_new_session_with_unicode_character_names(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test create_new_session with Unicode character names."""
+        from persistence import create_new_session, load_session_metadata
+
+        names = ["\u0394\u03c1\u03ac\u03ba\u03c9\u03bd", "Ng\u01b0\u1eddi", "\U0001F409Knight"]
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            session_id = create_new_session(character_names=names)
+            metadata = load_session_metadata(session_id)
+
+        assert metadata is not None
+        assert metadata.character_names == names
+
+    def test_create_new_session_with_empty_name(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test create_new_session with empty session name."""
+        from persistence import create_new_session, load_session_metadata
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            session_id = create_new_session(name="")
+            metadata = load_session_metadata(session_id)
+
+        assert metadata is not None
+        assert metadata.name == ""
+
+    def test_create_new_session_timestamps_are_utc_iso(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test create_new_session creates valid UTC ISO timestamps."""
+        from persistence import create_new_session, load_session_metadata
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            session_id = create_new_session()
+            metadata = load_session_metadata(session_id)
+
+        assert metadata is not None
+        # Should end with Z for UTC
+        assert metadata.created_at.endswith("Z")
+        assert metadata.updated_at.endswith("Z")
+        # Should be valid ISO format
+        assert "T" in metadata.created_at
+
+
+class TestUpdateSessionMetadataOnCheckpointEdgeCases:
+    """Edge case tests for update_session_metadata_on_checkpoint (Story 4.3 expanded)."""
+
+    def test_update_creates_metadata_if_missing(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test checkpoint save creates metadata if config.yaml doesn't exist."""
+        from persistence import load_session_metadata
+
+        # Save checkpoint without existing metadata
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 5)
+            metadata = load_session_metadata("001")
+
+        assert metadata is not None
+        assert metadata.session_id == "001"
+        assert metadata.turn_count == 5
+
+    def test_update_preserves_existing_metadata_fields(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test checkpoint save preserves name and created_at."""
+        from models import SessionMetadata
+        from persistence import load_session_metadata, save_session_metadata
+
+        # Create initial metadata with name
+        initial = SessionMetadata(
+            session_id="001",
+            session_number=1,
+            name="My Special Adventure",
+            created_at="2026-01-15T10:00:00Z",
+            updated_at="2026-01-15T10:00:00Z",
+            character_names=["Old Character"],
+            turn_count=0,
+        )
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_session_metadata("001", initial)
+            # Save checkpoint - should update turn_count but preserve name
+            save_checkpoint(sample_game_state, "001", 10)
+            loaded = load_session_metadata("001")
+
+        assert loaded is not None
+        assert loaded.name == "My Special Adventure"  # Preserved
+        assert loaded.created_at == "2026-01-15T10:00:00Z"  # Preserved
+        assert loaded.turn_count == 10  # Updated
+
+    def test_update_replaces_character_names_when_provided(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test checkpoint save updates character_names when provided."""
+        from persistence import load_session_metadata
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 5)
+            metadata = load_session_metadata("001")
+
+        assert metadata is not None
+        # Should have character names from sample_game_state
+        assert "Theron" in metadata.character_names
+
+
+class TestGenerateRecapSummaryEdgeCases:
+    """Edge case tests for generate_recap_summary (Story 4.3 expanded)."""
+
+    def test_recap_handles_entries_without_prefix(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test recap handles log entries without [agent] prefix."""
+        from persistence import generate_recap_summary
+
+        sample_game_state["ground_truth_log"] = [
+            "System: Game initialized.",  # No bracket prefix
+            "[dm] The adventure begins.",
+            "---",  # No bracket prefix
+        ]
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 1)
+            recap = generate_recap_summary("001", num_turns=3)
+
+        assert recap is not None
+        # All entries should be included
+        assert "System: Game initialized." in recap or "Game initialized" in recap
+
+    def test_recap_handles_empty_entries(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test recap handles empty log entries."""
+        from persistence import generate_recap_summary
+
+        sample_game_state["ground_truth_log"] = [
+            "[dm] First message.",
+            "",  # Empty entry
+            "[dm] Second message.",
+        ]
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 1)
+            recap = generate_recap_summary("001", num_turns=5)
+
+        assert recap is not None
+        # Should handle without error
+
+    def test_recap_truncates_at_147_chars(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test recap truncates entries at 147 chars + '...'."""
+        from persistence import generate_recap_summary
+
+        # Entry exactly 148 chars after prefix strip should truncate
+        long_content = "A" * 160
+        sample_game_state["ground_truth_log"] = [f"[dm] {long_content}"]
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 1)
+            recap = generate_recap_summary("001", num_turns=1)
+
+        assert recap is not None
+        assert "..." in recap
+        # Should be 147 + 3 = 150 chars max
+        assert len(recap.split("\n")[0]) == 150
+
+    def test_recap_num_turns_less_than_available(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test recap with num_turns less than available entries."""
+        from persistence import generate_recap_summary
+
+        sample_game_state["ground_truth_log"] = [
+            f"[dm] Message {i}" for i in range(10)
+        ]
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 10)
+            recap = generate_recap_summary("001", num_turns=3)
+
+        assert recap is not None
+        # Should only have 3 entries (from end of log)
+        assert recap.count("\n") == 2  # 3 lines = 2 newlines
+        assert "Message 7" in recap
+        assert "Message 8" in recap
+        assert "Message 9" in recap
+
+    def test_recap_missing_session(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test recap returns None for missing session."""
+        from persistence import generate_recap_summary
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            recap = generate_recap_summary("nonexistent")
+
+        assert recap is None
+
+    def test_recap_corrupted_checkpoint(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test recap returns None for corrupted checkpoint."""
+        from persistence import generate_recap_summary
+
+        session_dir = temp_campaigns_dir / "session_001"
+        session_dir.mkdir()
+        corrupted = session_dir / "turn_001.json"
+        corrupted.write_text("not valid json", encoding="utf-8")
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            recap = generate_recap_summary("001")
+
+        assert recap is None
+
+
+class TestSessionConfigPathEdgeCases:
+    """Edge case tests for get_session_config_path (Story 4.3 expanded)."""
+
+    def test_get_session_config_path_format(self) -> None:
+        """Test get_session_config_path returns correct format."""
+        from persistence import get_session_config_path
+
+        path = get_session_config_path("001")
+        assert path.name == "config.yaml"
+        assert "session_001" in str(path)
+
+    def test_get_session_config_path_validates_session_id(self) -> None:
+        """Test get_session_config_path validates session_id."""
+        from persistence import get_session_config_path
+
+        with pytest.raises(ValueError, match="Invalid session_id"):
+            get_session_config_path("../etc/passwd")
+
+
+class TestStory43IntegrationScenarios:
+    """Integration tests for complete Story 4.3 scenarios."""
+
+    def test_full_session_lifecycle(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test complete session lifecycle: create -> play -> continue."""
+        from persistence import (
+            create_new_session,
+            generate_recap_summary,
+            get_latest_checkpoint,
+            list_sessions_with_metadata,
+            load_checkpoint,
+            load_session_metadata,
+        )
+
+        # Step 1: Create new session
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            session_id = create_new_session(
+                name="Integration Test Adventure",
+                character_names=["Hero", "Sidekick"],
+            )
+
+            # Verify session was created
+            sessions = list_sessions_with_metadata()
+            assert len(sessions) == 1
+            assert sessions[0].session_id == session_id
+            assert sessions[0].turn_count == 0
+
+        # Step 2: Play a few turns (save checkpoints)
+        sample_game_state["session_id"] = session_id
+        for turn in range(1, 6):
+            sample_game_state["ground_truth_log"].append(
+                f"[dm] Turn {turn} happened."
+            )
+            with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+                save_checkpoint(sample_game_state, session_id, turn)
+
+        # Step 3: Verify turn count was updated
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            metadata = load_session_metadata(session_id)
+            assert metadata is not None
+            assert metadata.turn_count == 5
+
+        # Step 4: Continue session (load latest + recap)
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            latest = get_latest_checkpoint(session_id)
+            assert latest == 5
+
+            state = load_checkpoint(session_id, latest)
+            assert state is not None
+            assert len(state["ground_truth_log"]) == 7  # Original 2 + 5
+
+            recap = generate_recap_summary(session_id, num_turns=5)
+            assert recap is not None
+            assert "Turn 5" in recap
+
+    def test_multiple_sessions_isolation(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test multiple sessions remain isolated from each other."""
+        from persistence import (
+            create_new_session,
+            list_checkpoints,
+            list_sessions_with_metadata,
+            load_session_metadata,
+        )
+
+        # Create two sessions
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            session1 = create_new_session(name="Session One")
+            session2 = create_new_session(name="Session Two")
+
+        # Add checkpoints to session 1 only
+        sample_game_state["session_id"] = session1
+        for turn in range(1, 4):
+            with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+                save_checkpoint(sample_game_state, session1, turn)
+
+        # Verify isolation
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            meta1 = load_session_metadata(session1)
+            meta2 = load_session_metadata(session2)
+
+            assert meta1 is not None
+            assert meta2 is not None
+            assert meta1.turn_count == 3
+            assert meta2.turn_count == 0
+
+            checkpoints1 = list_checkpoints(session1)
+            checkpoints2 = list_checkpoints(session2)
+
+            assert len(checkpoints1) == 3
+            assert len(checkpoints2) == 0
+
+    def test_session_browser_flow(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test session browser displays sessions correctly sorted."""
+        from persistence import (
+            create_new_session,
+            list_sessions_with_metadata,
+        )
+
+        # Create sessions with different update times
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            session1 = create_new_session(name="Old Session")
+            # Brief pause to ensure different timestamps
+            time.sleep(0.01)
+            session2 = create_new_session(name="New Session")
+
+        # Update session1 with a newer timestamp by saving checkpoint
+        sample_game_state["session_id"] = session1
+        time.sleep(0.01)  # Ensure timestamp is newer
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, session1, 1)
+
+        # Session1 should now be first (most recently updated)
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            sessions = list_sessions_with_metadata()
+
+            assert len(sessions) == 2
+            assert sessions[0].session_id == session1  # Most recently updated
+            assert sessions[1].session_id == session2
