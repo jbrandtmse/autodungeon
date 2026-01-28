@@ -1,4 +1,7 @@
-"""Tests for LangGraph turn orchestration (Story 1.7)."""
+"""Tests for LangGraph turn orchestration (Story 1.7).
+
+Story 5.2: Added context_manager node tests.
+"""
 
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -7,6 +10,7 @@ import pytest
 from langchain_core.messages import AIMessage
 
 from graph import (
+    context_manager,
     create_game_workflow,
     human_intervention_node,
     route_to_next_agent,
@@ -108,15 +112,18 @@ class TestCreateGameWorkflow:
         # Should have dm node
         assert "dm" in graph.nodes
 
-    def test_start_routes_to_dm(self) -> None:
-        """Test that START entry point connects to dm node."""
+    def test_start_routes_to_context_manager(self) -> None:
+        """Test that START entry point connects to context_manager node.
+
+        Story 5.2: Changed to route through context_manager before dm.
+        """
         workflow = create_game_workflow(turn_queue=["dm", "fighter"])
         graph = workflow.get_graph()
-        # Check edges from __start__ go to dm
+        # Check edges from __start__ go to context_manager
         edges = graph.edges
         start_edges = [e for e in edges if e[0] == "__start__"]
         assert len(start_edges) > 0
-        assert any(e[1] == "dm" for e in start_edges)
+        assert any(e[1] == "context_manager" for e in start_edges)
 
 
 # =============================================================================
@@ -521,9 +528,7 @@ class TestTranscriptLogging:
             agents = [entry.agent for entry in loaded]
             assert "DM" in agents or "dm" in agents  # DM entry
 
-    def test_transcript_logging_does_not_block_game_flow(
-        self, tmp_path: Path
-    ) -> None:
+    def test_transcript_logging_does_not_block_game_flow(self, tmp_path: Path) -> None:
         """Test transcript logging errors don't crash game."""
         temp_campaigns = tmp_path / "campaigns"
         temp_campaigns.mkdir()
@@ -684,7 +689,9 @@ class TestTranscriptLoggingExpanded:
         state["session_id"] = "001"
         state["ground_truth_log"] = []
 
-        original_content = "The tavern falls silent. \"Who goes there?\" demands the barkeep."
+        original_content = (
+            'The tavern falls silent. "Who goes there?" demands the barkeep.'
+        )
 
         with (
             patch("agents.get_llm") as mock_get_llm,
@@ -807,9 +814,7 @@ class TestTranscriptLoggingExpanded:
 class TestHumanInterventionTranscriptExpanded:
     """Expanded tests for human intervention transcript logging."""
 
-    def test_human_action_transcript_tool_calls_is_none(
-        self, tmp_path: Path
-    ) -> None:
+    def test_human_action_transcript_tool_calls_is_none(self, tmp_path: Path) -> None:
         """Test human action transcript entry has tool_calls=None."""
         import streamlit as st
 
@@ -842,9 +847,7 @@ class TestHumanInterventionTranscriptExpanded:
         assert loaded is not None
         assert loaded[0].tool_calls is None
 
-    def test_human_action_transcript_correct_turn_number(
-        self, tmp_path: Path
-    ) -> None:
+    def test_human_action_transcript_correct_turn_number(self, tmp_path: Path) -> None:
         """Test human action transcript entry has correct turn number."""
         import streamlit as st
 
@@ -916,9 +919,7 @@ class TestHumanInterventionTranscriptExpanded:
         # No transcript should be created
         assert loaded is None
 
-    def test_human_action_transcript_special_characters(
-        self, tmp_path: Path
-    ) -> None:
+    def test_human_action_transcript_special_characters(self, tmp_path: Path) -> None:
         """Test human action with special characters is logged correctly."""
         import streamlit as st
 
@@ -1023,3 +1024,220 @@ class TestTranscriptAgentParsing:
         # Find the fighter entry
         fighter_entries = [e for e in loaded if e.agent.lower() == "fighter"]
         assert len(fighter_entries) >= 1
+
+
+# =============================================================================
+# Story 5.2: Context Manager Tests
+# =============================================================================
+
+
+class TestContextManagerNode:
+    """Tests for context_manager node (Story 5.2)."""
+
+    def test_context_manager_returns_game_state(self) -> None:
+        """Test that context_manager returns a GameState."""
+        state = create_test_state(
+            turn_queue=["dm", "fighter"],
+            current_turn="dm",
+        )
+
+        result = context_manager(state)
+
+        assert isinstance(result, dict)
+        assert "turn_queue" in result
+        assert "agent_memories" in result
+
+    def test_context_manager_does_not_compress_under_limit(self) -> None:
+        """Test that context_manager skips compression when under limit."""
+        state = create_test_state(
+            turn_queue=["dm", "fighter"],
+            current_turn="dm",
+        )
+        # Add a few buffer entries (under limit)
+        state["agent_memories"]["dm"].short_term_buffer = ["Event 1", "Event 2"]
+        original_buffer_len = len(state["agent_memories"]["dm"].short_term_buffer)
+
+        with patch("graph.MemoryManager") as MockManager:
+            mock_instance = MagicMock()
+            mock_instance.is_near_limit.return_value = False
+            MockManager.return_value = mock_instance
+
+            result = context_manager(state)
+
+        # Buffer should not have been compressed
+        mock_instance.compress_buffer.assert_not_called()
+        assert (
+            len(result["agent_memories"]["dm"].short_term_buffer) == original_buffer_len
+        )
+
+    def test_context_manager_compresses_when_near_limit(self) -> None:
+        """Test that context_manager triggers compression when near limit."""
+        state = create_test_state(
+            turn_queue=["dm", "fighter"],
+            current_turn="dm",
+        )
+        # Set up buffer that will be compressed
+        state["agent_memories"]["dm"].short_term_buffer = [
+            "Event 1",
+            "Event 2",
+            "Event 3",
+            "Event 4",
+            "Event 5",
+        ]
+
+        with patch("graph.MemoryManager") as MockManager:
+            mock_instance = MagicMock()
+            mock_instance.is_near_limit.return_value = True
+            mock_instance.compress_buffer.return_value = "Generated summary"
+            MockManager.return_value = mock_instance
+
+            context_manager(state)
+
+        # compress_buffer should have been called for the agent
+        mock_instance.compress_buffer.assert_called()
+
+    def test_context_manager_checks_all_agents(self) -> None:
+        """Test that context_manager checks all agents in agent_memories."""
+        state = create_test_state(
+            turn_queue=["dm", "fighter", "rogue"],
+            current_turn="dm",
+        )
+
+        with patch("graph.MemoryManager") as MockManager:
+            mock_instance = MagicMock()
+            mock_instance.is_near_limit.return_value = False
+            MockManager.return_value = mock_instance
+
+            context_manager(state)
+
+        # Should have checked all agents
+        call_agents = [
+            call[0][0] for call in mock_instance.is_near_limit.call_args_list
+        ]
+        assert "dm" in call_agents
+        assert "fighter" in call_agents
+        assert "rogue" in call_agents
+
+    def test_context_manager_sets_summarizing_flag(self) -> None:
+        """Test that context_manager sets summarizing flag when compressing."""
+        state = create_test_state(
+            turn_queue=["dm"],
+            current_turn="dm",
+        )
+        state["agent_memories"]["dm"].short_term_buffer = ["Event 1"] * 10
+
+        with patch("graph.MemoryManager") as MockManager:
+            mock_instance = MagicMock()
+            mock_instance.is_near_limit.return_value = True
+            mock_instance.compress_buffer.return_value = "Summary"
+            MockManager.return_value = mock_instance
+
+            result = context_manager(state)
+
+        # Flag should be cleared after summarization completes
+        assert result.get("summarization_in_progress") is False
+
+    def test_context_manager_handles_multiple_agents_needing_compression(self) -> None:
+        """Test context_manager compresses multiple agents if needed."""
+        state = create_test_state(
+            turn_queue=["dm", "fighter"],
+            current_turn="dm",
+        )
+        state["agent_memories"]["dm"].short_term_buffer = ["Event 1"] * 10
+        state["agent_memories"]["fighter"].short_term_buffer = ["Event 1"] * 10
+
+        with patch("graph.MemoryManager") as MockManager:
+            mock_instance = MagicMock()
+            mock_instance.is_near_limit.return_value = True
+            mock_instance.compress_buffer.return_value = "Summary"
+            MockManager.return_value = mock_instance
+
+            context_manager(state)
+
+        # Should have compressed both agents
+        compress_calls = mock_instance.compress_buffer.call_args_list
+        compressed_agents = [call[0][0] for call in compress_calls]
+        assert "dm" in compressed_agents
+        assert "fighter" in compressed_agents
+
+    def test_context_manager_preserves_other_state_fields(self) -> None:
+        """Test that context_manager preserves non-memory state fields."""
+        state = create_test_state(
+            turn_queue=["dm", "fighter"],
+            current_turn="dm",
+        )
+        state["ground_truth_log"] = ["Log entry 1", "Log entry 2"]
+        state["whisper_queue"] = ["Whisper"]
+        state["human_active"] = True
+
+        with patch("graph.MemoryManager") as MockManager:
+            mock_instance = MagicMock()
+            mock_instance.is_near_limit.return_value = False
+            MockManager.return_value = mock_instance
+
+            result = context_manager(state)
+
+        # Other state fields should be preserved
+        assert result["ground_truth_log"] == ["Log entry 1", "Log entry 2"]
+        assert result["whisper_queue"] == ["Whisper"]
+        assert result["human_active"] is True
+
+
+class TestContextManagerWorkflowIntegration:
+    """Tests for context_manager integration in workflow."""
+
+    def test_context_manager_node_in_workflow(self) -> None:
+        """Test that context_manager node exists in workflow."""
+        workflow = create_game_workflow(turn_queue=["dm", "fighter"])
+        graph = workflow.get_graph()
+
+        assert "context_manager" in graph.nodes
+
+    def test_context_manager_runs_before_dm(self) -> None:
+        """Test that context_manager runs before DM in workflow."""
+        workflow = create_game_workflow(turn_queue=["dm", "fighter"])
+        graph = workflow.get_graph()
+
+        # Check edges: START -> context_manager -> dm
+        edges = graph.edges
+        start_edges = [e for e in edges if e[0] == "__start__"]
+        assert any(e[1] == "context_manager" for e in start_edges)
+
+        context_manager_edges = [e for e in edges if e[0] == "context_manager"]
+        assert any(e[1] == "dm" for e in context_manager_edges)
+
+    def test_workflow_with_compression_integration(self) -> None:
+        """Test complete workflow with compression triggered."""
+        state = create_test_state(
+            turn_queue=["dm"],
+            current_turn="dm",
+        )
+        state["session_id"] = "001"
+
+        # Set up large buffer to trigger compression
+        state["agent_memories"]["dm"].short_term_buffer = [
+            f"Event {i}" for i in range(50)
+        ]
+        state["agent_memories"]["dm"].token_limit = 100
+
+        with (
+            patch("agents.get_llm") as mock_get_llm,
+            patch("memory.get_llm") as mock_memory_llm,
+        ):
+            # Mock game LLM
+            mock_model = MagicMock()
+            mock_model.bind_tools.return_value = mock_model
+            mock_model.invoke.return_value = AIMessage(content="DM narrates.")
+            mock_get_llm.return_value = mock_model
+
+            # Mock summarizer LLM
+            mock_summary_model = MagicMock()
+            mock_summary_response = MagicMock()
+            mock_summary_response.content = "Compressed summary."
+            mock_summary_model.invoke.return_value = mock_summary_response
+            mock_memory_llm.return_value = mock_summary_model
+
+            result = run_single_round(state)
+
+        # Workflow should complete successfully
+        assert len(result["ground_truth_log"]) >= 1

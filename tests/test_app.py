@@ -9315,7 +9315,10 @@ class TestKeyboardShortcutWithNudge:
             handle_keyboard_drop_in(0)
 
             # Nudge should remain (handled separately by DM)
-            assert mock_session_state["pending_nudge"] == "The rogue should check for traps"
+            assert (
+                mock_session_state["pending_nudge"]
+                == "The rogue should check for traps"
+            )
             assert mock_session_state["controlled_character"] == "fighter"
 
     def test_keyboard_release_preserves_nudge(self) -> None:
@@ -9348,7 +9351,9 @@ class TestKeyboardShortcutWithNudge:
             handle_keyboard_release()
 
             # Nudge should remain
-            assert mock_session_state["pending_nudge"] == "Have the wizard cast fireball"
+            assert (
+                mock_session_state["pending_nudge"] == "Have the wizard cast fireball"
+            )
 
 
 class TestKeyboardShortcutWithModal:
@@ -9932,7 +9937,9 @@ class TestRenderCheckpointEntryHtml:
         """Test checkpoint entry generates correct HTML structure."""
         from app import render_checkpoint_entry_html
 
-        html = render_checkpoint_entry_html(5, "2026-01-28 10:30", "The adventure begins...")
+        html = render_checkpoint_entry_html(
+            5, "2026-01-28 10:30", "The adventure begins..."
+        )
         assert 'class="checkpoint-entry"' in html
         assert 'class="checkpoint-header"' in html
         assert 'class="checkpoint-turn"' in html
@@ -9943,7 +9950,9 @@ class TestRenderCheckpointEntryHtml:
         """Test checkpoint entry contains correct content."""
         from app import render_checkpoint_entry_html
 
-        html = render_checkpoint_entry_html(5, "2026-01-28 10:30", "The adventure begins...")
+        html = render_checkpoint_entry_html(
+            5, "2026-01-28 10:30", "The adventure begins..."
+        )
         assert "Turn 5" in html
         assert "2026-01-28 10:30" in html
         assert "The adventure begins..." in html
@@ -9984,7 +9993,9 @@ class TestHandleCheckpointRestore:
             result = handle_checkpoint_restore("001", 1)
 
             assert result is True
-            assert mock_session_state["game"]["ground_truth_log"] == ["[dm] Restored message."]
+            assert mock_session_state["game"]["ground_truth_log"] == [
+                "[dm] Restored message."
+            ]
 
     def test_handle_restore_stops_autopilot(self, tmp_path: Path) -> None:
         """Test restore stops autopilot if running."""
@@ -10610,7 +10621,7 @@ class TestCheckpointBrowserUIIntegration:
         """Test browser shows message when no checkpoints available."""
         app_path = Path(__file__).parent.parent / "app.py"
         source = app_path.read_text(encoding="utf-8")
-        assert 'No checkpoints available' in source
+        assert "No checkpoints available" in source
 
 
 class TestCheckpointRestoreAcceptanceCriteria:
@@ -11028,9 +11039,7 @@ class TestHandleSessionContinue:
         assert mock_session_state["app_view"] == "game"
         assert mock_session_state["current_session_id"] == "001"
 
-    def test_handle_session_continue_resets_ui_state(
-        self, tmp_path: Path
-    ) -> None:
+    def test_handle_session_continue_resets_ui_state(self, tmp_path: Path) -> None:
         """Test handle_session_continue resets UI state correctly."""
         from models import populate_game_state
         from persistence import save_checkpoint
@@ -11061,9 +11070,7 @@ class TestHandleSessionContinue:
         assert mock_session_state["human_active"] is False
         assert mock_session_state["is_generating"] is False
 
-    def test_handle_session_continue_generates_recap(
-        self, tmp_path: Path
-    ) -> None:
+    def test_handle_session_continue_generates_recap(self, tmp_path: Path) -> None:
         """Test handle_session_continue generates recap for turn > 0."""
         from models import populate_game_state
         from persistence import save_checkpoint
@@ -11092,9 +11099,7 @@ class TestHandleSessionContinue:
 class TestHandleNewSessionClick:
     """Tests for handle_new_session_click function (Story 4.3)."""
 
-    def test_handle_new_session_click_creates_session(
-        self, tmp_path: Path
-    ) -> None:
+    def test_handle_new_session_click_creates_session(self, tmp_path: Path) -> None:
         """Test handle_new_session_click creates new session."""
         from persistence import list_sessions
 
@@ -11114,9 +11119,7 @@ class TestHandleNewSessionClick:
         assert len(sessions) == 1
         assert mock_session_state.get("app_view") == "game"
 
-    def test_handle_new_session_click_sets_game_state(
-        self, tmp_path: Path
-    ) -> None:
+    def test_handle_new_session_click_sets_game_state(self, tmp_path: Path) -> None:
         """Test handle_new_session_click sets game state."""
         mock_session_state: dict = {}
 
@@ -11133,9 +11136,7 @@ class TestHandleNewSessionClick:
         assert "ground_truth_log" in game
         assert "session_id" in game
 
-    def test_handle_new_session_click_clears_recap(
-        self, tmp_path: Path
-    ) -> None:
+    def test_handle_new_session_click_clears_recap(self, tmp_path: Path) -> None:
         """Test handle_new_session_click clears recap state."""
         mock_session_state: dict = {
             "show_recap": True,
@@ -11234,9 +11235,7 @@ class TestSessionBrowserCSS:
 class TestStory43AppAcceptanceCriteria:
     """Acceptance tests for Story 4.3 app functionality."""
 
-    def test_ac1_session_browser_lists_all_sessions(
-        self, tmp_path: Path
-    ) -> None:
+    def test_ac1_session_browser_lists_all_sessions(self, tmp_path: Path) -> None:
         """AC #1: Session browser shows all available sessions."""
         from models import SessionMetadata
         from persistence import list_sessions_with_metadata, save_session_metadata
@@ -11315,9 +11314,7 @@ class TestStory43AppAcceptanceCriteria:
         assert mock_session_state.get("show_recap") is True
         assert mock_session_state.get("game") is not None
 
-    def test_ac4_new_session_creates_fresh_state(
-        self, tmp_path: Path
-    ) -> None:
+    def test_ac4_new_session_creates_fresh_state(self, tmp_path: Path) -> None:
         """AC #4: New Session creates fresh game state."""
         mock_session_state: dict = {}
 
@@ -11379,7 +11376,7 @@ class TestSessionBrowserEdgeCases:
         metadata = SessionMetadata(
             session_id="001",
             session_number=1,
-            name="\U0001F409 Dragon's Quest",
+            name="\U0001f409 Dragon's Quest",
             created_at="2026-01-28T10:00:00Z",
             updated_at="2026-01-28T10:00:00Z",
         )
@@ -11437,3 +11434,119 @@ class TestInitializeSessionStateStory43:
         assert "recap_text" in mock_session_state
         assert mock_session_state["show_recap"] is False
         assert mock_session_state["recap_text"] == ""
+
+
+# =============================================================================
+# Story 5.2: Summarization Indicator Tests
+# =============================================================================
+
+
+class TestSummarizationIndicatorHtml:
+    """Tests for render_summarization_indicator_html function."""
+
+    def test_render_summarization_indicator_html_when_active(self) -> None:
+        """Test indicator HTML when summarization is in progress."""
+        from app import render_summarization_indicator_html
+
+        html = render_summarization_indicator_html(summarization_in_progress=True)
+
+        assert html != ""
+        assert "summarization-indicator" in html
+
+    def test_render_summarization_indicator_html_when_inactive(self) -> None:
+        """Test indicator HTML returns empty when not summarizing."""
+        from app import render_summarization_indicator_html
+
+        html = render_summarization_indicator_html(summarization_in_progress=False)
+
+        assert html == ""
+
+    def test_render_summarization_indicator_html_contains_text(self) -> None:
+        """Test indicator contains descriptive text."""
+        from app import render_summarization_indicator_html
+
+        html = render_summarization_indicator_html(summarization_in_progress=True)
+
+        # Should contain some user-friendly text about summarization
+        assert (
+            "memory" in html.lower()
+            or "compress" in html.lower()
+            or "summar" in html.lower()
+        )
+
+    def test_render_summarization_indicator_html_structure(self) -> None:
+        """Test indicator has proper CSS class structure."""
+        from app import render_summarization_indicator_html
+
+        html = render_summarization_indicator_html(summarization_in_progress=True)
+
+        assert 'class="summarization-indicator"' in html
+        assert "<div" in html
+        assert "</div>" in html
+
+
+class TestSummarizationIndicatorIntegration:
+    """Integration tests for summarization indicator in app.py."""
+
+    def test_render_summarization_indicator_when_in_progress(self) -> None:
+        """Test render_summarization_indicator shows indicator when active."""
+        mock_session_state = {
+            "game": {"summarization_in_progress": True},
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            with patch("streamlit.markdown") as mock_markdown:
+                from app import render_summarization_indicator
+
+                render_summarization_indicator()
+
+                # Should call st.markdown with indicator HTML
+                mock_markdown.assert_called()
+                call_args = mock_markdown.call_args[0][0]
+                assert "summarization-indicator" in call_args
+
+    def test_render_summarization_indicator_when_not_in_progress(self) -> None:
+        """Test render_summarization_indicator is silent when not active."""
+        mock_session_state = {
+            "game": {"summarization_in_progress": False},
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            with patch("streamlit.markdown") as mock_markdown:
+                from app import render_summarization_indicator
+
+                render_summarization_indicator()
+
+                # Should not call st.markdown with indicator content
+                if mock_markdown.called:
+                    call_args = mock_markdown.call_args[0][0]
+                    assert "summarization-indicator" not in call_args
+
+    def test_render_summarization_indicator_missing_flag(self) -> None:
+        """Test render_summarization_indicator handles missing flag gracefully."""
+        mock_session_state = {
+            "game": {},  # No summarization_in_progress flag
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            with patch("streamlit.markdown") as mock_markdown:
+                from app import render_summarization_indicator
+
+                # Should not raise
+                render_summarization_indicator()
+
+                # Should not show indicator when flag is missing
+                if mock_markdown.called:
+                    call_args = mock_markdown.call_args[0][0]
+                    assert "summarization-indicator" not in call_args
+
+    def test_render_summarization_indicator_no_game(self) -> None:
+        """Test render_summarization_indicator handles missing game gracefully."""
+        mock_session_state = {}  # No game at all
+
+        with patch("streamlit.session_state", mock_session_state):
+            with patch("streamlit.markdown"):
+                from app import render_summarization_indicator
+
+                # Should not raise
+                render_summarization_indicator()

@@ -11,19 +11,185 @@ The MemoryManager provides a clean interface for:
 - Managing memory operations (add, get)
 
 Story 5.1: Short-Term Context Buffer implementation.
+Story 5.2: Session Summary Generation - Summarizer and compression.
 """
+
+import logging
+
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
 from agents import (
     DM_CONTEXT_PLAYER_ENTRIES_LIMIT,
     DM_CONTEXT_RECENT_EVENTS_LIMIT,
     PC_CONTEXT_RECENT_EVENTS_LIMIT,
+    LLMError,
+    categorize_error,
+    get_llm,
 )
+from config import get_config
 from models import GameState
 
+# Logger for error tracking (technical details logged internally)
+logger = logging.getLogger("autodungeon")
+
 __all__ = [
+    "JANITOR_SYSTEM_PROMPT",
     "MemoryManager",
+    "Summarizer",
     "estimate_tokens",
 ]
+
+# Default number of entries to retain after compression
+RETAIN_AFTER_COMPRESSION = 3
+
+# Module-level cache for Summarizer instance to avoid re-creating LLM clients
+_summarizer_cache: dict[tuple[str, str], "Summarizer"] = {}
+
+# Janitor System Prompt for memory compression (Story 5.2, AC #2, #3)
+JANITOR_SYSTEM_PROMPT = """You are a memory compression assistant for a D&D game.
+
+Your task is to condense session events into a concise summary that preserves essential story information.
+
+## PRESERVE (Include in summary):
+- Character names and their relationships (allies, rivals, friends)
+- Inventory changes (items gained, lost, or used)
+- Quest goals and progress (accepted, completed, failed)
+- Status effects and conditions (curses, blessings, injuries)
+- Key plot points and discoveries
+- Location changes and notable places visited
+- NPC names and their significance
+
+## DISCARD (Omit from summary):
+- Verbatim dialogue (keep only the gist of important conversations)
+- Detailed dice roll mechanics (e.g., "rolled 15 on d20")
+- Repetitive environmental descriptions
+- Combat blow-by-blow (summarize outcomes instead)
+- Timestamps and turn markers
+
+## FORMAT:
+Write a concise narrative summary in third person past tense.
+Use bullet points for lists of items or status effects.
+Keep the summary under 500 words.
+Focus on what would be important for the character to remember."""
+
+
+class Summarizer:
+    """Summarizer class for generating memory compression summaries.
+
+    Uses the Janitor system prompt to compress game events into
+    concise summaries that preserve essential narrative elements.
+
+    Attributes:
+        provider: LLM provider name (gemini, claude, ollama).
+        model: Model name to use for summarization.
+        _llm: The LangChain chat model instance (lazily initialized).
+    """
+
+    def __init__(self, provider: str, model: str) -> None:
+        """Initialize Summarizer with LLM provider and model.
+
+        The LLM client is lazily initialized on first use to allow
+        instantiation in tests without requiring API keys.
+
+        Args:
+            provider: LLM provider name (gemini, claude, ollama).
+            model: Model name to use for summarization.
+        """
+        self.provider = provider
+        self.model = model
+        self._llm: BaseChatModel | None = None
+
+    def _get_llm(self) -> BaseChatModel:
+        """Get or create the LLM client.
+
+        Lazily initializes the LLM on first access.
+
+        Returns:
+            The LangChain chat model instance.
+        """
+        if self._llm is None:
+            self._llm = get_llm(self.provider, self.model)
+        return self._llm
+
+    # Maximum characters to send to summarizer to prevent context overflow
+    MAX_BUFFER_CHARS = 50_000  # ~12k tokens for most models
+
+    def generate_summary(self, agent_name: str, buffer_entries: list[str]) -> str:
+        """Generate a summary from buffer entries.
+
+        Uses the Janitor system prompt to compress events into
+        a concise summary preserving essential story information.
+
+        Note: Buffer content comes from trusted sources (DM and PC agents)
+        so prompt injection is not a concern here.
+
+        Args:
+            agent_name: Name of the agent whose memory is being compressed.
+            buffer_entries: List of buffer entries to summarize.
+
+        Returns:
+            Generated summary string, or empty string if buffer is empty
+            or on error.
+        """
+        if not buffer_entries:
+            return ""
+
+        # Build the prompt - truncate if too large to prevent context overflow
+        buffer_text = "\n".join(buffer_entries)
+        if len(buffer_text) > self.MAX_BUFFER_CHARS:
+            logger.warning(
+                "Buffer text truncated for summarization",
+                extra={
+                    "agent": agent_name,
+                    "original_chars": len(buffer_text),
+                    "truncated_to": self.MAX_BUFFER_CHARS,
+                },
+            )
+            buffer_text = buffer_text[: self.MAX_BUFFER_CHARS]
+        messages: list[BaseMessage] = [
+            SystemMessage(content=JANITOR_SYSTEM_PROMPT),
+            HumanMessage(
+                content=f"Please summarize these events for {agent_name}:\n\n{buffer_text}"
+            ),
+        ]
+
+        try:
+            # Invoke LLM synchronously (blocking per architecture)
+            llm = self._get_llm()
+            response = llm.invoke(messages)
+
+            # Extract content from response - handle both str and list[str] cases
+            content = response.content
+            if isinstance(content, str):
+                return content
+            # LangChain may return list of content blocks (e.g., Claude)
+            # Join string elements, skip non-string items (like tool use blocks)
+            if hasattr(content, "__iter__"):
+                text_parts = [part for part in content if isinstance(part, str)]
+                return "".join(text_parts)
+            # Fallback for unexpected types
+            return str(content) if content else ""
+
+        except Exception as e:
+            # Categorize and log error, return empty string for graceful degradation
+            error_type = categorize_error(e)
+            llm_error = LLMError(
+                provider=self.provider,
+                agent=f"summarizer-{agent_name}",
+                error_type=error_type,
+                original_error=e,
+            )
+            logger.error(
+                "Summarization failed",
+                extra={
+                    "provider": llm_error.provider,
+                    "agent": llm_error.agent,
+                    "error_type": llm_error.error_type,
+                    "original_error": str(e),
+                },
+            )
+            return ""
 
 
 def estimate_tokens(text: str) -> int:
@@ -263,3 +429,85 @@ class MemoryManager:
         memory = self._state["agent_memories"].get(agent_name)
         if memory:
             memory.short_term_buffer.append(content)
+
+    def compress_buffer(
+        self, agent_name: str, retain_count: int = RETAIN_AFTER_COMPRESSION
+    ) -> str:
+        """Compress buffer entries into long_term_summary.
+
+        Gets buffer entries for the agent, generates a summary using the
+        Summarizer, updates the agent's long_term_summary field, and
+        clears compressed entries while retaining the most recent ones.
+
+        WARNING: This modifies the state in-place. For LangGraph nodes,
+        use the immutable version that returns an updated state copy.
+
+        Args:
+            agent_name: The agent whose buffer to compress.
+            retain_count: Number of recent entries to keep in buffer (default 3).
+
+        Returns:
+            Generated summary string, or empty string if nothing to compress
+            or on error.
+        """
+        memory = self._state["agent_memories"].get(agent_name)
+        if not memory:
+            return ""
+
+        buffer = memory.short_term_buffer
+        if not buffer:
+            return ""
+
+        # Skip if not enough entries to compress
+        if len(buffer) <= retain_count:
+            return ""
+
+        # Get entries to compress (all but the most recent)
+        entries_to_compress = buffer[:-retain_count]
+        entries_to_keep = buffer[-retain_count:]
+
+        if not entries_to_compress:
+            return ""
+
+        # Get summarizer configuration from config (cached for efficiency)
+        config = get_config()
+        cache_key = (config.agents.summarizer.provider, config.agents.summarizer.model)
+        if cache_key not in _summarizer_cache:
+            _summarizer_cache[cache_key] = Summarizer(
+                provider=config.agents.summarizer.provider,
+                model=config.agents.summarizer.model,
+            )
+        summarizer = _summarizer_cache[cache_key]
+
+        # Generate summary
+        summary = summarizer.generate_summary(agent_name, entries_to_compress)
+
+        if not summary:
+            # Summarization failed, don't modify state
+            return ""
+
+        # Merge with existing summary
+        new_summary = _merge_summaries(memory.long_term_summary, summary)
+
+        # Update memory state in-place (for non-LangGraph contexts)
+        memory.long_term_summary = new_summary
+        memory.short_term_buffer.clear()
+        memory.short_term_buffer.extend(entries_to_keep)
+
+        return summary
+
+
+def _merge_summaries(existing: str, new_summary: str) -> str:
+    """Merge new summary with existing long-term summary.
+
+    Args:
+        existing: The existing long_term_summary content.
+        new_summary: The newly generated summary to append.
+
+    Returns:
+        Merged summary string.
+    """
+    if not existing:
+        return new_summary
+    # Append new summary as continuation with separator
+    return f"{existing}\n\n---\n\n{new_summary}"

@@ -402,6 +402,8 @@ class GameState(TypedDict):
         controlled_character: Name of the character the human controls, or None.
         session_number: Current session number for display (default 1).
         session_id: Unique session identifier for persistence (e.g., "001").
+        summarization_in_progress: True while memory compression is running.
+            Used by UI to show summarization indicator.
     """
 
     ground_truth_log: list[str]
@@ -416,6 +418,7 @@ class GameState(TypedDict):
     controlled_character: str | None
     session_number: int
     session_id: str
+    summarization_in_progress: bool
 
 
 class MessageSegment(BaseModel):
@@ -598,6 +601,7 @@ def create_initial_game_state() -> GameState:
         controlled_character=None,
         session_number=1,
         session_id="001",
+        summarization_in_progress=False,
     )
 
 
@@ -653,6 +657,7 @@ def populate_game_state(include_sample_messages: bool = True) -> GameState:
         controlled_character=None,
         session_number=session_number,
         session_id=session_id,
+        summarization_in_progress=False,
     )
 
 

@@ -346,11 +346,39 @@
 
 | Story | Status | Phase |
 |-------|--------|-------|
-| 5-1-short-term-context-buffer | 🔄 in-progress | Create Story |
-| 5-2-session-summary-generation | ⏳ backlog | Queued |
+| 5-1-short-term-context-buffer | ✅ done | Full Cycle |
+| 5-2-session-summary-generation | 🔄 in-progress | Create Story |
 | 5-3-in-session-memory-references | ⏳ backlog | Queued |
 | 5-4-cross-session-memory-character-facts | ⏳ backlog | Queued |
 | 5-5-memory-compression-system | ⏳ backlog | Queued |
+
+---
+
+## Story: 5-1-short-term-context-buffer
+
+**Status:** ✅ Completed
+**Duration:** 2026-01-28
+
+### Files Touched
+- `memory.py` - MemoryManager class with get_context(), token estimation, buffer helpers
+- `tests/test_memory.py` - 126 comprehensive tests (69 initial + 57 expanded)
+- `_bmad-output/implementation-artifacts/5-1-short-term-context-buffer.md` - Story file
+
+### Key Design Decisions
+- MemoryManager provides clean abstraction layer over existing memory infrastructure
+- PC agents see only their own buffer (strict isolation via _build_pc_context)
+- DM sees all agents' buffers (asymmetric access via _build_dm_context)
+- Token estimation uses word-based calculation with CJK character fallback
+- Did NOT refactor agents.py - existing implementation works correctly
+
+### Issues Auto-Resolved
+- **HIGH**: add_to_buffer() immutability warning → Enhanced docstring with explicit WARNING
+- **MEDIUM**: No input validation on add_to_buffer() → Added None check and 100KB size limit
+- **MEDIUM**: Token estimation fails for CJK text → Added character-based fallback
+- **MEDIUM**: Duplicated constants → Imported from agents.py instead
+
+### User Input Required
+- None - all issues auto-resolved
 
 ---
 

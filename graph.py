@@ -5,8 +5,11 @@ This module implements the turn-based game loop using LangGraph:
 - Conditional edges for turn-based progression
 - Human intervention support (placeholder for Epic 3)
 - Error handling and recovery (Story 4.5)
+- Context management and memory compression (Story 5.2)
 
-The game flow per invocation is: DM -> PC1 -> PC2 -> ... -> PCn -> END
+The game flow per invocation is:
+  context_manager -> DM -> PC1 -> PC2 -> ... -> PCn -> END
+
 Each workflow.invoke() executes ONE complete round. Call invoke() again
 for subsequent rounds.
 """
@@ -15,10 +18,12 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from agents import LLMError, dm_turn, pc_turn
+from memory import MemoryManager
 from models import GameState, create_user_error
 
 __all__ = [
     "GameStateWithError",
+    "context_manager",
     "create_game_workflow",
     "human_intervention_node",
     "route_to_next_agent",
@@ -29,6 +34,45 @@ __all__ = [
 # Type alias for GameState that may include an error field
 # This allows run_single_round to return error information without corrupting game state
 GameStateWithError = dict[str, object]  # GameState fields + optional "error" key
+
+
+def context_manager(state: GameState) -> GameState:
+    """Manage agent memory context before DM turn.
+
+    Runs before the DM turn each round to check and compress memory
+    buffers that are approaching their token limits. This ensures
+    agents maintain relevant context without exceeding limits.
+
+    Per architecture: compression runs synchronously (blocking) to
+    ensure memory is compressed before the DM acts.
+
+    Args:
+        state: Current game state with agent_memories.
+
+    Returns:
+        Updated game state with compressed memories if needed.
+        Sets summarization_in_progress flag during operation.
+    """
+    # Create a typed copy to avoid mutating original state
+    updated_state: GameState = {
+        **state,
+        "summarization_in_progress": True,
+    }
+
+    # Get memory manager for this state
+    memory_manager = MemoryManager(updated_state)
+
+    # Check each agent's memory and compress if near limit
+    agent_memories = updated_state["agent_memories"]
+    for agent_name in agent_memories:
+        if memory_manager.is_near_limit(agent_name):
+            # Compress buffer (modifies state in place through manager)
+            memory_manager.compress_buffer(agent_name)
+
+    # Clear the summarization flag after completion
+    updated_state["summarization_in_progress"] = False
+
+    return updated_state
 
 
 def route_to_next_agent(state: GameState) -> str:
@@ -197,6 +241,10 @@ def create_game_workflow(  # type: ignore[return-value]
 
     workflow = StateGraph(GameState)
 
+    # Add context_manager node (Story 5.2)
+    # Runs before DM to check and compress memory buffers
+    workflow.add_node("context_manager", context_manager)
+
     # Add DM node
     workflow.add_node("dm", dm_turn)
 
@@ -213,8 +261,9 @@ def create_game_workflow(  # type: ignore[return-value]
     # Add human intervention node (placeholder for Epic 3)
     workflow.add_node("human", human_intervention_node)
 
-    # Add entry edge from START to DM
-    workflow.add_edge(START, "dm")
+    # Add entry edges: START -> context_manager -> DM
+    workflow.add_edge(START, "context_manager")
+    workflow.add_edge("context_manager", "dm")
 
     # Build routing map for conditional edges
     # Maps return values of route_to_next_agent to node names

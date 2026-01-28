@@ -592,6 +592,42 @@ def render_thinking_indicator_html(is_generating: bool, is_paused: bool) -> str:
     )
 
 
+def render_summarization_indicator_html(summarization_in_progress: bool) -> str:
+    """Generate HTML for summarization indicator (pure function).
+
+    Shows a subtle indicator when memory compression is running.
+    Uses campfire theme styling.
+
+    Args:
+        summarization_in_progress: Whether summarization is currently running.
+
+    Returns:
+        HTML string for summarization indicator, or empty string if not needed.
+    """
+    if not summarization_in_progress:
+        return ""
+
+    return (
+        '<div class="summarization-indicator">'
+        '<span class="summarization-text">Compressing memories...</span>'
+        "</div>"
+    )
+
+
+def render_summarization_indicator() -> None:
+    """Render summarization indicator to Streamlit when active.
+
+    Shows a brief text indicator when memory compression is running.
+    Only renders if game state has summarization_in_progress=True.
+    """
+    game: GameState = st.session_state.get("game", {})
+    summarization_in_progress = game.get("summarization_in_progress", False)
+
+    html = render_summarization_indicator_html(summarization_in_progress)
+    if html:
+        st.markdown(html, unsafe_allow_html=True)
+
+
 def render_thinking_indicator() -> None:
     """Render thinking indicator to Streamlit when generating.
 
@@ -1180,8 +1216,6 @@ MAX_ACTION_LENGTH = 2000
 MAX_NUDGE_LENGTH = 1000
 
 
-
-
 def handle_nudge_submit(nudge: str) -> None:
     """Handle submission of nudge suggestion.
 
@@ -1234,7 +1268,9 @@ def render_error_panel_html(error: UserError) -> str:
     Returns:
         HTML string for error panel.
     """
-    retry_disabled = 'disabled="disabled"' if error.retry_count >= MAX_RETRY_ATTEMPTS else ""
+    retry_disabled = (
+        'disabled="disabled"' if error.retry_count >= MAX_RETRY_ATTEMPTS else ""
+    )
     retry_class = "disabled" if error.retry_count >= MAX_RETRY_ATTEMPTS else ""
 
     # Show retry count if there have been attempts
@@ -1271,7 +1307,10 @@ def handle_retry_click() -> None:
     if retry_count >= MAX_RETRY_ATTEMPTS:
         # Too many retries - update error message (only if not already updated)
         current_error: UserError | None = st.session_state.get("error")
-        if current_error and "(Maximum retry attempts reached)" not in current_error.message:
+        if (
+            current_error
+            and "(Maximum retry attempts reached)" not in current_error.message
+        ):
             st.session_state["error"] = UserError(
                 title=current_error.title,
                 message=current_error.message + " (Maximum retry attempts reached)",
@@ -1885,6 +1924,9 @@ def render_game_controls() -> None:
 
     # Show thinking indicator when generating
     render_thinking_indicator()
+
+    # Show summarization indicator when compressing memories (Story 5.2)
+    render_summarization_indicator()
 
     st.markdown("</div>", unsafe_allow_html=True)
 
