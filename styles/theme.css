@@ -1391,3 +1391,146 @@ hr {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* ==========================================================================
+   Error Panel (Story 4.5)
+   ========================================================================== */
+
+/* Error panel container - campfire aesthetic with warm tones */
+.error-panel {
+  background: linear-gradient(180deg, rgba(196, 92, 74, 0.15) 0%, var(--bg-secondary) 100%);
+  border: 1px solid rgba(196, 92, 74, 0.4);
+  border-left: 4px solid var(--color-fighter);  /* Red accent for errors */
+  border-radius: 8px;
+  padding: var(--space-lg);
+  margin-bottom: var(--space-lg);
+  animation: error-fade-in 0.3s ease-out;
+}
+
+@keyframes error-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Error panel title - narrative font, amber color */
+.error-panel-title {
+  font-family: var(--font-narrative);
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--accent-warm);
+  margin: 0 0 var(--space-md) 0;
+  letter-spacing: 0.02em;
+}
+
+/* Error panel message - warm white, readable */
+.error-panel-message {
+  font-family: var(--font-narrative);
+  font-size: var(--text-pc);
+  color: var(--text-primary);
+  line-height: 1.6;
+  margin: 0 0 var(--space-sm) 0;
+}
+
+/* Error panel action suggestion - secondary text */
+.error-panel-action {
+  font-family: var(--font-ui);
+  font-size: var(--text-system);
+  color: var(--text-secondary);
+  font-style: italic;
+  margin: 0 0 var(--space-md) 0;
+}
+
+/* Error panel button container */
+.error-panel-actions {
+  display: flex;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+/* Error panel buttons - base styling */
+.error-panel-actions button {
+  font-family: var(--font-ui);
+  font-size: var(--text-system);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+/* Retry button - primary amber */
+.error-retry-btn {
+  background: var(--accent-warm);
+  border: none;
+  color: var(--bg-primary);
+}
+
+.error-retry-btn:hover:not(:disabled) {
+  background: #D49A3D;
+}
+
+.error-retry-btn:disabled,
+.error-retry-btn.disabled {
+  background: var(--bg-message);
+  color: var(--text-secondary);
+  cursor: not-allowed;
+}
+
+/* Restore button - secondary outline */
+.error-restore-btn {
+  background: transparent;
+  border: 1px solid var(--text-secondary);
+  color: var(--text-primary);
+}
+
+.error-restore-btn:hover {
+  background: var(--bg-message);
+  border-color: var(--text-primary);
+}
+
+/* New session button - subtle outline */
+.error-new-session-btn {
+  background: transparent;
+  border: 1px solid var(--text-secondary);
+  color: var(--text-secondary);
+}
+
+.error-new-session-btn:hover {
+  background: var(--bg-message);
+  border-color: var(--text-primary);
+  color: var(--text-primary);
+}
+
+/* Streamlit button overrides for error panel */
+.error-panel + div .stButton > button[key="error_retry_btn"] {
+  background: var(--accent-warm);
+  border: none;
+  color: var(--bg-primary);
+}
+
+.error-panel + div .stButton > button[key="error_retry_btn"]:hover:not(:disabled) {
+  background: #D49A3D;
+}
+
+.error-panel + div .stButton > button[key="error_retry_btn"]:disabled {
+  background: var(--bg-message);
+  color: var(--text-secondary);
+}
+
+.error-panel + div .stButton > button[key="error_restore_btn"],
+.error-panel + div .stButton > button[key="error_new_session_btn"] {
+  background: transparent;
+  border: 1px solid var(--text-secondary);
+  color: var(--text-primary);
+}
+
+.error-panel + div .stButton > button[key="error_restore_btn"]:hover,
+.error-panel + div .stButton > button[key="error_new_session_btn"]:hover {
+  background: var(--bg-message);
+  border-color: var(--text-primary);
+}

@@ -5,6 +5,7 @@ This module defines the core data models for the autodungeon game engine:
 - CharacterConfig: Character configuration with validation
 - GameConfig: Game-level settings
 - GameState: TypedDict wrapper for LangGraph compatibility
+- UserError: User-facing error model with friendly narrative messages
 
 Architecture note: GameState is a TypedDict (not Pydantic) because LangGraph
 requires TypedDict for state management. Pydantic models are embedded within
@@ -12,6 +13,7 @@ for validation and serialization benefits.
 """
 
 import re
+from datetime import UTC, datetime
 from typing import Literal, TypedDict
 
 from pydantic import BaseModel, Field, field_validator
@@ -20,14 +22,17 @@ __all__ = [
     "AgentMemory",
     "CharacterConfig",
     "DMConfig",
+    "ERROR_TYPES",
     "GameConfig",
     "GameState",
     "NarrativeMessage",
     "MessageSegment",
     "SessionMetadata",
     "TranscriptEntry",
+    "UserError",
     "create_agent_memory",
     "create_initial_game_state",
+    "create_user_error",
     "populate_game_state",
     "parse_log_entry",
     "parse_message_content",
@@ -261,6 +266,116 @@ class TranscriptEntry(BaseModel):
     content: str = Field(..., description="Full message content")
     tool_calls: list[dict[str, object]] | None = Field(
         default=None, description="Tool calls made during this turn"
+    )
+
+
+# =============================================================================
+# Error Handling (Story 4.5)
+# =============================================================================
+
+# Error type definitions with campfire-narrative style messages
+ERROR_TYPES: dict[str, dict[str, str]] = {
+    "timeout": {
+        "title": "The magical connection was interrupted...",
+        "message": "The spirits took too long to respond. The astral plane may be congested.",
+        "action": "Try again or restore to your last checkpoint.",
+    },
+    "rate_limit": {
+        "title": "The spirits need rest...",
+        "message": "Too many requests have been made. Wait a moment before continuing.",
+        "action": "Wait a few seconds, then try again.",
+    },
+    "auth_error": {
+        "title": "The magical seal is broken...",
+        "message": "Your credentials could not be verified. Check your API keys.",
+        "action": "Check your API configuration in LLM Status.",
+    },
+    "network_error": {
+        "title": "The connection to the realm has been severed...",
+        "message": "Unable to reach the spirit realm. Check your internet connection.",
+        "action": "Check your connection, or try Ollama for offline play.",
+    },
+    "invalid_response": {
+        "title": "The spirits speak in riddles...",
+        "message": "The response could not be understood. This may be temporary.",
+        "action": "Try again or restore to your last checkpoint.",
+    },
+    "unknown": {
+        "title": "Something unexpected happened...",
+        "message": "An unknown error occurred in the magical realm.",
+        "action": "Try again or restore to your last checkpoint.",
+    },
+}
+
+
+class UserError(BaseModel):
+    """User-facing error with friendly narrative-style messages.
+
+    This model represents errors shown to users in the UI, following the
+    campfire aesthetic with narrative-style messaging. Technical details
+    are logged separately and never exposed to users.
+
+    Attributes:
+        title: Friendly title explaining what happened (e.g., "The magical connection was interrupted...").
+        message: User-friendly explanation of the error.
+        action: Suggested action for the user to take.
+        error_type: Internal error category (timeout, rate_limit, auth_error, network_error, invalid_response, unknown).
+        timestamp: ISO format timestamp when error occurred.
+        provider: LLM provider that caused the error (for internal tracking).
+        agent: Agent that was executing when error occurred (for internal tracking).
+        retry_count: Number of retry attempts made (max 3).
+        last_checkpoint_turn: Turn number of last successful checkpoint for recovery.
+    """
+
+    title: str = Field(..., description="Friendly narrative-style title")
+    message: str = Field(..., description="User-friendly explanation")
+    action: str = Field(..., description="Suggested action for user")
+    error_type: str = Field(..., description="Internal error category")
+    timestamp: str = Field(..., description="ISO format timestamp")
+    provider: str = Field(default="", description="LLM provider that caused error")
+    agent: str = Field(default="", description="Agent that was executing")
+    retry_count: int = Field(default=0, ge=0, le=3, description="Retry attempts made")
+    last_checkpoint_turn: int | None = Field(
+        default=None, description="Last successful checkpoint turn number"
+    )
+
+
+def create_user_error(
+    error_type: str,
+    provider: str = "",
+    agent: str = "",
+    retry_count: int = 0,
+    last_checkpoint_turn: int | None = None,
+) -> UserError:
+    """Factory function to create a UserError with appropriate messages.
+
+    Looks up the error_type in ERROR_TYPES to get friendly narrative-style
+    title, message, and action text. Falls back to "unknown" error type
+    if the provided type is not recognized.
+
+    Args:
+        error_type: Error category (timeout, rate_limit, auth_error, network_error, invalid_response, unknown).
+        provider: LLM provider name (e.g., "gemini", "claude", "ollama").
+        agent: Agent name that was executing (e.g., "dm", "fighter").
+        retry_count: Number of retry attempts already made.
+        last_checkpoint_turn: Turn number of last successful checkpoint.
+
+    Returns:
+        UserError with friendly messages populated from ERROR_TYPES.
+    """
+    # Fall back to unknown if error_type not recognized
+    error_info = ERROR_TYPES.get(error_type, ERROR_TYPES["unknown"])
+
+    return UserError(
+        title=error_info["title"],
+        message=error_info["message"],
+        action=error_info["action"],
+        error_type=error_type if error_type in ERROR_TYPES else "unknown",
+        timestamp=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        provider=provider,
+        agent=agent,
+        retry_count=retry_count,
+        last_checkpoint_turn=last_checkpoint_turn,
     )
 
 

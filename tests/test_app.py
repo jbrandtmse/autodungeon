@@ -10848,9 +10848,8 @@ class TestRenderSessionCardHtml:
 
     def test_render_session_card_html_basic(self) -> None:
         """Test render_session_card_html generates correct HTML."""
-        from models import SessionMetadata
-
         from app import render_session_card_html
+        from models import SessionMetadata
 
         metadata = SessionMetadata(
             session_id="001",
@@ -10874,9 +10873,8 @@ class TestRenderSessionCardHtml:
 
     def test_render_session_card_html_empty_name(self) -> None:
         """Test session card shows 'Unnamed Adventure' for empty name."""
-        from models import SessionMetadata
-
         from app import render_session_card_html
+        from models import SessionMetadata
 
         metadata = SessionMetadata(
             session_id="001",
@@ -10891,9 +10889,8 @@ class TestRenderSessionCardHtml:
 
     def test_render_session_card_html_many_characters(self) -> None:
         """Test session card truncates character list with +N more."""
-        from models import SessionMetadata
-
         from app import render_session_card_html
+        from models import SessionMetadata
 
         metadata = SessionMetadata(
             session_id="001",
@@ -10913,9 +10910,8 @@ class TestRenderSessionCardHtml:
 
     def test_render_session_card_html_escapes_special_chars(self) -> None:
         """Test session card escapes HTML special characters."""
-        from models import SessionMetadata
-
         from app import render_session_card_html
+        from models import SessionMetadata
 
         metadata = SessionMetadata(
             session_id="001",
@@ -10933,9 +10929,8 @@ class TestRenderSessionCardHtml:
 
     def test_render_session_card_html_zero_turns(self) -> None:
         """Test session card shows 0 turns correctly."""
-        from models import SessionMetadata
-
         from app import render_session_card_html
+        from models import SessionMetadata
 
         metadata = SessionMetadata(
             session_id="001",
@@ -10950,9 +10945,8 @@ class TestRenderSessionCardHtml:
 
     def test_render_session_card_html_large_session_number(self) -> None:
         """Test session card handles large session numbers."""
-        from models import SessionMetadata
-
         from app import render_session_card_html
+        from models import SessionMetadata
 
         metadata = SessionMetadata(
             session_id="2024",
@@ -11268,9 +11262,8 @@ class TestStory43AppAcceptanceCriteria:
 
     def test_ac2_session_card_displays_metadata(self) -> None:
         """AC #2: Session card shows name, date, turn count, characters."""
-        from models import SessionMetadata
-
         from app import render_session_card_html
+        from models import SessionMetadata
 
         metadata = SessionMetadata(
             session_id="001",
@@ -11363,9 +11356,8 @@ class TestSessionBrowserEdgeCases:
 
     def test_render_session_card_html_no_characters(self) -> None:
         """Test session card renders correctly with no characters."""
-        from models import SessionMetadata
-
         from app import render_session_card_html
+        from models import SessionMetadata
 
         metadata = SessionMetadata(
             session_id="001",
@@ -11381,9 +11373,8 @@ class TestSessionBrowserEdgeCases:
 
     def test_render_session_card_html_unicode_name(self) -> None:
         """Test session card handles Unicode characters in name."""
-        from models import SessionMetadata
-
         from app import render_session_card_html
+        from models import SessionMetadata
 
         metadata = SessionMetadata(
             session_id="001",
@@ -11399,9 +11390,8 @@ class TestSessionBrowserEdgeCases:
 
     def test_render_session_card_html_exactly_3_characters(self) -> None:
         """Test session card with exactly 3 characters (no truncation needed)."""
-        from models import SessionMetadata
-
         from app import render_session_card_html
+        from models import SessionMetadata
 
         metadata = SessionMetadata(
             session_id="001",

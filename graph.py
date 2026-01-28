@@ -4,6 +4,7 @@ This module implements the turn-based game loop using LangGraph:
 - Supervisor pattern with DM routing to PC nodes
 - Conditional edges for turn-based progression
 - Human intervention support (placeholder for Epic 3)
+- Error handling and recovery (Story 4.5)
 
 The game flow per invocation is: DM -> PC1 -> PC2 -> ... -> PCn -> END
 Each workflow.invoke() executes ONE complete round. Call invoke() again
@@ -13,15 +14,21 @@ for subsequent rounds.
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from agents import dm_turn, pc_turn
-from models import GameState
+from agents import LLMError, dm_turn, pc_turn
+from models import GameState, create_user_error
 
 __all__ = [
+    "GameStateWithError",
     "create_game_workflow",
     "human_intervention_node",
     "route_to_next_agent",
     "run_single_round",
 ]
+
+
+# Type alias for GameState that may include an error field
+# This allows run_single_round to return error information without corrupting game state
+GameStateWithError = dict[str, object]  # GameState fields + optional "error" key
 
 
 def route_to_next_agent(state: GameState) -> str:
@@ -294,12 +301,18 @@ def _append_transcript_for_new_entries(
             pass
 
 
-def run_single_round(state: GameState) -> GameState:
+def run_single_round(state: GameState) -> GameStateWithError:
     """Execute one complete round (DM + all PCs).
 
     Convenience function that runs the workflow until the DM's next turn,
     completing one full cycle of the turn queue. Now includes auto-checkpoint
-    save after round completion (FR33, NFR11) and transcript logging (FR39).
+    save after round completion (FR33, NFR11), transcript logging (FR39),
+    and error handling (Story 4.5).
+
+    If an LLM error occurs during the round:
+    - The game state is NOT corrupted (original state preserved)
+    - A UserError is created and included in the returned dict under "error" key
+    - The last successful checkpoint turn number is included for recovery
 
     Note: This function creates a new workflow each time. For repeated
     execution, consider caching the compiled workflow.
@@ -308,18 +321,58 @@ def run_single_round(state: GameState) -> GameState:
         state: Initial game state for this round.
 
     Returns:
-        Updated state after all agents have acted once.
+        Updated state after all agents have acted once. If an error occurred,
+        the dict will include an "error" key with a UserError instance.
+        The original state fields are preserved in case of error for recovery.
     """
-    from persistence import save_checkpoint
+    from persistence import get_latest_checkpoint, save_checkpoint
+
+    # Determine last successful checkpoint for error recovery
+    session_id = state.get("session_id", "001")
+    last_checkpoint_turn = get_latest_checkpoint(session_id)
 
     workflow = create_game_workflow(state["turn_queue"])
 
-    # Run the workflow with recursion limit to prevent infinite loops
-    # The limit is set to turn_queue length + 1 to allow one full round
-    result: GameState = workflow.invoke(
-        state,
-        config={"recursion_limit": len(state["turn_queue"]) + 2},
-    )  # type: ignore[assignment]
+    try:
+        # Run the workflow with recursion limit to prevent infinite loops
+        # The limit is set to turn_queue length + 1 to allow one full round
+        result: GameState = workflow.invoke(
+            state,
+            config={"recursion_limit": len(state["turn_queue"]) + 2},
+        )  # type: ignore[assignment]
+
+    except LLMError as e:
+        # Create user-friendly error without corrupting game state (Story 4.5)
+        user_error = create_user_error(
+            error_type=e.error_type,
+            provider=e.provider,
+            agent=e.agent,
+            retry_count=0,
+            last_checkpoint_turn=last_checkpoint_turn,
+        )
+
+        # Return original state with error attached
+        # This ensures game state is not corrupted by partial turn (Task 3.4)
+        error_result: GameStateWithError = dict(state)
+        error_result["error"] = user_error
+        return error_result
+
+    except Exception as e:
+        # Handle unexpected errors gracefully
+        from agents import categorize_error
+
+        error_type = categorize_error(e)
+        user_error = create_user_error(
+            error_type=error_type,
+            provider="unknown",
+            agent="unknown",
+            retry_count=0,
+            last_checkpoint_turn=last_checkpoint_turn,
+        )
+
+        error_result = dict(state)
+        error_result["error"] = user_error
+        return error_result
 
     # Get session_id for persistence operations
     session_id = result.get("session_id", "001")
@@ -332,4 +385,5 @@ def run_single_round(state: GameState) -> GameState:
     if turn_number > 0:  # Only save if there's content
         save_checkpoint(result, session_id, turn_number)
 
-    return result
+    # Return result without error key
+    return dict(result)

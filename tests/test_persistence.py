@@ -5537,7 +5537,11 @@ class TestTranscriptIntegrationScenarios:
     ) -> None:
         """Test transcript persists across multiple checkpoint saves."""
         from models import TranscriptEntry
-        from persistence import append_transcript_entry, load_transcript, save_checkpoint
+        from persistence import (
+            append_transcript_entry,
+            load_transcript,
+            save_checkpoint,
+        )
 
         with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
             # Add entry, save checkpoint

@@ -14,7 +14,13 @@ import streamlit as st
 
 from config import AppConfig, get_config, validate_api_keys
 from graph import run_single_round
-from models import CharacterConfig, GameState, SessionMetadata, populate_game_state
+from models import (
+    CharacterConfig,
+    GameState,
+    SessionMetadata,
+    UserError,
+    populate_game_state,
+)
 from persistence import (
     create_new_session,
     generate_recap_summary,
@@ -96,8 +102,13 @@ def run_game_turn() -> bool:
     - If it's the human's turn and no pending action, skip (wait for input)
     - If pending action exists, process it through the graph
 
+    Error handling (Story 4.5):
+    - If run_single_round returns an error, stores it in session state
+    - Stops autopilot when error occurs
+    - Does NOT update game state with corrupted data
+
     Returns:
-        True if turn was executed, False if skipped (paused/waiting for human).
+        True if turn was executed successfully, False if skipped/error.
     """
     if st.session_state.get("is_paused", False):
         return False
@@ -125,10 +136,28 @@ def run_game_turn() -> bool:
         game = st.session_state.get("game", {})
 
         # Execute one round
-        updated_state = run_single_round(game)
+        result = run_single_round(game)
 
-        # Update session state
-        st.session_state["game"] = updated_state
+        # Check for error in result (Story 4.5)
+        error = result.get("error")
+        if error is not None and isinstance(error, UserError):
+            # Store error in session state for display
+            st.session_state["error"] = error
+            # Stop autopilot on error (AC #7 of integration tests)
+            st.session_state["is_autopilot_running"] = False
+            # Do NOT update game state with potentially corrupted data
+            return False
+
+        # No error - update session state with new game state
+        # Remove error key if present before storing as GameState
+        if "error" in result:
+            del result["error"]
+        st.session_state["game"] = result
+
+        # Clear any previous error on successful turn
+        st.session_state["error"] = None
+        # Reset retry count on success
+        st.session_state["error_retry_count"] = 0
 
         # Apply speed-based delay between turns
         delay = get_turn_delay()
@@ -960,6 +989,9 @@ def initialize_session_state() -> None:
         # Config modal auto-pause state (Story 3.5)
         st.session_state["modal_open"] = False
         st.session_state["pre_modal_pause_state"] = False
+        # Error handling state (Story 4.5)
+        st.session_state["error"] = None
+        st.session_state["error_retry_count"] = 0
 
 
 def get_api_key_status(config: AppConfig) -> str:
@@ -1148,6 +1180,8 @@ MAX_ACTION_LENGTH = 2000
 MAX_NUDGE_LENGTH = 1000
 
 
+
+
 def handle_nudge_submit(nudge: str) -> None:
     """Handle submission of nudge suggestion.
 
@@ -1178,6 +1212,196 @@ def handle_human_action_submit(action: str) -> None:
 
     if sanitized:
         st.session_state["human_pending_action"] = sanitized
+
+
+# =============================================================================
+# Error Handling & Recovery (Story 4.5)
+# =============================================================================
+
+# Maximum retry attempts before giving up
+MAX_RETRY_ATTEMPTS = 3
+
+
+def render_error_panel_html(error: UserError) -> str:
+    """Generate HTML for error panel with campfire styling.
+
+    Creates an error panel with friendly title, message, action suggestion,
+    and styled buttons for recovery options.
+
+    Args:
+        error: UserError instance with title, message, and action fields.
+
+    Returns:
+        HTML string for error panel.
+    """
+    retry_disabled = 'disabled="disabled"' if error.retry_count >= MAX_RETRY_ATTEMPTS else ""
+    retry_class = "disabled" if error.retry_count >= MAX_RETRY_ATTEMPTS else ""
+
+    # Show retry count if there have been attempts
+    retry_text = "Retry"
+    if error.retry_count > 0:
+        retry_text = f"Retry ({MAX_RETRY_ATTEMPTS - error.retry_count} left)"
+
+    return (
+        '<div class="error-panel">'
+        f'<h3 class="error-panel-title">{escape_html(error.title)}</h3>'
+        f'<p class="error-panel-message">{escape_html(error.message)}</p>'
+        f'<p class="error-panel-action">{escape_html(error.action)}</p>'
+        '<div class="error-panel-actions">'
+        f'<button class="error-retry-btn {retry_class}" {retry_disabled}>{retry_text}</button>'
+        '<button class="error-restore-btn">Restore from Checkpoint</button>'
+        '<button class="error-new-session-btn">Start New Session</button>'
+        "</div>"
+        "</div>"
+    )
+
+
+def handle_retry_click() -> None:
+    """Handle retry button click on error panel.
+
+    Increments retry count, clears error, and attempts to re-execute
+    the failed turn. If retry succeeds, game continues normally.
+    If retry fails again, error panel will be shown with updated count.
+
+    Enforces MAX_RETRY_ATTEMPTS limit (AC #4, Task 6.6).
+    """
+    # Get current retry count
+    retry_count = st.session_state.get("error_retry_count", 0)
+
+    if retry_count >= MAX_RETRY_ATTEMPTS:
+        # Too many retries - update error message (only if not already updated)
+        current_error: UserError | None = st.session_state.get("error")
+        if current_error and "(Maximum retry attempts reached)" not in current_error.message:
+            st.session_state["error"] = UserError(
+                title=current_error.title,
+                message=current_error.message + " (Maximum retry attempts reached)",
+                action="Restore from checkpoint or start a new session.",
+                error_type=current_error.error_type,
+                timestamp=current_error.timestamp,
+                provider=current_error.provider,
+                agent=current_error.agent,
+                retry_count=MAX_RETRY_ATTEMPTS,
+                last_checkpoint_turn=current_error.last_checkpoint_turn,
+            )
+        return
+
+    # Increment retry count
+    new_retry_count = retry_count + 1
+    st.session_state["error_retry_count"] = new_retry_count
+
+    # Clear error to allow retry
+    st.session_state["error"] = None
+
+    # Re-execute turn
+    if run_game_turn():
+        # Success - reset retry count
+        st.session_state["error_retry_count"] = 0
+    else:
+        # If failed again and error was set, update retry count in error
+        current_error = st.session_state.get("error")
+        if current_error:
+            st.session_state["error"] = UserError(
+                title=current_error.title,
+                message=current_error.message,
+                action=current_error.action,
+                error_type=current_error.error_type,
+                timestamp=current_error.timestamp,
+                provider=current_error.provider,
+                agent=current_error.agent,
+                retry_count=new_retry_count,
+                last_checkpoint_turn=current_error.last_checkpoint_turn,
+            )
+
+
+def handle_error_restore_click() -> None:
+    """Handle restore from checkpoint button on error panel.
+
+    Gets the last successful checkpoint from the error and restores to it.
+    Clears error state after successful restore.
+    Shows toast confirmation with turn number.
+    """
+    current_error: UserError | None = st.session_state.get("error")
+    if not current_error:
+        return
+
+    # Get game state for session_id
+    game: GameState = st.session_state.get("game", {})
+    session_id = game.get("session_id", "001")
+
+    # Get turn number to restore to
+    turn_number = current_error.last_checkpoint_turn
+    if turn_number is None:
+        # No checkpoint available - show error
+        st.error("No checkpoint available to restore from.")
+        return
+
+    # Reuse existing restore logic (Task 7.3)
+    if handle_checkpoint_restore(session_id, turn_number):
+        # Clear error state after successful restore (Task 7.4)
+        st.session_state["error"] = None
+        st.session_state["error_retry_count"] = 0
+        # Show toast confirmation (Task 7.5)
+        st.toast(f"Restored to Turn {turn_number}", icon="✅")
+    else:
+        st.error("Failed to restore checkpoint")
+
+
+def handle_error_new_session_click() -> None:
+    """Handle start new session button on error panel.
+
+    Creates a new session, clearing the error state.
+    Reuses existing new session logic.
+    """
+    # Clear error state
+    st.session_state["error"] = None
+    st.session_state["error_retry_count"] = 0
+
+    # Delegate to existing new session handler
+    handle_new_session_click()
+
+
+def render_error_panel() -> None:
+    """Render error panel if an error is present in session state.
+
+    Displays the error panel with friendly narrative-style message
+    and action buttons (Retry, Restore, New Session).
+
+    Only renders if st.session_state["error"] contains a UserError.
+    """
+    error: UserError | None = st.session_state.get("error")
+    if error is None:
+        return
+
+    # Render the error panel HTML
+    st.markdown(render_error_panel_html(error), unsafe_allow_html=True)
+
+    # Render functional Streamlit buttons (styled via CSS)
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        retry_disabled = error.retry_count >= MAX_RETRY_ATTEMPTS
+        if st.button(
+            "Retry",
+            key="error_retry_btn",
+            disabled=retry_disabled,
+        ):
+            handle_retry_click()
+            st.rerun()
+
+    with col2:
+        restore_disabled = error.last_checkpoint_turn is None
+        if st.button(
+            "Restore",
+            key="error_restore_btn",
+            disabled=restore_disabled,
+        ):
+            handle_error_restore_click()
+            st.rerun()
+
+    with col3:
+        if st.button("New Session", key="error_new_session_btn"):
+            handle_error_new_session_click()
+            st.rerun()
 
 
 def render_input_context_bar(controlled_character: str | None = None) -> None:
@@ -1680,6 +1904,10 @@ def render_main_content() -> None:
 
     # Game controls (Start Game / Next Turn button) (Story 2.6)
     render_game_controls()
+
+    # Error panel - shown when error is present (Story 4.5)
+    # Renders above narrative area with recovery options
+    render_error_panel()
 
     # Narrative container with messages (Story 2.3, 2.6)
     st.markdown('<div class="narrative-container">', unsafe_allow_html=True)

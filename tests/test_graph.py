@@ -330,16 +330,18 @@ class TestRunSingleRound:
         assert "rogue" in graph.nodes
 
     def test_returns_game_state_type(self) -> None:
-        """Test that run_single_round is typed to return GameState."""
-        # This is a type-level test - the function signature indicates
-        # it returns GameState. We verify the function exists and has
-        # the correct signature.
+        """Test that run_single_round is typed to return GameStateWithError.
+
+        Note: As of Story 4.5, run_single_round returns GameStateWithError
+        (a dict that may include an "error" key for error handling).
+        """
         import inspect
 
         sig = inspect.signature(run_single_round)
         assert "state" in sig.parameters
-        # Return annotation should be GameState
-        assert sig.return_annotation.__name__ == "GameState"
+        # Return annotation should be GameStateWithError (which is dict[str, object])
+        # After Story 4.5, return type changed to support error handling
+        assert sig.return_annotation == dict[str, object]
 
 
 # =============================================================================

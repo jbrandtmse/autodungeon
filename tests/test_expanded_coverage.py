@@ -554,6 +554,8 @@ class TestDmTurnEdgeCases:
             "whisper_queue": [],
             "human_active": False,
             "controlled_character": None,
+            "session_number": 1,
+            "session_id": "001",
         }
 
         with patch("agents.get_llm") as mock_get_llm:
@@ -586,6 +588,8 @@ class TestDmTurnEdgeCases:
             "whisper_queue": [],
             "human_active": False,
             "controlled_character": None,
+            "session_number": 1,
+            "session_id": "001",
         }
 
         with patch("agents.get_llm") as mock_get_llm:
@@ -634,6 +638,8 @@ class TestPcTurnEdgeCases:
             "whisper_queue": [],
             "human_active": False,
             "controlled_character": None,
+            "session_number": 1,
+            "session_id": "001",
         }
 
         with patch("agents.get_llm") as mock_get_llm:

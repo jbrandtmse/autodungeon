@@ -5,6 +5,9 @@ for different providers (Gemini, Claude, Ollama), as well as agent
 node functions for the LangGraph state machine.
 """
 
+import logging
+from datetime import UTC, datetime
+
 from langchain_anthropic import ChatAnthropic
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
@@ -16,6 +19,9 @@ from config import get_config
 from models import AgentMemory, CharacterConfig, DMConfig, GameState
 from tools import dm_roll_dice, pc_roll_dice
 
+# Logger for error tracking (technical details logged internally per FR40)
+logger = logging.getLogger("autodungeon")
+
 __all__ = [
     "CLASS_GUIDANCE",
     "DEFAULT_MODELS",
@@ -23,14 +29,17 @@ __all__ = [
     "DM_CONTEXT_RECENT_EVENTS_LIMIT",
     "DM_SYSTEM_PROMPT",
     "LLMConfigurationError",
+    "LLMError",
     "PC_CONTEXT_RECENT_EVENTS_LIMIT",
     "PC_SYSTEM_PROMPT_TEMPLATE",
     "SUPPORTED_PROVIDERS",
     "_build_dm_context",
     "_build_pc_context",
     "build_pc_system_prompt",
+    "categorize_error",
     "create_dm_agent",
     "create_pc_agent",
+    "detect_network_error",
     "dm_turn",
     "get_default_model",
     "get_llm",
@@ -207,6 +216,150 @@ class LLMConfigurationError(Exception):
             f"Cannot use {provider}: {missing_credential} not set. "
             f"Add it to your .env file or environment."
         )
+
+
+class LLMError(Exception):
+    """Exception raised when LLM API calls fail.
+
+    This exception wraps the original error and provides categorization
+    for user-friendly error handling. Technical details are preserved
+    for logging while the error_type enables friendly messaging.
+
+    Attributes:
+        provider: LLM provider name (gemini, claude, ollama).
+        agent: Agent that was executing (dm, rogue, fighter, etc.).
+        error_type: Categorized error type (timeout, rate_limit, auth_error, network_error, invalid_response, unknown).
+        original_error: The original exception that was caught.
+    """
+
+    def __init__(
+        self,
+        provider: str,
+        agent: str,
+        error_type: str,
+        original_error: Exception | None = None,
+    ) -> None:
+        """Initialize the LLM error.
+
+        Args:
+            provider: LLM provider name.
+            agent: Agent that was executing.
+            error_type: Categorized error type.
+            original_error: The original exception that was caught.
+        """
+        self.provider = provider
+        self.agent = agent
+        self.error_type = error_type
+        self.original_error = original_error
+        super().__init__(f"LLM error ({error_type}) for {agent} using {provider}")
+
+
+def detect_network_error(exception: Exception) -> bool:
+    """Check if exception indicates network connectivity issues.
+
+    Args:
+        exception: The caught exception.
+
+    Returns:
+        True if this is a network error, False otherwise.
+    """
+    error_str = str(exception).lower()
+    error_type = type(exception).__name__.lower()
+
+    network_indicators = [
+        "connection",
+        "network",
+        "dns",
+        "resolve",
+        "socket",
+        "refused",
+        "unreachable",
+        "no route",
+        "getaddrinfo",
+        "errno 11001",  # Windows DNS failure
+        "errno -2",  # Linux DNS failure
+    ]
+
+    return any(
+        indicator in error_str or indicator in error_type
+        for indicator in network_indicators
+    )
+
+
+def categorize_error(exception: Exception) -> str:
+    """Categorize exception into user-friendly error type.
+
+    Maps various exception types and error messages to one of the
+    supported error categories for user-friendly display.
+
+    Args:
+        exception: The caught exception.
+
+    Returns:
+        Error type string (timeout, rate_limit, auth_error, network_error, invalid_response, unknown).
+    """
+    error_str = str(exception).lower()
+
+    # Timeout errors
+    if "timeout" in error_str or "timed out" in error_str:
+        return "timeout"
+    if "deadline" in error_str and "exceed" in error_str:
+        return "timeout"
+
+    # Rate limit errors
+    if "rate" in error_str and "limit" in error_str:
+        return "rate_limit"
+    if "429" in error_str:
+        return "rate_limit"
+    if "too many requests" in error_str:
+        return "rate_limit"
+    if "quota" in error_str and ("exceed" in error_str or "limit" in error_str):
+        return "rate_limit"
+
+    # Auth errors
+    if "auth" in error_str or "api key" in error_str or "credential" in error_str:
+        return "auth_error"
+    if "401" in error_str or "403" in error_str:
+        return "auth_error"
+    if "permission" in error_str and "denied" in error_str:
+        return "auth_error"
+    if "invalid" in error_str and "key" in error_str:
+        return "auth_error"
+
+    # Network errors
+    if detect_network_error(exception):
+        return "network_error"
+
+    # Invalid response (parsing errors, unexpected format)
+    if "parse" in error_str or "json" in error_str or "decode" in error_str:
+        return "invalid_response"
+    if "unexpected" in error_str and ("response" in error_str or "format" in error_str):
+        return "invalid_response"
+    if "malformed" in error_str:
+        return "invalid_response"
+
+    return "unknown"
+
+
+def _log_llm_error(error: LLMError) -> None:
+    """Log LLM error with structured data for debugging.
+
+    Logs technical details internally per FR40 and NFR7.
+    Never exposes these details to users.
+
+    Args:
+        error: The LLMError to log.
+    """
+    logger.error(
+        "LLM API call failed",
+        extra={
+            "provider": error.provider,
+            "agent": error.agent,
+            "error_type": error.error_type,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "original_error": str(error.original_error) if error.original_error else "",
+        },
+    )
 
 
 def get_default_model(provider: str) -> str:
@@ -432,13 +585,14 @@ def dm_turn(state: GameState) -> GameState:
 
     Returns:
         New GameState with DM's response appended to logs.
+
+    Raises:
+        LLMError: If the LLM API call fails. The error is categorized
+            and logged internally before being re-raised for handling
+            in the game loop (Story 4.5).
     """
     # Get DM config and create agent
     dm_config = state["dm_config"]
-    dm_agent = create_dm_agent(dm_config)
-
-    # Build context from all agent memories
-    context = _build_dm_context(state)
 
     # Clear nudge after reading (single-use) - Story 3.4
     # Note: We access Streamlit session_state here because the nudge is UI-specific
@@ -452,14 +606,43 @@ def dm_turn(state: GameState) -> GameState:
         # or pending_nudge key doesn't exist (e.g., in tests without mocking)
         pass
 
-    # Build messages for the model
-    messages: list[BaseMessage] = [SystemMessage(content=DM_SYSTEM_PROMPT)]
-    if context:
-        messages.append(HumanMessage(content=f"Current game context:\n\n{context}"))
-    messages.append(HumanMessage(content="Continue the adventure."))
+    # Wrap agent creation and invocation in try/except for error handling (Story 4.5)
+    try:
+        dm_agent = create_dm_agent(dm_config)
 
-    # Invoke the model
-    response = dm_agent.invoke(messages)
+        # Build context from all agent memories
+        context = _build_dm_context(state)
+
+        # Build messages for the model
+        messages: list[BaseMessage] = [SystemMessage(content=DM_SYSTEM_PROMPT)]
+        if context:
+            messages.append(HumanMessage(content=f"Current game context:\n\n{context}"))
+        messages.append(HumanMessage(content="Continue the adventure."))
+
+        # Invoke the model
+        response = dm_agent.invoke(messages)
+
+    except LLMConfigurationError as e:
+        # Re-raise config errors as LLMError for consistent handling
+        llm_error = LLMError(
+            provider=dm_config.provider,
+            agent="dm",
+            error_type="auth_error",
+            original_error=e,
+        )
+        _log_llm_error(llm_error)
+        raise llm_error from None
+    except Exception as e:
+        # Categorize and log the error
+        error_type = categorize_error(e)
+        llm_error = LLMError(
+            provider=dm_config.provider,
+            agent="dm",
+            error_type=error_type,
+            original_error=e,
+        )
+        _log_llm_error(llm_error)
+        raise llm_error from e
 
     # Extract content from response (type ignore for langchain stubs)
     content = response.content  # type: ignore[union-attr]
@@ -494,6 +677,8 @@ def dm_turn(state: GameState) -> GameState:
         whisper_queue=state["whisper_queue"],
         human_active=state["human_active"],
         controlled_character=state["controlled_character"],
+        session_number=state["session_number"],
+        session_id=state["session_id"],
     )
 
 
@@ -516,27 +701,54 @@ def pc_turn(state: GameState, agent_name: str) -> GameState:
 
     Raises:
         KeyError: If the agent_name is not found in characters dict.
+        LLMError: If the LLM API call fails. The error is categorized
+            and logged internally before being re-raised for handling
+            in the game loop (Story 4.5).
     """
     # Get character config from state
     character_config = state["characters"][agent_name]
 
-    # Create agent with tools bound
-    pc_agent = create_pc_agent(character_config)
+    # Wrap agent creation and invocation in try/except for error handling (Story 4.5)
+    try:
+        # Create agent with tools bound
+        pc_agent = create_pc_agent(character_config)
 
-    # Build system prompt personalized for this character
-    system_prompt = build_pc_system_prompt(character_config)
+        # Build system prompt personalized for this character
+        system_prompt = build_pc_system_prompt(character_config)
 
-    # Build context from PC's own memory only (strict isolation)
-    context = _build_pc_context(state, agent_name)
+        # Build context from PC's own memory only (strict isolation)
+        context = _build_pc_context(state, agent_name)
 
-    # Build messages for the model
-    messages: list[BaseMessage] = [SystemMessage(content=system_prompt)]
-    if context:
-        messages.append(HumanMessage(content=f"Your current knowledge:\n\n{context}"))
-    messages.append(HumanMessage(content="It's your turn. What do you do?"))
+        # Build messages for the model
+        messages: list[BaseMessage] = [SystemMessage(content=system_prompt)]
+        if context:
+            messages.append(HumanMessage(content=f"Your current knowledge:\n\n{context}"))
+        messages.append(HumanMessage(content="It's your turn. What do you do?"))
 
-    # Invoke the model
-    response = pc_agent.invoke(messages)
+        # Invoke the model
+        response = pc_agent.invoke(messages)
+
+    except LLMConfigurationError as e:
+        # Re-raise config errors as LLMError for consistent handling
+        llm_error = LLMError(
+            provider=character_config.provider,
+            agent=agent_name,
+            error_type="auth_error",
+            original_error=e,
+        )
+        _log_llm_error(llm_error)
+        raise llm_error from None
+    except Exception as e:
+        # Categorize and log the error
+        error_type = categorize_error(e)
+        llm_error = LLMError(
+            provider=character_config.provider,
+            agent=agent_name,
+            error_type=error_type,
+            original_error=e,
+        )
+        _log_llm_error(llm_error)
+        raise llm_error from e
 
     # Extract content from response (type ignore for langchain stubs)
     content = response.content  # type: ignore[union-attr]
@@ -573,4 +785,6 @@ def pc_turn(state: GameState, agent_name: str) -> GameState:
         whisper_queue=state["whisper_queue"],
         human_active=state["human_active"],
         controlled_character=state["controlled_character"],
+        session_number=state["session_number"],
+        session_id=state["session_id"],
     )

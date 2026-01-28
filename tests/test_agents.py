@@ -269,6 +269,7 @@ class TestModuleExports:
             "get_llm",
             "get_default_model",
             "LLMConfigurationError",
+            "LLMError",
             "SUPPORTED_PROVIDERS",
             "DEFAULT_MODELS",
             "DM_SYSTEM_PROMPT",
@@ -285,6 +286,9 @@ class TestModuleExports:
             "create_pc_agent",
             "_build_pc_context",
             "pc_turn",
+            # Error handling exports (Story 4.5)
+            "categorize_error",
+            "detect_network_error",
         }
 
         assert set(agents.__all__) == expected_exports
