@@ -4832,3 +4832,876 @@ class TestTranscriptEdgeCases:
             assert loaded is not None
             assert len(loaded) == 1
             assert loaded[0].content == "Original entry."
+
+
+# =============================================================================
+# Expanded Test Coverage for Story 4.4 (Transcript Export)
+# =============================================================================
+
+
+class TestTranscriptEntryModelExpanded:
+    """Expanded edge case tests for TranscriptEntry model."""
+
+    def test_transcript_entry_turn_boundary_exactly_one(self) -> None:
+        """Test TranscriptEntry accepts turn=1 (boundary condition)."""
+        from models import TranscriptEntry
+
+        entry = TranscriptEntry(
+            turn=1,
+            timestamp="2026-01-28T10:00:00Z",
+            agent="dm",
+            content="First turn.",
+        )
+        assert entry.turn == 1
+
+    def test_transcript_entry_very_high_turn_number(self) -> None:
+        """Test TranscriptEntry accepts very high turn numbers."""
+        from models import TranscriptEntry
+
+        entry = TranscriptEntry(
+            turn=999999,
+            timestamp="2026-01-28T10:00:00Z",
+            agent="dm",
+            content="Very late in the game.",
+        )
+        assert entry.turn == 999999
+
+    def test_transcript_entry_negative_turn_raises(self) -> None:
+        """Test TranscriptEntry rejects negative turn numbers."""
+        from pydantic import ValidationError
+
+        from models import TranscriptEntry
+
+        with pytest.raises(ValidationError):
+            TranscriptEntry(
+                turn=-1,
+                timestamp="2026-01-28T10:00:00Z",
+                agent="dm",
+                content="Invalid.",
+            )
+
+    def test_transcript_entry_empty_content_allowed(self) -> None:
+        """Test TranscriptEntry allows empty content (edge case)."""
+        from models import TranscriptEntry
+
+        entry = TranscriptEntry(
+            turn=1,
+            timestamp="2026-01-28T10:00:00Z",
+            agent="dm",
+            content="",
+        )
+        assert entry.content == ""
+
+    def test_transcript_entry_whitespace_agent_allowed(self) -> None:
+        """Test TranscriptEntry allows agent with spaces (e.g., 'brother aldric')."""
+        from models import TranscriptEntry
+
+        entry = TranscriptEntry(
+            turn=1,
+            timestamp="2026-01-28T10:00:00Z",
+            agent="brother aldric",
+            content="Blessings upon you.",
+        )
+        assert entry.agent == "brother aldric"
+
+    def test_transcript_entry_empty_tool_calls_list(self) -> None:
+        """Test TranscriptEntry accepts empty tool_calls list."""
+        from models import TranscriptEntry
+
+        entry = TranscriptEntry(
+            turn=1,
+            timestamp="2026-01-28T10:00:00Z",
+            agent="dm",
+            content="No tools used.",
+            tool_calls=[],
+        )
+        assert entry.tool_calls == []
+
+    def test_transcript_entry_tool_calls_complex_args(self) -> None:
+        """Test TranscriptEntry handles complex nested tool call args."""
+        from models import TranscriptEntry
+
+        entry = TranscriptEntry(
+            turn=1,
+            timestamp="2026-01-28T10:00:00Z",
+            agent="dm",
+            content="Complex tool call.",
+            tool_calls=[{
+                "name": "complex_tool",
+                "args": {
+                    "nested": {"key": "value", "list": [1, 2, 3]},
+                    "number": 42.5,
+                    "boolean": True,
+                },
+                "result": {"status": "success", "data": [1, 2, 3]},
+            }],
+        )
+        assert entry.tool_calls[0]["args"]["nested"]["key"] == "value"
+
+    def test_transcript_entry_timestamp_various_formats(self) -> None:
+        """Test TranscriptEntry accepts various ISO timestamp formats."""
+        from models import TranscriptEntry
+
+        # Standard ISO with Z
+        entry1 = TranscriptEntry(
+            turn=1,
+            timestamp="2026-01-28T10:00:00Z",
+            agent="dm",
+            content="Test.",
+        )
+        assert entry1.timestamp == "2026-01-28T10:00:00Z"
+
+        # ISO with milliseconds
+        entry2 = TranscriptEntry(
+            turn=2,
+            timestamp="2026-01-28T10:00:00.123456Z",
+            agent="dm",
+            content="Test.",
+        )
+        assert "123456" in entry2.timestamp
+
+        # ISO with timezone offset (non-Z)
+        entry3 = TranscriptEntry(
+            turn=3,
+            timestamp="2026-01-28T10:00:00+00:00",
+            agent="dm",
+            content="Test.",
+        )
+        assert "+00:00" in entry3.timestamp
+
+    def test_transcript_entry_content_with_newlines(self) -> None:
+        """Test TranscriptEntry preserves newlines in content."""
+        from models import TranscriptEntry
+
+        content = "Line 1\nLine 2\nLine 3"
+        entry = TranscriptEntry(
+            turn=1,
+            timestamp="2026-01-28T10:00:00Z",
+            agent="dm",
+            content=content,
+        )
+        assert entry.content == content
+        assert entry.content.count("\n") == 2
+
+    def test_transcript_entry_content_with_tabs(self) -> None:
+        """Test TranscriptEntry preserves tabs in content."""
+        from models import TranscriptEntry
+
+        content = "Column1\tColumn2\tColumn3"
+        entry = TranscriptEntry(
+            turn=1,
+            timestamp="2026-01-28T10:00:00Z",
+            agent="dm",
+            content=content,
+        )
+        assert "\t" in entry.content
+
+    def test_transcript_entry_json_characters_in_content(self) -> None:
+        """Test TranscriptEntry handles JSON special characters."""
+        from models import TranscriptEntry
+
+        content = '{"key": "value", "array": [1, 2, 3]}'
+        entry = TranscriptEntry(
+            turn=1,
+            timestamp="2026-01-28T10:00:00Z",
+            agent="dm",
+            content=content,
+        )
+        assert entry.content == content
+
+
+class TestAppendTranscriptEntryExpanded:
+    """Expanded tests for append_transcript_entry error paths."""
+
+    def test_append_creates_session_directory_if_missing(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test append_transcript_entry creates session directory."""
+        from models import TranscriptEntry
+        from persistence import append_transcript_entry
+
+        entry = TranscriptEntry(
+            turn=1,
+            timestamp="2026-01-28T10:00:00Z",
+            agent="dm",
+            content="Creates directory.",
+        )
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            session_dir = temp_campaigns_dir / "session_001"
+            assert not session_dir.exists()
+
+            append_transcript_entry("001", entry)
+
+            assert session_dir.exists()
+
+    def test_append_handles_non_list_json_file(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test append_transcript_entry handles JSON object (not list)."""
+        from models import TranscriptEntry
+        from persistence import append_transcript_entry, load_transcript
+
+        # Create invalid transcript (JSON object instead of list)
+        session_dir = temp_campaigns_dir / "session_001"
+        session_dir.mkdir(parents=True)
+        transcript_path = session_dir / "transcript.json"
+        transcript_path.write_text('{"invalid": "object"}', encoding="utf-8")
+
+        entry = TranscriptEntry(
+            turn=1,
+            timestamp="2026-01-28T10:00:00Z",
+            agent="dm",
+            content="After object reset.",
+        )
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            # Should not raise - starts fresh
+            append_transcript_entry("001", entry)
+            loaded = load_transcript("001")
+
+        assert loaded is not None
+        assert len(loaded) == 1
+
+    def test_append_handles_empty_file(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test append_transcript_entry handles empty file (0 bytes)."""
+        from models import TranscriptEntry
+        from persistence import append_transcript_entry, load_transcript
+
+        # Create empty file
+        session_dir = temp_campaigns_dir / "session_001"
+        session_dir.mkdir(parents=True)
+        transcript_path = session_dir / "transcript.json"
+        transcript_path.write_text("", encoding="utf-8")
+
+        entry = TranscriptEntry(
+            turn=1,
+            timestamp="2026-01-28T10:00:00Z",
+            agent="dm",
+            content="After empty file.",
+        )
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            append_transcript_entry("001", entry)
+            loaded = load_transcript("001")
+
+        assert loaded is not None
+        assert len(loaded) == 1
+
+    def test_append_handles_whitespace_only_file(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test append_transcript_entry handles whitespace-only file."""
+        from models import TranscriptEntry
+        from persistence import append_transcript_entry, load_transcript
+
+        session_dir = temp_campaigns_dir / "session_001"
+        session_dir.mkdir(parents=True)
+        transcript_path = session_dir / "transcript.json"
+        transcript_path.write_text("   \n\t  ", encoding="utf-8")
+
+        entry = TranscriptEntry(
+            turn=1,
+            timestamp="2026-01-28T10:00:00Z",
+            agent="dm",
+            content="After whitespace.",
+        )
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            append_transcript_entry("001", entry)
+            loaded = load_transcript("001")
+
+        assert loaded is not None
+        assert len(loaded) == 1
+
+    def test_append_preserves_unicode_in_existing_entries(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test append preserves unicode in existing entries."""
+        from models import TranscriptEntry
+        from persistence import append_transcript_entry, load_transcript
+
+        entry1 = TranscriptEntry(
+            turn=1,
+            timestamp="2026-01-28T10:00:00Z",
+            agent="dm",
+            content="Unicode: \u2764\u2728\U0001F3B2",
+        )
+        entry2 = TranscriptEntry(
+            turn=2,
+            timestamp="2026-01-28T10:01:00Z",
+            agent="rogue",
+            content="More unicode: \u4e2d\u6587",
+        )
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            append_transcript_entry("001", entry1)
+            append_transcript_entry("001", entry2)
+            loaded = load_transcript("001")
+
+        assert loaded is not None
+        assert "\u2764" in loaded[0].content
+        assert "\u4e2d\u6587" in loaded[1].content
+
+    def test_append_many_entries_performance(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test append handles many entries (100+) without issues."""
+        from models import TranscriptEntry
+        from persistence import append_transcript_entry, load_transcript
+
+        num_entries = 100
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            for i in range(1, num_entries + 1):
+                entry = TranscriptEntry(
+                    turn=i,
+                    timestamp=f"2026-01-28T10:{i % 60:02d}:00Z",
+                    agent="dm" if i % 2 == 1 else "fighter",
+                    content=f"Entry number {i}.",
+                )
+                append_transcript_entry("001", entry)
+
+            loaded = load_transcript("001")
+
+        assert loaded is not None
+        assert len(loaded) == num_entries
+        # Verify order preserved
+        assert loaded[0].turn == 1
+        assert loaded[99].turn == 100
+
+    def test_append_invalid_session_id_raises(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test append_transcript_entry validates session_id."""
+        from models import TranscriptEntry
+        from persistence import append_transcript_entry
+
+        entry = TranscriptEntry(
+            turn=1,
+            timestamp="2026-01-28T10:00:00Z",
+            agent="dm",
+            content="Test.",
+        )
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            # Path traversal attempt
+            with pytest.raises(ValueError):
+                append_transcript_entry("../evil", entry)
+
+            # Empty session_id
+            with pytest.raises(ValueError):
+                append_transcript_entry("", entry)
+
+
+class TestLoadTranscriptExpanded:
+    """Expanded tests for load_transcript edge cases."""
+
+    def test_load_handles_null_in_list(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test load_transcript handles null values in list."""
+        from persistence import load_transcript
+
+        session_dir = temp_campaigns_dir / "session_001"
+        session_dir.mkdir(parents=True)
+        transcript_path = session_dir / "transcript.json"
+
+        # List with null
+        data = [
+            {"turn": 1, "timestamp": "2026-01-28T10:00:00Z",
+             "agent": "dm", "content": "Valid entry."},
+            None,  # Invalid null
+            {"turn": 2, "timestamp": "2026-01-28T10:01:00Z",
+             "agent": "fighter", "content": "Also valid."},
+        ]
+        transcript_path.write_text(json.dumps(data), encoding="utf-8")
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            result = load_transcript("001")
+
+        assert result is not None
+        assert len(result) == 2  # Skips null
+
+    def test_load_handles_empty_object_in_list(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test load_transcript handles empty objects in list."""
+        from persistence import load_transcript
+
+        session_dir = temp_campaigns_dir / "session_001"
+        session_dir.mkdir(parents=True)
+        transcript_path = session_dir / "transcript.json"
+
+        data = [
+            {"turn": 1, "timestamp": "2026-01-28T10:00:00Z",
+             "agent": "dm", "content": "Valid."},
+            {},  # Empty object - invalid
+            {"turn": 2, "timestamp": "2026-01-28T10:01:00Z",
+             "agent": "fighter", "content": "Valid."},
+        ]
+        transcript_path.write_text(json.dumps(data), encoding="utf-8")
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            result = load_transcript("001")
+
+        assert result is not None
+        assert len(result) == 2  # Skips empty object
+
+    def test_load_handles_missing_required_field(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test load_transcript skips entries missing required fields."""
+        from persistence import load_transcript
+
+        session_dir = temp_campaigns_dir / "session_001"
+        session_dir.mkdir(parents=True)
+        transcript_path = session_dir / "transcript.json"
+
+        data = [
+            {"turn": 1, "timestamp": "2026-01-28T10:00:00Z",
+             "agent": "dm", "content": "Complete."},
+            {"turn": 2, "timestamp": "2026-01-28T10:01:00Z",
+             "agent": "dm"},  # Missing content
+            {"turn": 3, "agent": "dm", "content": "Missing timestamp"},  # Missing timestamp
+            {"timestamp": "2026-01-28T10:03:00Z",
+             "agent": "dm", "content": "Missing turn"},  # Missing turn
+        ]
+        transcript_path.write_text(json.dumps(data), encoding="utf-8")
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            result = load_transcript("001")
+
+        assert result is not None
+        # Should skip 3 invalid entries (missing content, timestamp, turn)
+        assert len(result) == 1
+        assert result[0].turn == 1
+
+    def test_load_handles_wrong_type_turn(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test load_transcript skips entries with wrong type for turn."""
+        from persistence import load_transcript
+
+        session_dir = temp_campaigns_dir / "session_001"
+        session_dir.mkdir(parents=True)
+        transcript_path = session_dir / "transcript.json"
+
+        data = [
+            {"turn": 1, "timestamp": "2026-01-28T10:00:00Z",
+             "agent": "dm", "content": "Valid."},
+            {"turn": "not_a_number", "timestamp": "2026-01-28T10:01:00Z",
+             "agent": "dm", "content": "Invalid turn type."},
+        ]
+        transcript_path.write_text(json.dumps(data), encoding="utf-8")
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            result = load_transcript("001")
+
+        assert result is not None
+        assert len(result) == 1
+
+    def test_load_invalid_session_id_validates(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test load_transcript validates session_id."""
+        from persistence import load_transcript
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            with pytest.raises(ValueError):
+                load_transcript("../evil")
+
+
+class TestGetTranscriptDownloadDataExpanded:
+    """Expanded tests for get_transcript_download_data edge cases."""
+
+    def test_download_corrupted_json_returns_none(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test get_transcript_download_data returns None for corrupted JSON."""
+        from persistence import get_transcript_download_data
+
+        session_dir = temp_campaigns_dir / "session_001"
+        session_dir.mkdir(parents=True)
+        transcript_path = session_dir / "transcript.json"
+        transcript_path.write_text("not valid json", encoding="utf-8")
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            result = get_transcript_download_data("001")
+
+        assert result is None
+
+    def test_download_non_list_json_returns_none(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test get_transcript_download_data returns None for JSON object."""
+        from persistence import get_transcript_download_data
+
+        session_dir = temp_campaigns_dir / "session_001"
+        session_dir.mkdir(parents=True)
+        transcript_path = session_dir / "transcript.json"
+        transcript_path.write_text('{"not": "a list"}', encoding="utf-8")
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            result = get_transcript_download_data("001")
+
+        assert result is None
+
+    def test_download_preserves_unicode(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test get_transcript_download_data preserves unicode characters."""
+        from models import TranscriptEntry
+        from persistence import append_transcript_entry, get_transcript_download_data
+
+        entry = TranscriptEntry(
+            turn=1,
+            timestamp="2026-01-28T10:00:00Z",
+            agent="dm",
+            content="Unicode: \u2764 \u4e2d\u6587 \U0001F3B2",
+        )
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            append_transcript_entry("001", entry)
+            data = get_transcript_download_data("001")
+
+        assert data is not None
+        # Verify unicode is preserved (ensure_ascii=False)
+        assert "\u2764" in data
+        assert "\u4e2d\u6587" in data
+
+    def test_download_large_transcript(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test get_transcript_download_data handles large transcripts."""
+        from models import TranscriptEntry
+        from persistence import append_transcript_entry, get_transcript_download_data
+
+        # Create 50 entries with long content
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            for i in range(1, 51):
+                entry = TranscriptEntry(
+                    turn=i,
+                    timestamp=f"2026-01-28T10:{i % 60:02d}:00Z",
+                    agent="dm",
+                    content="A" * 1000,  # 1KB per entry
+                )
+                append_transcript_entry("001", entry)
+
+            data = get_transcript_download_data("001")
+
+        assert data is not None
+        parsed = json.loads(data)
+        assert len(parsed) == 50
+
+    def test_download_invalid_session_id(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test get_transcript_download_data validates session_id."""
+        from persistence import get_transcript_download_data
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            with pytest.raises(ValueError):
+                get_transcript_download_data("../evil")
+
+
+class TestTranscriptBoundaryConditions:
+    """Boundary condition tests for transcript functionality."""
+
+    def test_transcript_turn_number_sequential(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test transcript maintains sequential turn numbers."""
+        from models import TranscriptEntry
+        from persistence import append_transcript_entry, load_transcript
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            for i in [1, 2, 3, 5, 10, 100]:  # Non-sequential turns
+                entry = TranscriptEntry(
+                    turn=i,
+                    timestamp=f"2026-01-28T10:{i % 60:02d}:00Z",
+                    agent="dm",
+                    content=f"Turn {i}.",
+                )
+                append_transcript_entry("001", entry)
+
+            loaded = load_transcript("001")
+
+        assert loaded is not None
+        assert len(loaded) == 6
+        # Verify turns preserved as-is (transcript doesn't enforce sequencing)
+        turns = [entry.turn for entry in loaded]
+        assert turns == [1, 2, 3, 5, 10, 100]
+
+    def test_transcript_content_length_boundaries(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test transcript handles various content lengths."""
+        from models import TranscriptEntry
+        from persistence import append_transcript_entry, load_transcript
+
+        test_cases = [
+            (1, ""),  # Empty
+            (2, "A"),  # Single char
+            (3, "A" * 100),  # Short
+            (4, "A" * 10000),  # Medium
+            (5, "A" * 100000),  # Large (100KB)
+        ]
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            for turn, content in test_cases:
+                entry = TranscriptEntry(
+                    turn=turn,
+                    timestamp="2026-01-28T10:00:00Z",
+                    agent="dm",
+                    content=content,
+                )
+                append_transcript_entry("001", entry)
+
+            loaded = load_transcript("001")
+
+        assert loaded is not None
+        assert len(loaded) == 5
+        assert len(loaded[0].content) == 0
+        assert len(loaded[1].content) == 1
+        assert len(loaded[4].content) == 100000
+
+    def test_transcript_all_agent_types(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test transcript handles all agent types in a game."""
+        from models import TranscriptEntry
+        from persistence import append_transcript_entry, load_transcript
+
+        agents = ["dm", "fighter", "rogue", "wizard", "cleric", "bard", "ranger"]
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            for i, agent in enumerate(agents, 1):
+                entry = TranscriptEntry(
+                    turn=i,
+                    timestamp=f"2026-01-28T10:{i:02d}:00Z",
+                    agent=agent,
+                    content=f"{agent.title()} speaks.",
+                )
+                append_transcript_entry("001", entry)
+
+            loaded = load_transcript("001")
+
+        assert loaded is not None
+        assert len(loaded) == 7
+        loaded_agents = [entry.agent for entry in loaded]
+        assert loaded_agents == agents
+
+
+class TestTranscriptIntegrationScenarios:
+    """Integration scenarios for transcript with other persistence operations."""
+
+    def test_transcript_with_multiple_sessions(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test transcripts are isolated between sessions."""
+        from models import TranscriptEntry
+        from persistence import append_transcript_entry, load_transcript
+
+        entry1 = TranscriptEntry(
+            turn=1,
+            timestamp="2026-01-28T10:00:00Z",
+            agent="dm",
+            content="Session 1 entry.",
+        )
+        entry2 = TranscriptEntry(
+            turn=1,
+            timestamp="2026-01-28T11:00:00Z",
+            agent="dm",
+            content="Session 2 entry.",
+        )
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            append_transcript_entry("001", entry1)
+            append_transcript_entry("002", entry2)
+
+            loaded1 = load_transcript("001")
+            loaded2 = load_transcript("002")
+
+        assert loaded1 is not None
+        assert loaded2 is not None
+        assert len(loaded1) == 1
+        assert len(loaded2) == 1
+        assert loaded1[0].content == "Session 1 entry."
+        assert loaded2[0].content == "Session 2 entry."
+
+    def test_transcript_survives_multiple_checkpoints(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test transcript persists across multiple checkpoint saves."""
+        from models import TranscriptEntry
+        from persistence import append_transcript_entry, load_transcript, save_checkpoint
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            # Add entry, save checkpoint
+            entry1 = TranscriptEntry(
+                turn=1,
+                timestamp="2026-01-28T10:00:00Z",
+                agent="dm",
+                content="Entry 1.",
+            )
+            append_transcript_entry("001", entry1)
+            save_checkpoint(sample_game_state, "001", 1)
+
+            # Add more entries, save another checkpoint
+            entry2 = TranscriptEntry(
+                turn=2,
+                timestamp="2026-01-28T10:01:00Z",
+                agent="fighter",
+                content="Entry 2.",
+            )
+            append_transcript_entry("001", entry2)
+            save_checkpoint(sample_game_state, "001", 2)
+
+            # Verify all entries preserved
+            loaded = load_transcript("001")
+
+        assert loaded is not None
+        assert len(loaded) == 2
+
+    def test_transcript_and_checkpoint_independent_files(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test transcript and checkpoint are independent files."""
+        from models import TranscriptEntry
+        from persistence import (
+            append_transcript_entry,
+            get_checkpoint_path,
+            get_transcript_path,
+            save_checkpoint,
+        )
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            entry = TranscriptEntry(
+                turn=1,
+                timestamp="2026-01-28T10:00:00Z",
+                agent="dm",
+                content="Transcript content.",
+            )
+            append_transcript_entry("001", entry)
+            save_checkpoint(sample_game_state, "001", 1)
+
+            transcript_path = get_transcript_path("001")
+            checkpoint_path = get_checkpoint_path("001", 1)
+
+        # Verify both exist as separate files
+        assert transcript_path.exists()
+        assert checkpoint_path.exists()
+        assert transcript_path != checkpoint_path
+        assert transcript_path.name == "transcript.json"
+        assert checkpoint_path.name == "turn_001.json"
+
+    def test_transcript_content_matches_game_log(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test transcript content can be correlated with game log entries."""
+        from models import TranscriptEntry
+        from persistence import append_transcript_entry, load_transcript
+
+        # Simulate game log entries and corresponding transcript
+        game_log_entries = [
+            "[dm] The tavern falls silent.",
+            "[fighter] I ready my sword.",
+            "[rogue] I hide in the shadows.",
+        ]
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            for i, log_entry in enumerate(game_log_entries, 1):
+                # Parse agent and content from log format
+                if log_entry.startswith("["):
+                    bracket_end = log_entry.find("]")
+                    agent = log_entry[1:bracket_end]
+                    content = log_entry[bracket_end + 1:].strip()
+                else:
+                    agent = "dm"
+                    content = log_entry
+
+                entry = TranscriptEntry(
+                    turn=i,
+                    timestamp=f"2026-01-28T10:{i:02d}:00Z",
+                    agent=agent,
+                    content=content,
+                )
+                append_transcript_entry("001", entry)
+
+            loaded = load_transcript("001")
+
+        assert loaded is not None
+        assert len(loaded) == 3
+        assert loaded[0].agent == "dm"
+        assert loaded[0].content == "The tavern falls silent."
+        assert loaded[1].agent == "fighter"
+        assert loaded[2].agent == "rogue"
+
+
+class TestTranscriptErrorRecovery:
+    """Error recovery tests for transcript functionality."""
+
+    def test_append_recovers_from_truncated_json(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test append_transcript_entry recovers from truncated JSON file."""
+        from models import TranscriptEntry
+        from persistence import append_transcript_entry, load_transcript
+
+        # Create truncated JSON (incomplete array)
+        session_dir = temp_campaigns_dir / "session_001"
+        session_dir.mkdir(parents=True)
+        transcript_path = session_dir / "transcript.json"
+        transcript_path.write_text('[{"turn": 1, "timestamp": "2026', encoding="utf-8")
+
+        entry = TranscriptEntry(
+            turn=1,
+            timestamp="2026-01-28T10:00:00Z",
+            agent="dm",
+            content="Recovery entry.",
+        )
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            # Should recover gracefully
+            append_transcript_entry("001", entry)
+            loaded = load_transcript("001")
+
+        assert loaded is not None
+        assert len(loaded) == 1
+        assert loaded[0].content == "Recovery entry."
+
+    def test_load_recovers_from_utf8_decode_error(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test load_transcript handles invalid UTF-8 encoding."""
+        from persistence import load_transcript
+
+        session_dir = temp_campaigns_dir / "session_001"
+        session_dir.mkdir(parents=True)
+        transcript_path = session_dir / "transcript.json"
+        # Write invalid UTF-8 bytes
+        transcript_path.write_bytes(b'[{"turn": 1, "content": "\xff\xfe"}]')
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            result = load_transcript("001")
+
+        # Should return empty list (graceful recovery)
+        assert result is not None
+        assert result == []
+
+    def test_download_handles_read_permission_error(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test get_transcript_download_data handles unreadable file gracefully."""
+        from persistence import get_transcript_download_data
+
+        # Note: On Windows, we can't easily simulate permission errors,
+        # so we test with a non-existent nested path that would fail
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            # Non-existent session returns None
+            result = get_transcript_download_data("nonexistent_session_999")
+
+        assert result is None

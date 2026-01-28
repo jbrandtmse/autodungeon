@@ -843,7 +843,7 @@ def load_transcript(session_id: str) -> list[TranscriptEntry] | None:
                 continue
 
         return entries
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
         # File exists but unreadable/corrupted - return empty list
         return []
 

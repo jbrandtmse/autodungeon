@@ -623,3 +623,401 @@ class TestHumanInterventionTranscriptLogging:
             # Timestamp should be ISO format with Z suffix
             assert loaded[0].timestamp.endswith("Z")
             assert "T" in loaded[0].timestamp
+
+
+# =============================================================================
+# Expanded Transcript Integration Tests (Story 4.4)
+# =============================================================================
+
+
+class TestTranscriptLoggingExpanded:
+    """Expanded tests for transcript logging integration in graph."""
+
+    def test_transcript_entries_match_log_count(self, tmp_path: Path) -> None:
+        """Test transcript entry count matches ground_truth_log additions."""
+        from persistence import load_transcript
+
+        temp_campaigns = tmp_path / "campaigns"
+        temp_campaigns.mkdir()
+
+        state = create_test_state(
+            turn_queue=["dm", "fighter", "rogue"],
+            current_turn="dm",
+        )
+        state["session_id"] = "001"
+        state["ground_truth_log"] = []  # Start fresh
+
+        with (
+            patch("agents.get_llm") as mock_get_llm,
+            patch("persistence.CAMPAIGNS_DIR", temp_campaigns),
+        ):
+            mock_model = MagicMock()
+            mock_model.bind_tools.return_value = mock_model
+            mock_model.invoke.side_effect = [
+                AIMessage(content="DM narrates the scene."),
+                AIMessage(content="Fighter swings sword."),
+                AIMessage(content="Rogue sneaks around."),
+            ]
+            mock_get_llm.return_value = mock_model
+
+            result = run_single_round(state)
+
+            loaded = load_transcript("001")
+
+        assert loaded is not None
+        # Transcript entries should match number of log entries added
+        assert len(loaded) == len(result["ground_truth_log"])
+
+    def test_transcript_preserves_content_exactly(self, tmp_path: Path) -> None:
+        """Test transcript content is not modified from original."""
+        from persistence import load_transcript
+
+        temp_campaigns = tmp_path / "campaigns"
+        temp_campaigns.mkdir()
+
+        state = create_test_state(
+            turn_queue=["dm"],
+            current_turn="dm",
+        )
+        state["session_id"] = "001"
+        state["ground_truth_log"] = []
+
+        original_content = "The tavern falls silent. \"Who goes there?\" demands the barkeep."
+
+        with (
+            patch("agents.get_llm") as mock_get_llm,
+            patch("persistence.CAMPAIGNS_DIR", temp_campaigns),
+        ):
+            mock_model = MagicMock()
+            mock_model.bind_tools.return_value = mock_model
+            mock_model.invoke.return_value = AIMessage(content=original_content)
+            mock_get_llm.return_value = mock_model
+
+            run_single_round(state)
+
+            loaded = load_transcript("001")
+
+        assert loaded is not None
+        assert len(loaded) == 1
+        assert loaded[0].content == original_content
+
+    def test_transcript_handles_special_characters_in_content(
+        self, tmp_path: Path
+    ) -> None:
+        """Test transcript handles special characters in agent responses."""
+        from persistence import load_transcript
+
+        temp_campaigns = tmp_path / "campaigns"
+        temp_campaigns.mkdir()
+
+        state = create_test_state(
+            turn_queue=["dm"],
+            current_turn="dm",
+        )
+        state["session_id"] = "001"
+        state["ground_truth_log"] = []
+
+        # Content with special characters
+        special_content = 'Test: "quotes", *asterisks*, <brackets>, & ampersand'
+
+        with (
+            patch("agents.get_llm") as mock_get_llm,
+            patch("persistence.CAMPAIGNS_DIR", temp_campaigns),
+        ):
+            mock_model = MagicMock()
+            mock_model.bind_tools.return_value = mock_model
+            mock_model.invoke.return_value = AIMessage(content=special_content)
+            mock_get_llm.return_value = mock_model
+
+            run_single_round(state)
+
+            loaded = load_transcript("001")
+
+        assert loaded is not None
+        assert loaded[0].content == special_content
+
+    def test_transcript_error_does_not_crash_game(self, tmp_path: Path) -> None:
+        """Test transcript write error doesn't crash the game loop."""
+        temp_campaigns = tmp_path / "campaigns"
+        temp_campaigns.mkdir()
+
+        state = create_test_state(
+            turn_queue=["dm"],
+            current_turn="dm",
+        )
+        state["session_id"] = "001"
+        state["ground_truth_log"] = []
+
+        with (
+            patch("agents.get_llm") as mock_get_llm,
+            patch("persistence.CAMPAIGNS_DIR", temp_campaigns),
+            patch("persistence.append_transcript_entry") as mock_append,
+        ):
+            # Simulate transcript write failure
+            mock_append.side_effect = OSError("Disk full")
+
+            mock_model = MagicMock()
+            mock_model.bind_tools.return_value = mock_model
+            mock_model.invoke.return_value = AIMessage(content="The game continues.")
+            mock_get_llm.return_value = mock_model
+
+            # Should not raise despite transcript error
+            result = run_single_round(state)
+
+        # Game should continue normally
+        assert len(result["ground_truth_log"]) == 1
+
+    def test_transcript_multiple_rounds_accumulate(self, tmp_path: Path) -> None:
+        """Test transcript accumulates entries across multiple rounds."""
+        from persistence import load_transcript
+
+        temp_campaigns = tmp_path / "campaigns"
+        temp_campaigns.mkdir()
+
+        state = create_test_state(
+            turn_queue=["dm"],
+            current_turn="dm",
+        )
+        state["session_id"] = "001"
+        state["ground_truth_log"] = []
+
+        with (
+            patch("agents.get_llm") as mock_get_llm,
+            patch("persistence.CAMPAIGNS_DIR", temp_campaigns),
+        ):
+            mock_model = MagicMock()
+            mock_model.bind_tools.return_value = mock_model
+            mock_get_llm.return_value = mock_model
+
+            # Run 3 rounds
+            for i in range(3):
+                mock_model.invoke.return_value = AIMessage(content=f"Round {i + 1}.")
+                state = run_single_round(state)
+
+            loaded = load_transcript("001")
+
+        assert loaded is not None
+        assert len(loaded) == 3
+        assert loaded[0].content == "Round 1."
+        assert loaded[2].content == "Round 3."
+
+
+class TestHumanInterventionTranscriptExpanded:
+    """Expanded tests for human intervention transcript logging."""
+
+    def test_human_action_transcript_tool_calls_is_none(
+        self, tmp_path: Path
+    ) -> None:
+        """Test human action transcript entry has tool_calls=None."""
+        import streamlit as st
+
+        from persistence import load_transcript
+
+        temp_campaigns = tmp_path / "campaigns"
+        temp_campaigns.mkdir()
+
+        state = create_test_state(
+            turn_queue=["dm", "fighter"],
+            current_turn="fighter",
+            human_active=True,
+            controlled_character="fighter",
+        )
+        state["session_id"] = "001"
+        state["ground_truth_log"] = []
+
+        mock_session_state = MagicMock()
+        mock_session_state.get.return_value = "I search the room."
+        mock_session_state.__setitem__ = MagicMock()
+
+        with (
+            patch("persistence.CAMPAIGNS_DIR", temp_campaigns),
+            patch.object(st, "session_state", mock_session_state),
+        ):
+            human_intervention_node(state)
+
+            loaded = load_transcript("001")
+
+        assert loaded is not None
+        assert loaded[0].tool_calls is None
+
+    def test_human_action_transcript_correct_turn_number(
+        self, tmp_path: Path
+    ) -> None:
+        """Test human action transcript entry has correct turn number."""
+        import streamlit as st
+
+        from persistence import load_transcript
+
+        temp_campaigns = tmp_path / "campaigns"
+        temp_campaigns.mkdir()
+
+        state = create_test_state(
+            turn_queue=["dm", "fighter"],
+            current_turn="fighter",
+            human_active=True,
+            controlled_character="fighter",
+        )
+        state["session_id"] = "001"
+        # Pre-existing log entries
+        state["ground_truth_log"] = [
+            "[dm] The adventure begins.",
+            "[dm] A goblin appears!",
+        ]
+
+        mock_session_state = MagicMock()
+        mock_session_state.get.return_value = "I attack the goblin!"
+        mock_session_state.__setitem__ = MagicMock()
+
+        with (
+            patch("persistence.CAMPAIGNS_DIR", temp_campaigns),
+            patch.object(st, "session_state", mock_session_state),
+        ):
+            human_intervention_node(state)
+
+            loaded = load_transcript("001")
+
+        assert loaded is not None
+        assert loaded[0].turn == 3  # Third entry in log
+
+    def test_human_action_empty_does_not_create_transcript(
+        self, tmp_path: Path
+    ) -> None:
+        """Test empty human action doesn't create transcript entry."""
+        import streamlit as st
+
+        from persistence import load_transcript
+
+        temp_campaigns = tmp_path / "campaigns"
+        temp_campaigns.mkdir()
+
+        state = create_test_state(
+            turn_queue=["dm", "fighter"],
+            current_turn="fighter",
+            human_active=True,
+            controlled_character="fighter",
+        )
+        state["session_id"] = "001"
+        state["ground_truth_log"] = []
+
+        mock_session_state = MagicMock()
+        mock_session_state.get.return_value = None  # No pending action
+        mock_session_state.__setitem__ = MagicMock()
+
+        with (
+            patch("persistence.CAMPAIGNS_DIR", temp_campaigns),
+            patch.object(st, "session_state", mock_session_state),
+        ):
+            human_intervention_node(state)
+
+            loaded = load_transcript("001")
+
+        # No transcript should be created
+        assert loaded is None
+
+    def test_human_action_transcript_special_characters(
+        self, tmp_path: Path
+    ) -> None:
+        """Test human action with special characters is logged correctly."""
+        import streamlit as st
+
+        from persistence import load_transcript
+
+        temp_campaigns = tmp_path / "campaigns"
+        temp_campaigns.mkdir()
+
+        state = create_test_state(
+            turn_queue=["dm", "fighter"],
+            current_turn="fighter",
+            human_active=True,
+            controlled_character="fighter",
+        )
+        state["session_id"] = "001"
+        state["ground_truth_log"] = []
+
+        special_action = '*draws sword* "For honor!" <attacks> & parries'
+
+        mock_session_state = MagicMock()
+        mock_session_state.get.return_value = special_action
+        mock_session_state.__setitem__ = MagicMock()
+
+        with (
+            patch("persistence.CAMPAIGNS_DIR", temp_campaigns),
+            patch.object(st, "session_state", mock_session_state),
+        ):
+            human_intervention_node(state)
+
+            loaded = load_transcript("001")
+
+        assert loaded is not None
+        assert loaded[0].content == special_action
+
+
+class TestTranscriptAgentParsing:
+    """Tests for agent name parsing in transcript entries."""
+
+    def test_transcript_parses_dm_agent_correctly(self, tmp_path: Path) -> None:
+        """Test DM agent is parsed correctly from log entry."""
+        from persistence import load_transcript
+
+        temp_campaigns = tmp_path / "campaigns"
+        temp_campaigns.mkdir()
+
+        state = create_test_state(
+            turn_queue=["dm"],
+            current_turn="dm",
+        )
+        state["session_id"] = "001"
+        state["ground_truth_log"] = []
+
+        with (
+            patch("agents.get_llm") as mock_get_llm,
+            patch("persistence.CAMPAIGNS_DIR", temp_campaigns),
+        ):
+            mock_model = MagicMock()
+            mock_model.bind_tools.return_value = mock_model
+            mock_model.invoke.return_value = AIMessage(content="DM speaks.")
+            mock_get_llm.return_value = mock_model
+
+            run_single_round(state)
+
+            loaded = load_transcript("001")
+
+        assert loaded is not None
+        # Agent should be "DM" or "dm" (depending on how log entry is formatted)
+        assert loaded[0].agent.lower() == "dm"
+
+    def test_transcript_parses_pc_agent_correctly(self, tmp_path: Path) -> None:
+        """Test PC agent names are parsed correctly."""
+        from persistence import load_transcript
+
+        temp_campaigns = tmp_path / "campaigns"
+        temp_campaigns.mkdir()
+
+        state = create_test_state(
+            turn_queue=["dm", "fighter"],
+            current_turn="dm",
+        )
+        state["session_id"] = "001"
+        state["ground_truth_log"] = []
+
+        with (
+            patch("agents.get_llm") as mock_get_llm,
+            patch("persistence.CAMPAIGNS_DIR", temp_campaigns),
+        ):
+            mock_model = MagicMock()
+            mock_model.bind_tools.return_value = mock_model
+            mock_model.invoke.side_effect = [
+                AIMessage(content="DM narrates."),
+                AIMessage(content="Fighter speaks."),
+            ]
+            mock_get_llm.return_value = mock_model
+
+            run_single_round(state)
+
+            loaded = load_transcript("001")
+
+        assert loaded is not None
+        assert len(loaded) == 2
+        # Find the fighter entry
+        fighter_entries = [e for e in loaded if e.agent.lower() == "fighter"]
+        assert len(fighter_entries) >= 1
