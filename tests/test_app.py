@@ -1625,13 +1625,14 @@ class TestModeIndicator:
     """Tests for mode indicator rendering (Story 2.5, Task 5.3, 5.4)."""
 
     def test_render_mode_indicator_watch_not_generating(self) -> None:
-        """Test watch mode without generating shows no pulse dot."""
+        """Test watch mode always shows pulse dot (AC #1 from Story 3.1)."""
         from app import render_mode_indicator_html
 
         html = render_mode_indicator_html("watch", False)
         assert 'class="mode-indicator watch"' in html
         assert "Watching" in html
-        assert "pulse-dot" not in html
+        # Pulse dot always shows in watch mode per AC #1
+        assert 'class="pulse-dot"' in html
 
     def test_render_mode_indicator_watch_generating(self) -> None:
         """Test watch mode with generating shows pulse dot."""
@@ -2276,9 +2277,7 @@ class TestStory26AcceptanceCriteria:
                 result = run_game_turn()
 
                 assert result is True
-                assert (
-                    len(mock_session_state["game"]["ground_truth_log"]) > initial_len
-                )
+                assert len(mock_session_state["game"]["ground_truth_log"]) > initial_len
 
     def test_ac2_auto_scroll_pause_on_manual_scroll(self) -> None:
         """AC#2: Auto-scroll pauses when user scrolls up, resume indicator appears."""
@@ -2463,3 +2462,572 @@ class TestStory23AcceptanceCriteria:
         assert "--text-secondary: #B8A896" in css_content
         # Check .action-text uses it
         assert ".action-text" in css_content
+
+
+# =============================================================================
+# Story 3.1: Watch Mode & Autopilot Tests
+# =============================================================================
+
+
+class TestWatchModeState:
+    """Tests for Watch Mode state management (Story 3.1, Task 2)."""
+
+    def test_get_is_watching_true_when_watch_mode_and_no_human(self) -> None:
+        """Test get_is_watching returns True when in watch mode and no human active."""
+        mock_session_state = {
+            "ui_mode": "watch",
+            "human_active": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import get_is_watching
+
+            assert get_is_watching() is True
+
+    def test_get_is_watching_false_when_play_mode(self) -> None:
+        """Test get_is_watching returns False when in play mode."""
+        mock_session_state = {
+            "ui_mode": "play",
+            "human_active": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import get_is_watching
+
+            assert get_is_watching() is False
+
+    def test_get_is_watching_false_when_human_active(self) -> None:
+        """Test get_is_watching returns False when human is active."""
+        mock_session_state = {
+            "ui_mode": "watch",
+            "human_active": True,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import get_is_watching
+
+            assert get_is_watching() is False
+
+    def test_get_is_watching_defaults_to_watch_mode(self) -> None:
+        """Test get_is_watching defaults to True with empty session state."""
+        mock_session_state: dict = {}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import get_is_watching
+
+            # Defaults: ui_mode="watch", human_active=False
+            assert get_is_watching() is True
+
+    def test_is_autopilot_available_true_with_game(self) -> None:
+        """Test is_autopilot_available returns True when game exists and not paused/human."""
+        mock_session_state = {
+            "game": {"turn_queue": ["dm"]},
+            "is_paused": False,
+            "human_active": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import is_autopilot_available
+
+            assert is_autopilot_available() is True
+
+    def test_is_autopilot_available_false_when_no_game(self) -> None:
+        """Test is_autopilot_available returns False when no game in session."""
+        mock_session_state: dict = {}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import is_autopilot_available
+
+            assert is_autopilot_available() is False
+
+    def test_is_autopilot_available_false_when_paused(self) -> None:
+        """Test is_autopilot_available returns False when game is paused."""
+        mock_session_state = {
+            "game": {"turn_queue": ["dm"]},
+            "is_paused": True,
+            "human_active": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import is_autopilot_available
+
+            assert is_autopilot_available() is False
+
+    def test_is_autopilot_available_false_when_human_active(self) -> None:
+        """Test is_autopilot_available returns False when human is controlling."""
+        mock_session_state = {
+            "game": {"turn_queue": ["dm"]},
+            "is_paused": False,
+            "human_active": True,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import is_autopilot_available
+
+            assert is_autopilot_available() is False
+
+    def test_session_state_initialization_includes_autopilot_flags(self) -> None:
+        """Test initialize_session_state creates autopilot-related state."""
+        mock_session_state: dict = {}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import initialize_session_state
+
+            initialize_session_state()
+
+            assert "is_autopilot_running" in mock_session_state
+            assert mock_session_state["is_autopilot_running"] is False
+            assert "autopilot_turn_count" in mock_session_state
+            assert mock_session_state["autopilot_turn_count"] == 0
+            assert "max_turns_per_session" in mock_session_state
+
+    def test_session_state_initialization_includes_human_active(self) -> None:
+        """Test initialize_session_state explicitly sets human_active=False."""
+        mock_session_state: dict = {}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import initialize_session_state
+
+            initialize_session_state()
+
+            # human_active must be EXPLICITLY set, not just defaulting
+            assert "human_active" in mock_session_state
+            assert mock_session_state["human_active"] is False
+
+
+class TestAutopilotLoop:
+    """Tests for continuous autopilot loop (Story 3.1, Task 1)."""
+
+    def test_run_autopilot_step_does_nothing_when_not_running(self) -> None:
+        """Test run_autopilot_step returns immediately when autopilot not running."""
+        mock_session_state = {
+            "is_autopilot_running": False,
+            "game": {"turn_queue": ["dm"]},
+        }
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("app.run_game_turn") as mock_run_turn,
+        ):
+            from app import run_autopilot_step
+
+            run_autopilot_step()
+
+            # Should not call run_game_turn when autopilot not running
+            mock_run_turn.assert_not_called()
+
+    def test_run_autopilot_step_stops_when_paused(self) -> None:
+        """Test run_autopilot_step stops autopilot when game is paused."""
+        mock_session_state = {
+            "is_autopilot_running": True,
+            "is_paused": True,
+            "human_active": False,
+            "game": {"turn_queue": ["dm"]},
+        }
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("app.run_game_turn") as mock_run_turn,
+        ):
+            from app import run_autopilot_step
+
+            run_autopilot_step()
+
+            # Autopilot should be stopped
+            assert mock_session_state["is_autopilot_running"] is False
+            mock_run_turn.assert_not_called()
+
+    def test_run_autopilot_step_stops_when_human_active(self) -> None:
+        """Test run_autopilot_step stops autopilot when human becomes active."""
+        mock_session_state = {
+            "is_autopilot_running": True,
+            "is_paused": False,
+            "human_active": True,
+            "game": {"turn_queue": ["dm"]},
+        }
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("app.run_game_turn") as mock_run_turn,
+        ):
+            from app import run_autopilot_step
+
+            run_autopilot_step()
+
+            # Autopilot should be stopped
+            assert mock_session_state["is_autopilot_running"] is False
+            mock_run_turn.assert_not_called()
+
+    def test_run_autopilot_step_stops_at_turn_limit(self) -> None:
+        """Test run_autopilot_step stops when turn limit reached."""
+        mock_session_state = {
+            "is_autopilot_running": True,
+            "is_paused": False,
+            "human_active": False,
+            "autopilot_turn_count": 100,
+            "max_turns_per_session": 100,
+            "game": {"turn_queue": ["dm"]},
+        }
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("app.run_game_turn") as mock_run_turn,
+        ):
+            from app import run_autopilot_step
+
+            run_autopilot_step()
+
+            # Autopilot should be stopped at turn limit
+            assert mock_session_state["is_autopilot_running"] is False
+            mock_run_turn.assert_not_called()
+
+    def test_run_autopilot_step_executes_turn_and_reruns(self) -> None:
+        """Test run_autopilot_step executes a turn and triggers rerun."""
+        mock_session_state = {
+            "is_autopilot_running": True,
+            "is_paused": False,
+            "human_active": False,
+            "autopilot_turn_count": 5,
+            "max_turns_per_session": 100,
+            "game": {"turn_queue": ["dm"]},
+        }
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("app.run_game_turn", return_value=True) as mock_run_turn,
+            patch("streamlit.rerun") as mock_rerun,
+        ):
+            from app import run_autopilot_step
+
+            run_autopilot_step()
+
+            # Should execute turn
+            mock_run_turn.assert_called_once()
+            # Should increment turn count
+            assert mock_session_state["autopilot_turn_count"] == 6
+            # Should trigger rerun
+            mock_rerun.assert_called_once()
+
+    def test_run_continuous_loop_returns_zero_when_not_running(self) -> None:
+        """Test run_continuous_loop returns 0 when autopilot not running."""
+        mock_session_state = {
+            "is_autopilot_running": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import run_continuous_loop
+
+            result = run_continuous_loop()
+
+            assert result == 0
+
+    def test_default_max_turns_per_session(self) -> None:
+        """Test DEFAULT_MAX_TURNS_PER_SESSION constant exists."""
+        from app import DEFAULT_MAX_TURNS_PER_SESSION
+
+        assert DEFAULT_MAX_TURNS_PER_SESSION == 100
+
+
+class TestAutopilotToggle:
+    """Tests for autopilot toggle button (Story 3.1, Task 3)."""
+
+    def test_handle_autopilot_toggle_starts_autopilot(self) -> None:
+        """Test handle_autopilot_toggle starts autopilot when not running."""
+        mock_session_state = {
+            "is_autopilot_running": False,
+            "autopilot_turn_count": 10,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_autopilot_toggle
+
+            handle_autopilot_toggle()
+
+            assert mock_session_state["is_autopilot_running"] is True
+            assert mock_session_state["autopilot_turn_count"] == 0
+
+    def test_handle_autopilot_toggle_stops_autopilot(self) -> None:
+        """Test handle_autopilot_toggle stops autopilot when running."""
+        mock_session_state = {
+            "is_autopilot_running": True,
+            "autopilot_turn_count": 5,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_autopilot_toggle
+
+            handle_autopilot_toggle()
+
+            assert mock_session_state["is_autopilot_running"] is False
+
+
+class TestDropInStopsAutopilot:
+    """Tests for Drop-In interrupting autopilot (Story 3.1, Task 5)."""
+
+    def test_drop_in_stops_autopilot(self) -> None:
+        """Test that clicking Drop-In stops autopilot."""
+        mock_session_state = {
+            "is_autopilot_running": True,
+            "controlled_character": None,
+            "ui_mode": "watch",
+            "human_active": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_drop_in_click
+
+            handle_drop_in_click("rogue")
+
+            assert mock_session_state["is_autopilot_running"] is False
+            assert mock_session_state["controlled_character"] == "rogue"
+            assert mock_session_state["human_active"] is True
+            assert mock_session_state["ui_mode"] == "play"
+
+    def test_release_control_clears_human_active(self) -> None:
+        """Test releasing control clears human_active flag."""
+        mock_session_state = {
+            "is_autopilot_running": False,
+            "controlled_character": "rogue",
+            "ui_mode": "play",
+            "human_active": True,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_drop_in_click
+
+            handle_drop_in_click("rogue")  # Same character = release
+
+            assert mock_session_state["controlled_character"] is None
+            assert mock_session_state["human_active"] is False
+            assert mock_session_state["ui_mode"] == "watch"
+
+
+class TestModeIndicatorAutopilot:
+    """Tests for mode indicator with autopilot (Story 3.1)."""
+
+    def test_mode_indicator_always_shows_pulse_in_watch_mode(self) -> None:
+        """Test mode indicator always shows pulse dot in watch mode (AC #1)."""
+        from app import render_mode_indicator_html
+
+        # Pulse always shows in watch mode regardless of generating state
+        html = render_mode_indicator_html(
+            ui_mode="watch",
+            is_generating=False,
+            controlled_character=None,
+            characters=None,
+        )
+
+        assert 'class="pulse-dot"' in html
+        assert "Watching" in html
+
+    def test_mode_indicator_shows_pulse_not_generating(self) -> None:
+        """Test mode indicator shows pulse even when not generating."""
+        from app import render_mode_indicator_html
+
+        html = render_mode_indicator_html(
+            ui_mode="watch",
+            is_generating=False,
+            controlled_character=None,
+            characters=None,
+        )
+
+        assert 'class="pulse-dot"' in html
+        assert "Watching" in html
+
+    def test_mode_indicator_shows_pulse_when_generating(self) -> None:
+        """Test mode indicator shows pulse during generation."""
+        from app import render_mode_indicator_html
+
+        html = render_mode_indicator_html(
+            ui_mode="watch",
+            is_generating=True,
+        )
+        assert 'class="pulse-dot"' in html
+        assert "Watching" in html
+
+
+class TestLangGraphRoutingWithHumanActive:
+    """Tests for LangGraph routing respecting human_active flag (Story 3.1, Task 4)."""
+
+    def test_route_uses_ai_when_human_not_active(self) -> None:
+        """Test routing uses AI agent when human_active is False."""
+        from graph import route_to_next_agent
+        from models import AgentMemory, DMConfig, GameConfig, GameState
+
+        state: GameState = {
+            "ground_truth_log": [],
+            "turn_queue": ["dm", "rogue", "fighter"],
+            "current_turn": "dm",
+            "agent_memories": {"dm": AgentMemory()},
+            "game_config": GameConfig(),
+            "dm_config": DMConfig(),
+            "characters": {},
+            "whisper_queue": [],
+            "human_active": False,
+            "controlled_character": None,
+            "session_number": 1,
+        }
+
+        # Should route to next agent in queue (rogue)
+        result = route_to_next_agent(state)
+        assert result == "rogue"
+
+    def test_route_to_human_when_human_active_and_controlled_character_turn(
+        self,
+    ) -> None:
+        """Test routing goes to human when it's controlled character's turn."""
+        from graph import route_to_next_agent
+        from models import AgentMemory, DMConfig, GameConfig, GameState
+
+        state: GameState = {
+            "ground_truth_log": [],
+            "turn_queue": ["dm", "rogue", "fighter"],
+            "current_turn": "rogue",
+            "agent_memories": {"dm": AgentMemory()},
+            "game_config": GameConfig(),
+            "dm_config": DMConfig(),
+            "characters": {},
+            "whisper_queue": [],
+            "human_active": True,
+            "controlled_character": "rogue",
+            "session_number": 1,
+        }
+
+        # Should route to human since it's rogue's turn and human controls rogue
+        result = route_to_next_agent(state)
+        assert result == "human"
+
+    def test_route_to_ai_when_not_controlled_character_turn(self) -> None:
+        """Test routing uses AI when it's not the controlled character's turn."""
+        from graph import route_to_next_agent
+        from models import AgentMemory, DMConfig, GameConfig, GameState
+
+        state: GameState = {
+            "ground_truth_log": [],
+            "turn_queue": ["dm", "rogue", "fighter"],
+            "current_turn": "fighter",
+            "agent_memories": {"dm": AgentMemory()},
+            "game_config": GameConfig(),
+            "dm_config": DMConfig(),
+            "characters": {},
+            "whisper_queue": [],
+            "human_active": True,
+            "controlled_character": "rogue",  # Controls rogue, but it's fighter's turn
+            "session_number": 1,
+        }
+
+        # Should route to end (fighter is last in queue) using AI
+        from langgraph.graph import END
+
+        result = route_to_next_agent(state)
+        assert result == END
+
+
+class TestStory31AcceptanceCriteria:
+    """Integration tests validating all acceptance criteria (Story 3.1)."""
+
+    def test_ac1_default_watch_mode(self) -> None:
+        """AC#1: Application starts in Watch Mode by default."""
+        mock_session_state: dict = {}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import initialize_session_state
+
+            initialize_session_state()
+
+            assert mock_session_state["ui_mode"] == "watch"
+            assert mock_session_state.get("human_active", False) is False
+
+    def test_ac1_mode_indicator_shows_watching(self) -> None:
+        """AC#1: Mode indicator shows 'Watching'."""
+        from app import render_mode_indicator_html
+
+        html = render_mode_indicator_html(
+            ui_mode="watch",
+            is_generating=False,
+        )
+
+        assert "Watching" in html
+        assert 'class="mode-indicator watch"' in html
+
+    def test_ac2_turns_generated_automatically(self) -> None:
+        """AC#2: DM and PC agents take turns automatically during autopilot."""
+        mock_session_state = {
+            "is_autopilot_running": True,
+            "is_paused": False,
+            "human_active": False,
+            "autopilot_turn_count": 0,
+            "max_turns_per_session": 100,
+            "game": {"turn_queue": ["dm"]},
+        }
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("app.run_game_turn", return_value=True) as mock_run_turn,
+            patch("streamlit.rerun"),
+        ):
+            from app import run_autopilot_step
+
+            run_autopilot_step()
+
+            # Turn should be executed
+            mock_run_turn.assert_called_once()
+
+    def test_ac3_autopilot_runs_indefinitely(self) -> None:
+        """AC#3: Game can run in full Autopilot Mode without intervention."""
+        mock_session_state = {
+            "is_autopilot_running": True,
+            "is_paused": False,
+            "human_active": False,
+            "autopilot_turn_count": 50,
+            "max_turns_per_session": 100,
+            "game": {"turn_queue": ["dm"]},
+        }
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("app.run_game_turn", return_value=True),
+            patch("streamlit.rerun"),
+        ):
+            from app import run_autopilot_step
+
+            run_autopilot_step()
+
+            # Should continue running (not stopped at 50)
+            assert mock_session_state["is_autopilot_running"] is True
+
+    def test_ac4_human_active_false_uses_ai(self) -> None:
+        """AC#4: All PC nodes use AI agents when human_active is False."""
+        from graph import route_to_next_agent
+        from models import AgentMemory, DMConfig, GameConfig, GameState
+
+        state: GameState = {
+            "ground_truth_log": [],
+            "turn_queue": ["dm", "rogue"],
+            "current_turn": "dm",
+            "agent_memories": {"dm": AgentMemory()},
+            "game_config": GameConfig(),
+            "dm_config": DMConfig(),
+            "characters": {},
+            "whisper_queue": [],
+            "human_active": False,
+            "controlled_character": None,
+            "session_number": 1,
+        }
+
+        # Should route to rogue (AI agent), not human
+        result = route_to_next_agent(state)
+        assert result == "rogue"
+        assert result != "human"
+
+    def test_ac5_drop_in_buttons_visible_during_autopilot(self) -> None:
+        """AC#5: Drop-In buttons are visible and accessible in party panel."""
+        from app import get_drop_in_button_label
+
+        # Button should show "Drop-In" when not controlled
+        label = get_drop_in_button_label(controlled=False)
+        assert label == "Drop-In"
+
+        # Button should show "Release" when controlled
+        label = get_drop_in_button_label(controlled=True)
+        assert label == "Release"

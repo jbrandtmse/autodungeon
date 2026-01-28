@@ -41,6 +41,41 @@ def get_turn_delay() -> float:
     return SPEED_DELAYS.get(speed, 1.0)
 
 
+def get_is_watching() -> bool:
+    """Check if the game is in Watch Mode.
+
+    Watch Mode is active when:
+    - ui_mode is "watch" AND
+    - human_active is False
+
+    Returns:
+        True if in Watch Mode, False if in Play Mode.
+    """
+    ui_mode = st.session_state.get("ui_mode", "watch")
+    human_active = st.session_state.get("human_active", False)
+    return ui_mode == "watch" and not human_active
+
+
+def is_autopilot_available() -> bool:
+    """Check if autopilot can be started.
+
+    Autopilot can start when:
+    - Game exists (has been initialized)
+    - Not paused
+    - Not already in human control mode
+
+    Returns:
+        True if autopilot can start, False otherwise.
+    """
+    if "game" not in st.session_state:
+        return False
+    if st.session_state.get("is_paused", False):
+        return False
+    if st.session_state.get("human_active", False):
+        return False
+    return True
+
+
 def run_game_turn() -> bool:
     """Execute one game turn and update session state.
 
@@ -74,6 +109,102 @@ def run_game_turn() -> bool:
         return True
     finally:
         st.session_state["is_generating"] = False
+
+
+# Default maximum turns per session to prevent infinite loops
+DEFAULT_MAX_TURNS_PER_SESSION = 100
+
+
+def run_continuous_loop(max_turns: int = DEFAULT_MAX_TURNS_PER_SESSION) -> int:
+    """Execute game turns continuously until stopped.
+
+    Runs turns in a loop until one of these conditions is met:
+    - is_paused becomes True
+    - human_active becomes True
+    - is_autopilot_running becomes False
+    - max_turns limit is reached
+
+    This function uses st.rerun() pattern: it executes ONE turn,
+    then triggers a rerun if autopilot should continue. This respects
+    Streamlit's architecture and allows UI updates between turns.
+
+    Args:
+        max_turns: Maximum turns before auto-stopping (safety limit).
+
+    Returns:
+        Number of turns executed (always 0 or 1 in Streamlit model).
+    """
+    # Check if autopilot should run
+    if not st.session_state.get("is_autopilot_running", False):
+        return 0
+
+    # Check stopping conditions
+    if st.session_state.get("is_paused", False):
+        st.session_state["is_autopilot_running"] = False
+        return 0
+
+    if st.session_state.get("human_active", False):
+        st.session_state["is_autopilot_running"] = False
+        return 0
+
+    # Check turn limit
+    turn_count = st.session_state.get("autopilot_turn_count", 0)
+    if turn_count >= max_turns:
+        st.session_state["is_autopilot_running"] = False
+        return 0
+
+    # Execute one turn
+    if run_game_turn():
+        # Increment turn count
+        st.session_state["autopilot_turn_count"] = turn_count + 1
+        # Continue autopilot on next rerun
+        st.rerun()
+
+    return 1
+
+
+def run_autopilot_step() -> None:
+    """Execute one step of autopilot and trigger rerun if continuing.
+
+    This is the main autopilot driver. Call this during page render
+    to check if autopilot is active and execute the next turn.
+
+    Pattern:
+    1. If autopilot not running, return immediately
+    2. Check stopping conditions (pause, human active)
+    3. Execute one turn via run_game_turn()
+    4. Trigger st.rerun() to continue loop
+
+    This respects Streamlit's execution model while providing
+    continuous turn execution.
+    """
+    if not st.session_state.get("is_autopilot_running", False):
+        return
+
+    # Check stopping conditions
+    if st.session_state.get("is_paused", False):
+        st.session_state["is_autopilot_running"] = False
+        return
+
+    if st.session_state.get("human_active", False):
+        st.session_state["is_autopilot_running"] = False
+        return
+
+    # Check turn limit safety
+    turn_count = st.session_state.get("autopilot_turn_count", 0)
+    max_turns = st.session_state.get(
+        "max_turns_per_session", DEFAULT_MAX_TURNS_PER_SESSION
+    )
+    if turn_count >= max_turns:
+        st.session_state["is_autopilot_running"] = False
+        return
+
+    # Execute one turn
+    if run_game_turn():
+        # Increment turn count
+        st.session_state["autopilot_turn_count"] = turn_count + 1
+        # Continue autopilot on next rerun
+        st.rerun()
 
 
 def load_css() -> str:
@@ -159,11 +290,7 @@ def render_auto_scroll_indicator_html(auto_scroll_enabled: bool) -> str:
     if auto_scroll_enabled:
         return ""
 
-    return (
-        '<div class="auto-scroll-indicator visible">'
-        "↓ Resume auto-scroll"
-        "</div>"
-    )
+    return '<div class="auto-scroll-indicator visible">↓ Resume auto-scroll</div>'
 
 
 def handle_resume_auto_scroll_click() -> None:
@@ -266,9 +393,12 @@ def render_mode_indicator_html(
 ) -> str:
     """Generate HTML for mode indicator badge.
 
+    In watch mode, the pulse dot is always visible to indicate the game
+    is ready and observing (AC #1: pulsing green dot).
+
     Args:
         ui_mode: "watch" or "play"
-        is_generating: Whether story is actively generating
+        is_generating: Whether story is actively generating (unused in watch mode)
         controlled_character: Agent key of controlled character, or None
         characters: Dict of agent_key -> CharacterConfig
 
@@ -276,8 +406,8 @@ def render_mode_indicator_html(
         HTML string for mode indicator.
     """
     if ui_mode == "watch":
-        # Show pulse dot only when generating in watch mode
-        pulse_html = '<span class="pulse-dot"></span>' if is_generating else ""
+        # Always show pulse dot in watch mode (AC #1: pulsing green dot)
+        pulse_html = '<span class="pulse-dot"></span>'
         return f'<div class="mode-indicator watch">{pulse_html}Watching</div>'
     else:
         # Play mode - show character name with character color
@@ -528,10 +658,14 @@ def initialize_session_state() -> None:
         st.session_state["game"] = populate_game_state()
         st.session_state["ui_mode"] = "watch"
         st.session_state["controlled_character"] = None
+        st.session_state["human_active"] = False  # Explicit initialization (Story 3.1)
         st.session_state["is_generating"] = False
         st.session_state["is_paused"] = False
         st.session_state["playback_speed"] = "normal"
         st.session_state["auto_scroll_enabled"] = True
+        st.session_state["is_autopilot_running"] = False
+        st.session_state["autopilot_turn_count"] = 0
+        st.session_state["max_turns_per_session"] = DEFAULT_MAX_TURNS_PER_SESSION
 
 
 def get_api_key_status(config: AppConfig) -> str:
@@ -568,14 +702,56 @@ def handle_pause_toggle() -> None:
     st.session_state["is_paused"] = not st.session_state.get("is_paused", False)
 
 
+def handle_autopilot_toggle() -> None:
+    """Toggle autopilot state.
+
+    When starting autopilot:
+    - Sets is_autopilot_running to True
+    - Resets autopilot_turn_count to 0
+
+    When stopping autopilot:
+    - Sets is_autopilot_running to False
+    """
+    current = st.session_state.get("is_autopilot_running", False)
+    if current:
+        # Stop autopilot
+        st.session_state["is_autopilot_running"] = False
+    else:
+        # Start autopilot
+        st.session_state["is_autopilot_running"] = True
+        st.session_state["autopilot_turn_count"] = 0
+
+
+def render_autopilot_toggle() -> None:
+    """Render autopilot start/stop toggle button.
+
+    Shows a button to start or stop autopilot mode.
+    Disabled when human is controlling a character.
+    """
+    is_running = st.session_state.get("is_autopilot_running", False)
+    human_active = st.session_state.get("human_active", False)
+
+    # Disable if human is controlling
+    disabled = human_active
+
+    button_label = "⏹ Stop Autopilot" if is_running else "▶ Start Autopilot"
+
+    if st.button(button_label, key="autopilot_toggle", disabled=disabled):
+        handle_autopilot_toggle()
+        st.rerun()
+
+
 def render_session_controls() -> None:
     """Render session playback controls in the sidebar.
 
-    Includes Pause/Resume button and Speed control dropdown.
-    These controls prepare UI for Epic 3 (Human Participation) integration.
+    Includes Autopilot toggle, Pause/Resume button, and Speed control dropdown.
+    These controls enable Watch Mode and Human Participation (Epic 3).
     """
     st.markdown('<div class="session-controls">', unsafe_allow_html=True)
     st.markdown("### Session Controls")
+
+    # Autopilot toggle (Story 3.1)
+    render_autopilot_toggle()
 
     # Pause/Resume button
     is_paused = st.session_state.get("is_paused", False)
@@ -614,6 +790,16 @@ def handle_drop_in_click(agent_key: str) -> None:
     Toggles control of a character. If not controlling, takes control.
     If already controlling this character, releases control.
 
+    When taking control (Drop-In):
+    - Stops autopilot if running
+    - Sets human_active to True
+    - Updates controlled_character and ui_mode
+
+    When releasing control:
+    - Clears human_active
+    - Clears controlled_character
+    - Returns to watch mode
+
     Args:
         agent_key: The agent key (e.g., "fighter", "rogue").
     """
@@ -622,10 +808,13 @@ def handle_drop_in_click(agent_key: str) -> None:
         # Release control
         st.session_state["controlled_character"] = None
         st.session_state["ui_mode"] = "watch"
+        st.session_state["human_active"] = False
     else:
-        # Take control
+        # Take control - stop autopilot first
+        st.session_state["is_autopilot_running"] = False
         st.session_state["controlled_character"] = agent_key
         st.session_state["ui_mode"] = "play"
+        st.session_state["human_active"] = True
 
 
 def render_character_card(
@@ -834,6 +1023,10 @@ def main() -> None:
 
     # Close app-content div
     st.markdown("</div>", unsafe_allow_html=True)
+
+    # Run autopilot step if active (Story 3.1)
+    # This executes at end of render to trigger next turn
+    run_autopilot_step()
 
 
 if __name__ == "__main__":

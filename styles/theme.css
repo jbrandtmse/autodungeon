@@ -440,6 +440,17 @@ h2, h3, h4 {
   border-radius: 50%;
   background: currentColor;
   animation: pulse 2s ease-in-out infinite;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+/* Explicit pulse dot colors for mode indicator (Story 3.1) */
+.mode-indicator.watch .pulse-dot {
+  background: #6B8E6B;
+}
+
+.mode-indicator.play .pulse-dot {
+  background: var(--accent-warm);
 }
 
 @keyframes pulse {
