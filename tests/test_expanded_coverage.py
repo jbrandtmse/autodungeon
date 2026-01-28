@@ -599,7 +599,10 @@ class TestDmTurnEdgeCases:
             result = dm_turn(state)
 
             assert "dm" in result["agent_memories"]
-            assert "Adventure begins!" in result["agent_memories"]["dm"].short_term_buffer[0]
+            assert (
+                "Adventure begins!"
+                in result["agent_memories"]["dm"].short_term_buffer[0]
+            )
 
 
 class TestPcTurnEdgeCases:
@@ -644,7 +647,10 @@ class TestPcTurnEdgeCases:
             result = pc_turn(state, "fighter")
 
             assert "fighter" in result["agent_memories"]
-            assert any("Theron" in entry for entry in result["agent_memories"]["fighter"].short_term_buffer)
+            assert any(
+                "Theron" in entry
+                for entry in result["agent_memories"]["fighter"].short_term_buffer
+            )
 
 
 class TestDiceResultExpanded:

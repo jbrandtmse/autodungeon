@@ -1394,9 +1394,7 @@ class TestNudgeClearingEdgeCases:
             assert len(new_state["ground_truth_log"]) == 1
 
     @patch("agents.create_dm_agent")
-    def test_dm_turn_with_none_nudge(
-        self, mock_create_dm_agent: MagicMock
-    ) -> None:
+    def test_dm_turn_with_none_nudge(self, mock_create_dm_agent: MagicMock) -> None:
         """Test dm_turn handles None nudge correctly (no-op clear)."""
         mock_model = MagicMock()
         mock_model.invoke.return_value = MagicMock(content="Response")

@@ -980,3 +980,32 @@ hr {
   background: var(--color-rogue);
   color: var(--bg-primary);
 }
+
+/* ==========================================================================
+   Keyboard Shortcuts Help (Story 3.6)
+   ========================================================================== */
+
+.keyboard-shortcuts-help {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: var(--space-sm);
+  margin-bottom: var(--space-sm);
+  text-align: center;
+}
+
+.keyboard-shortcuts-help .help-text {
+  color: var(--text-secondary);
+}
+
+.keyboard-shortcuts-help kbd {
+  display: inline-block;
+  padding: 2px 6px;
+  margin: 0 2px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  background: var(--bg-message);
+  border: 1px solid var(--bg-secondary);
+  border-radius: 3px;
+  color: var(--text-primary);
+}

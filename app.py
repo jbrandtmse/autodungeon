@@ -367,6 +367,169 @@ def inject_auto_scroll_script() -> None:
         components.html(get_auto_scroll_script(), height=0)
 
 
+def get_keyboard_shortcut_script() -> str:
+    """Generate JavaScript for keyboard shortcut handling.
+
+    Handles:
+    - Keys 1-4: Drop-in as party member
+    - Escape: Release character control
+
+    Shortcuts are disabled when focus is on input/textarea elements.
+
+    Returns:
+        JavaScript code string for keyboard event handling.
+    """
+    return """
+        <script>
+        (function() {
+            // Only attach once
+            if (window._autodungeonKeyboardListenerAttached) return;
+            window._autodungeonKeyboardListenerAttached = true;
+
+            document.addEventListener('keydown', function(e) {
+                // Skip if typing in input/textarea/select or contenteditable element
+                const activeElement = document.activeElement;
+                const tagName = activeElement ? activeElement.tagName.toLowerCase() : '';
+                if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') {
+                    return;
+                }
+                // Also skip if element has contenteditable attribute
+                if (activeElement && activeElement.getAttribute('contenteditable') === 'true') {
+                    return;
+                }
+
+                // Handle number keys 1-4 for drop-in
+                if (e.key >= '1' && e.key <= '4') {
+                    e.preventDefault();
+                    const index = parseInt(e.key) - 1;
+                    // Update URL with action parameter
+                    const url = new URL(window.location);
+                    url.searchParams.set('keyboard_action', 'drop_in_' + index);
+                    window.location.href = url.toString();
+                    return;
+                }
+
+                // Handle Escape for release
+                if (e.key === 'Escape') {
+                    e.preventDefault();
+                    const url = new URL(window.location);
+                    url.searchParams.set('keyboard_action', 'release');
+                    window.location.href = url.toString();
+                    return;
+                }
+            });
+        })();
+        </script>
+    """
+
+
+def inject_keyboard_shortcut_script() -> None:
+    """Inject JavaScript for keyboard shortcut handling.
+
+    Adds event listeners for:
+    - 1-4 keys: Quick drop-in to party members
+    - Escape: Release character control
+    """
+    import streamlit.components.v1 as components
+
+    components.html(get_keyboard_shortcut_script(), height=0)
+
+
+def get_party_character_keys() -> list[str]:
+    """Get ordered list of party character keys.
+
+    Returns party member agent keys in consistent order for keyboard mapping.
+
+    Returns:
+        List of agent keys (e.g., ["fighter", "rogue", "wizard", "cleric"]).
+    """
+    game: GameState = st.session_state.get("game", {})
+    party_chars = get_party_characters(game)
+    return list(party_chars.keys())
+
+
+def handle_keyboard_drop_in(party_index: int) -> None:
+    """Handle keyboard drop-in for party member by index.
+
+    Maps keyboard key (1-4) to party member index (0-3).
+
+    Args:
+        party_index: Zero-based index of party member.
+    """
+    party_keys = get_party_character_keys()
+
+    if 0 <= party_index < len(party_keys):
+        agent_key = party_keys[party_index]
+        handle_drop_in_click(agent_key)
+
+
+def handle_keyboard_release() -> None:
+    """Handle keyboard release (Escape key).
+
+    Releases control of current character and returns to watch mode.
+    Only acts if currently controlling a character.
+    """
+    controlled = st.session_state.get("controlled_character")
+    if controlled:
+        handle_drop_in_click(controlled)  # Toggle off
+
+
+def process_keyboard_action() -> bool:
+    """Process pending keyboard action from URL query params.
+
+    Checks for 'keyboard_action' query param and processes it:
+    - 'drop_in_N': Drop in as Nth party member (0-indexed)
+    - 'release': Release current character
+
+    Returns:
+        True if action was processed, False otherwise.
+    """
+    params = st.query_params
+    action = params.get("keyboard_action")
+
+    if not action:
+        return False
+
+    # Clear the action param to prevent re-triggering
+    del st.query_params["keyboard_action"]
+
+    if action.startswith("drop_in_"):
+        try:
+            index = int(action.split("_")[-1])
+            handle_keyboard_drop_in(index)
+            return True
+        except ValueError:
+            return False
+
+    if action == "release":
+        handle_keyboard_release()
+        return True
+
+    return False
+
+
+def render_keyboard_shortcuts_help_html() -> str:
+    """Generate HTML for keyboard shortcuts help text.
+
+    Returns:
+        HTML string with keyboard shortcut hints.
+    """
+    return (
+        '<div class="keyboard-shortcuts-help">'
+        '<span class="help-text">Press </span>'
+        "<kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd>"
+        '<span class="help-text"> to drop in, </span>'
+        "<kbd>Esc</kbd>"
+        '<span class="help-text"> to release</span>'
+        "</div>"
+    )
+
+
+def render_keyboard_shortcuts_help() -> None:
+    """Render keyboard shortcuts help in sidebar."""
+    st.markdown(render_keyboard_shortcuts_help_html(), unsafe_allow_html=True)
+
+
 def render_thinking_indicator_html(is_generating: bool, is_paused: bool) -> str:
     """Generate HTML for thinking indicator (pure function).
 
@@ -1016,7 +1179,9 @@ def render_input_context_bar(controlled_character: str | None = None) -> None:
     char_config = characters.get(controlled)
 
     if char_config:
-        html = render_input_context_bar_html(char_config.name, char_config.character_class)
+        html = render_input_context_bar_html(
+            char_config.name, char_config.character_class
+        )
         st.markdown(html, unsafe_allow_html=True)
 
 
@@ -1137,6 +1302,9 @@ def render_sidebar(config: AppConfig) -> None:
         else:
             st.caption("No characters loaded")
 
+        # Keyboard shortcuts help (Story 3.6)
+        render_keyboard_shortcuts_help()
+
         st.markdown("---")
 
         # Session controls (Story 2.5)
@@ -1256,6 +1424,10 @@ def main() -> None:
     # Initialize session state (Task 3)
     initialize_session_state()
 
+    # Process keyboard actions early (before render) (Story 3.6)
+    if process_keyboard_action():
+        st.rerun()
+
     # Load configuration
     config = get_config()
 
@@ -1274,6 +1446,9 @@ def main() -> None:
 
     # Close app-content div
     st.markdown("</div>", unsafe_allow_html=True)
+
+    # Inject keyboard shortcut script (Story 3.6)
+    inject_keyboard_shortcut_script()
 
     # Run autopilot step if active (Story 3.1)
     # This executes at end of render to trigger next turn
