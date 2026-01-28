@@ -223,6 +223,7 @@ class GameState(TypedDict):
         human_active: Whether a human has taken control.
         controlled_character: Name of the character the human controls, or None.
         session_number: Current session number for display (default 1).
+        session_id: Unique session identifier for persistence (e.g., "001").
     """
 
     ground_truth_log: list[str]
@@ -236,6 +237,7 @@ class GameState(TypedDict):
     human_active: bool
     controlled_character: str | None
     session_number: int
+    session_id: str
 
 
 class MessageSegment(BaseModel):
@@ -417,6 +419,7 @@ def create_initial_game_state() -> GameState:
         human_active=False,
         controlled_character=None,
         session_number=1,
+        session_id="001",
     )
 
 
@@ -455,6 +458,10 @@ def populate_game_state(include_sample_messages: bool = True) -> GameState:
     if include_sample_messages:
         sample_messages = _get_sample_messages(characters)
 
+    # Generate session_id from session_number
+    session_number = 1
+    session_id = f"{session_number:03d}"
+
     return GameState(
         ground_truth_log=sample_messages,
         turn_queue=turn_queue,
@@ -466,7 +473,8 @@ def populate_game_state(include_sample_messages: bool = True) -> GameState:
         whisper_queue=[],
         human_active=False,
         controlled_character=None,
-        session_number=1,
+        session_number=session_number,
+        session_id=session_id,
     )
 
 

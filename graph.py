@@ -79,6 +79,8 @@ def human_intervention_node(state: GameState) -> GameState:
     to ground_truth_log. Also updates the character's agent memory
     for consistency with PC turn behavior.
 
+    Includes auto-checkpoint save after human action is processed (FR33).
+
     Args:
         state: Current game state.
 
@@ -88,6 +90,7 @@ def human_intervention_node(state: GameState) -> GameState:
     import streamlit as st
 
     from models import AgentMemory
+    from persistence import save_checkpoint
 
     # Get pending action from session state
     pending_action = st.session_state.get("human_pending_action")
@@ -127,12 +130,20 @@ def human_intervention_node(state: GameState) -> GameState:
     # Clear the pending action from session state
     st.session_state["human_pending_action"] = None
 
-    # Return updated state
-    return {
+    # Build updated state
+    updated_state: GameState = {
         **state,
         "ground_truth_log": new_log,
         "agent_memories": new_memories,
     }
+
+    # Auto-checkpoint: save after human action (FR33)
+    session_id = updated_state.get("session_id", "001")
+    turn_number = len(new_log)
+    if turn_number > 0:
+        save_checkpoint(updated_state, session_id, turn_number)
+
+    return updated_state
 
 
 def create_game_workflow(  # type: ignore[return-value]
@@ -207,7 +218,8 @@ def run_single_round(state: GameState) -> GameState:
     """Execute one complete round (DM + all PCs).
 
     Convenience function that runs the workflow until the DM's next turn,
-    completing one full cycle of the turn queue.
+    completing one full cycle of the turn queue. Now includes auto-checkpoint
+    save after round completion (FR33, NFR11).
 
     Note: This function creates a new workflow each time. For repeated
     execution, consider caching the compiled workflow.
@@ -218,12 +230,21 @@ def run_single_round(state: GameState) -> GameState:
     Returns:
         Updated state after all agents have acted once.
     """
+    from persistence import save_checkpoint
+
     workflow = create_game_workflow(state["turn_queue"])
 
     # Run the workflow with recursion limit to prevent infinite loops
     # The limit is set to turn_queue length + 1 to allow one full round
-    result = workflow.invoke(
+    result: GameState = workflow.invoke(
         state,
         config={"recursion_limit": len(state["turn_queue"]) + 2},
-    )
-    return result  # type: ignore[return-value]
+    )  # type: ignore[assignment]
+
+    # Auto-checkpoint: save after each round (FR33, NFR11)
+    session_id = result.get("session_id", "001")
+    turn_number = len(result["ground_truth_log"])
+    if turn_number > 0:  # Only save if there's content
+        save_checkpoint(result, session_id, turn_number)
+
+    return result

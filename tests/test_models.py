@@ -483,6 +483,8 @@ class TestGameState:
             "whisper_queue": [],
             "human_active": False,
             "controlled_character": None,
+            "session_number": 1,
+            "session_id": "001",
         }
 
         assert len(state["ground_truth_log"]) == 1
@@ -510,6 +512,8 @@ class TestGameState:
             "whisper_queue": [],
             "human_active": False,
             "controlled_character": None,
+            "session_number": 1,
+            "session_id": "001",
         }
 
         assert isinstance(state["agent_memories"]["test_agent"], AgentMemory)
@@ -536,6 +540,8 @@ class TestGameState:
             "whisper_queue": [],
             "human_active": False,
             "controlled_character": None,
+            "session_number": 1,
+            "session_id": "001",
         }
 
         assert "shadowmere" in state["characters"]
