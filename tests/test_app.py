@@ -10454,8 +10454,6 @@ class TestRenderCheckpointPreviewEdgeCases:
 
     def test_preview_with_empty_log(self, tmp_path: Path) -> None:
         """Test render_checkpoint_preview with empty log."""
-        from unittest.mock import MagicMock
-
         from models import create_initial_game_state
         from persistence import save_checkpoint
 
@@ -10470,7 +10468,7 @@ class TestRenderCheckpointPreviewEdgeCases:
         with (
             patch("streamlit.session_state", mock_session_state),
             patch("persistence.CAMPAIGNS_DIR", tmp_path),
-            patch("streamlit.markdown") as mock_markdown,
+            patch("streamlit.markdown"),
             patch("streamlit.warning") as mock_warning,
             patch("streamlit.button", return_value=False),
         ):

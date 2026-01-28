@@ -13,10 +13,11 @@ Each checkpoint is self-contained (no delta encoding).
 import json
 import os
 import tempfile
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import yaml
 from pydantic import BaseModel, Field, ValidationError
 
 from models import (
@@ -25,24 +26,31 @@ from models import (
     DMConfig,
     GameConfig,
     GameState,
+    SessionMetadata,
 )
 
 __all__ = [
     "CAMPAIGNS_DIR",
     "CheckpointInfo",
+    "create_new_session",
     "deserialize_game_state",
     "ensure_session_dir",
     "format_session_id",
+    "generate_recap_summary",
     "get_checkpoint_info",
     "get_checkpoint_path",
     "get_checkpoint_preview",
     "get_latest_checkpoint",
+    "get_next_session_number",
     "get_session_dir",
     "list_checkpoint_info",
     "list_checkpoints",
     "list_sessions",
+    "list_sessions_with_metadata",
     "load_checkpoint",
+    "load_session_metadata",
     "save_checkpoint",
+    "save_session_metadata",
     "serialize_game_state",
 ]
 
@@ -221,17 +229,23 @@ def deserialize_game_state(json_str: str) -> GameState:
     )
 
 
-def save_checkpoint(state: GameState, session_id: str, turn_number: int) -> Path:
+def save_checkpoint(
+    state: GameState, session_id: str, turn_number: int, update_metadata: bool = True
+) -> Path:
     """Save game state checkpoint to disk.
 
     Uses atomic write pattern: write to temp file first, then rename.
     This ensures checkpoint is either complete or doesn't exist,
     protecting against corruption from unexpected shutdown.
 
+    Also updates session metadata (config.yaml) with turn count and timestamp
+    unless update_metadata is False (Story 4.3).
+
     Args:
         state: Current game state to save.
         session_id: Session ID string.
         turn_number: Turn number for this checkpoint.
+        update_metadata: Whether to update session metadata (default True).
 
     Returns:
         Path where checkpoint was saved.
@@ -258,6 +272,15 @@ def save_checkpoint(state: GameState, session_id: str, turn_number: int) -> Path
         # Clean up temp file on error
         Path(temp_path).unlink(missing_ok=True)
         raise
+
+    # Update session metadata (Story 4.3)
+    if update_metadata:
+        # Extract character names from state
+        characters = state.get("characters", {})
+        character_names = [
+            config.name for key, config in characters.items() if key != "dm"
+        ]
+        update_session_metadata_on_checkpoint(session_id, turn_number, character_names)
 
     return checkpoint_path
 
@@ -462,3 +485,251 @@ def get_checkpoint_preview(
 
     log = state.get("ground_truth_log", [])
     return log[-num_messages:] if log else []
+
+
+# =============================================================================
+# Session Metadata (Story 4.3)
+# =============================================================================
+
+
+def get_session_config_path(session_id: str) -> Path:
+    """Get path to session config.yaml file.
+
+    Args:
+        session_id: Session ID string.
+
+    Returns:
+        Path to config.yaml file in session directory.
+    """
+    return get_session_dir(session_id) / "config.yaml"
+
+
+def save_session_metadata(session_id: str, metadata: SessionMetadata) -> Path:
+    """Save session metadata to config.yaml.
+
+    Args:
+        session_id: Session ID string.
+        metadata: SessionMetadata object to save.
+
+    Returns:
+        Path where config was saved.
+    """
+    ensure_session_dir(session_id)
+    config_path = get_session_config_path(session_id)
+
+    # Convert Pydantic model to dict for YAML serialization
+    data = metadata.model_dump()
+
+    # Use safe_dump for security
+    yaml_content = yaml.safe_dump(data, default_flow_style=False, sort_keys=False)
+
+    # Atomic write pattern
+    temp_path = config_path.with_suffix(".yaml.tmp")
+    try:
+        temp_path.write_text(yaml_content, encoding="utf-8")
+        temp_path.replace(config_path)
+    except Exception:
+        temp_path.unlink(missing_ok=True)
+        raise
+
+    return config_path
+
+
+def load_session_metadata(session_id: str) -> SessionMetadata | None:
+    """Load session metadata from config.yaml.
+
+    Args:
+        session_id: Session ID string.
+
+    Returns:
+        SessionMetadata object, or None if config doesn't exist or is invalid.
+    """
+    config_path = get_session_config_path(session_id)
+
+    if not config_path.exists():
+        return None
+
+    try:
+        yaml_content = config_path.read_text(encoding="utf-8")
+        data = yaml.safe_load(yaml_content)
+        return SessionMetadata(**data)
+    except (yaml.YAMLError, TypeError, ValidationError):
+        # Invalid config - return None instead of crashing
+        return None
+
+
+def list_sessions_with_metadata() -> list[SessionMetadata]:
+    """List all sessions with their metadata.
+
+    Returns sessions sorted by updated_at (most recently played first).
+    Sessions without valid config.yaml are skipped.
+    Sessions where metadata.session_id doesn't match directory are skipped
+    (security: prevents crafted config.yaml from claiming wrong session).
+
+    Returns:
+        List of SessionMetadata objects sorted by recency.
+    """
+    session_ids = list_sessions()
+    sessions: list[SessionMetadata] = []
+
+    for session_id in session_ids:
+        metadata = load_session_metadata(session_id)
+        if metadata:
+            # Security: verify metadata.session_id matches directory name
+            # Prevents crafted config.yaml from claiming wrong session
+            if metadata.session_id == session_id:
+                sessions.append(metadata)
+
+    # Sort by updated_at descending (most recent first)
+    return sorted(sessions, key=lambda x: x.updated_at, reverse=True)
+
+
+def get_next_session_number() -> int:
+    """Get the next available session number.
+
+    Returns:
+        Next session number (1 if no sessions exist).
+    """
+    session_ids = list_sessions()
+
+    if not session_ids:
+        return 1
+
+    # Parse session IDs to numbers and find max
+    max_num = 0
+    for session_id in session_ids:
+        try:
+            num = int(session_id)
+            if num > max_num:
+                max_num = num
+        except ValueError:
+            continue
+
+    return max_num + 1
+
+
+def create_new_session(
+    session_number: int | None = None,
+    name: str = "",
+    character_names: list[str] | None = None,
+) -> str:
+    """Create a new session with directory and config.yaml.
+
+    Args:
+        session_number: Session number (auto-incremented if None).
+        name: Optional user-friendly session name.
+        character_names: List of character names for display.
+
+    Returns:
+        Session ID string (e.g., "001").
+    """
+    if session_number is None:
+        session_number = get_next_session_number()
+
+    session_id = format_session_id(session_number)
+
+    # Create session directory
+    ensure_session_dir(session_id)
+
+    # Create session metadata
+    now = datetime.now(UTC).isoformat() + "Z"
+    metadata = SessionMetadata(
+        session_id=session_id,
+        session_number=session_number,
+        name=name,
+        created_at=now,
+        updated_at=now,
+        character_names=character_names or [],
+        turn_count=0,
+    )
+
+    # Save config.yaml
+    save_session_metadata(session_id, metadata)
+
+    return session_id
+
+
+def update_session_metadata_on_checkpoint(
+    session_id: str, turn_count: int, character_names: list[str] | None = None
+) -> None:
+    """Update session metadata when a checkpoint is saved.
+
+    Args:
+        session_id: Session ID string.
+        turn_count: Current turn count.
+        character_names: Optional list of character names to update.
+    """
+    metadata = load_session_metadata(session_id)
+
+    if metadata is None:
+        # Create new metadata if missing
+        try:
+            session_number = int(session_id)
+        except ValueError:
+            session_number = 1
+
+        now = datetime.now(UTC).isoformat() + "Z"
+        metadata = SessionMetadata(
+            session_id=session_id,
+            session_number=session_number,
+            name="",
+            created_at=now,
+            updated_at=now,
+            character_names=character_names or [],
+            turn_count=turn_count,
+        )
+    else:
+        # Update existing metadata
+        metadata.updated_at = datetime.now(UTC).isoformat() + "Z"
+        metadata.turn_count = turn_count
+        if character_names:
+            metadata.character_names = character_names
+
+    save_session_metadata(session_id, metadata)
+
+
+def generate_recap_summary(session_id: str, num_turns: int = 5) -> str | None:
+    """Generate a "While you were away" summary from recent turns.
+
+    Args:
+        session_id: Session ID string.
+        num_turns: Number of recent turns to summarize.
+
+    Returns:
+        Recap summary string, or None if no checkpoints exist.
+    """
+    latest_turn = get_latest_checkpoint(session_id)
+    if latest_turn is None:
+        return None
+
+    state = load_checkpoint(session_id, latest_turn)
+    if state is None:
+        return None
+
+    log = state.get("ground_truth_log", [])
+    if not log:
+        return None
+
+    # Get last N entries
+    recent_entries = log[-num_turns:] if len(log) >= num_turns else log
+
+    # Format recap entries (CSS provides bullet styling via .recap-item)
+    summary_lines: list[str] = []
+    for entry in recent_entries:
+        # Strip agent prefix for cleaner display
+        if entry.startswith("["):
+            bracket_end = entry.find("]")
+            if bracket_end > 0:
+                content = entry[bracket_end + 1 :].strip()
+            else:
+                content = entry
+        else:
+            content = entry
+
+        # Truncate long entries
+        if len(content) > 150:
+            content = content[:147] + "..."
+
+        summary_lines.append(content)
+
+    return "\n".join(summary_lines)

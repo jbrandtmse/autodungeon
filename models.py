@@ -24,6 +24,7 @@ __all__ = [
     "GameState",
     "NarrativeMessage",
     "MessageSegment",
+    "SessionMetadata",
     "create_agent_memory",
     "create_initial_game_state",
     "populate_game_state",
@@ -199,6 +200,33 @@ class GameConfig(BaseModel):
         le=8,
         description="Number of player characters",
     )
+
+
+class SessionMetadata(BaseModel):
+    """Metadata for a game session stored in config.yaml.
+
+    This model tracks session-level information for the session browser UI
+    and multi-session continuity (Story 4.3).
+
+    Attributes:
+        session_id: Session ID string (e.g., "001").
+        session_number: Numeric session number.
+        name: Optional user-friendly session name.
+        created_at: ISO timestamp when session was created.
+        updated_at: ISO timestamp of last checkpoint.
+        character_names: List of PC character names for display.
+        turn_count: Number of turns/checkpoints in session.
+    """
+
+    session_id: str = Field(..., min_length=1, description="Session ID string")
+    session_number: int = Field(..., ge=1, description="Numeric session number")
+    name: str = Field(default="", description="User-friendly session name")
+    created_at: str = Field(..., description="ISO timestamp when session was created")
+    updated_at: str = Field(..., description="ISO timestamp of last checkpoint")
+    character_names: list[str] = Field(
+        default_factory=list, description="List of PC character names for display"
+    )
+    turn_count: int = Field(default=0, ge=0, description="Number of turns in session")
 
 
 class GameState(TypedDict):

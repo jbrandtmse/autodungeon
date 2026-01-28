@@ -2343,7 +2343,7 @@ class TestGetCheckpointInfoEdgeCases:
 
         with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
             save_checkpoint(sample_game_state, "001", 1)
-            checkpoint_path = temp_campaigns_dir / "session_001" / "turn_001.json"
+            # Checkpoint created at: temp_campaigns_dir / "session_001" / "turn_001.json"
 
             # Mock file read to raise OSError
             with patch.object(Path, "read_text", side_effect=OSError("Permission denied")):
@@ -2632,3 +2632,692 @@ class TestCheckpointTimestampHandling:
 
         assert info is not None
         assert "2025-06-15 14:30" in info.timestamp
+
+
+# =============================================================================
+# Story 4.3: Session Metadata & Multi-Session Continuity Tests
+# =============================================================================
+
+
+class TestSessionMetadataModel:
+    """Tests for SessionMetadata Pydantic model (Story 4.3)."""
+
+    def test_session_metadata_model_fields(self) -> None:
+        """Test SessionMetadata model has all required fields."""
+        from models import SessionMetadata
+
+        metadata = SessionMetadata(
+            session_id="001",
+            session_number=1,
+            name="My Adventure",
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T12:00:00Z",
+            character_names=["Theron", "Lyra"],
+            turn_count=15,
+        )
+
+        assert metadata.session_id == "001"
+        assert metadata.session_number == 1
+        assert metadata.name == "My Adventure"
+        assert metadata.created_at == "2026-01-28T10:00:00Z"
+        assert metadata.updated_at == "2026-01-28T12:00:00Z"
+        assert metadata.character_names == ["Theron", "Lyra"]
+        assert metadata.turn_count == 15
+
+    def test_session_metadata_default_values(self) -> None:
+        """Test SessionMetadata has sensible defaults."""
+        from models import SessionMetadata
+
+        metadata = SessionMetadata(
+            session_id="001",
+            session_number=1,
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T10:00:00Z",
+        )
+
+        assert metadata.name == ""
+        assert metadata.character_names == []
+        assert metadata.turn_count == 0
+
+    def test_session_metadata_validation_session_id(self) -> None:
+        """Test SessionMetadata validates session_id is not empty."""
+        from pydantic import ValidationError
+
+        from models import SessionMetadata
+
+        with pytest.raises(ValidationError):
+            SessionMetadata(
+                session_id="",  # Empty - should fail
+                session_number=1,
+                created_at="2026-01-28T10:00:00Z",
+                updated_at="2026-01-28T10:00:00Z",
+            )
+
+    def test_session_metadata_validation_session_number(self) -> None:
+        """Test SessionMetadata validates session_number >= 1."""
+        from pydantic import ValidationError
+
+        from models import SessionMetadata
+
+        with pytest.raises(ValidationError):
+            SessionMetadata(
+                session_id="001",
+                session_number=0,  # Invalid - must be >= 1
+                created_at="2026-01-28T10:00:00Z",
+                updated_at="2026-01-28T10:00:00Z",
+            )
+
+
+class TestSessionMetadataPersistence:
+    """Tests for save/load session metadata (Story 4.3)."""
+
+    def test_save_session_metadata_creates_config_yaml(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test save_session_metadata creates config.yaml file."""
+        from models import SessionMetadata
+        from persistence import save_session_metadata
+
+        metadata = SessionMetadata(
+            session_id="001",
+            session_number=1,
+            name="Test Session",
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T10:00:00Z",
+            character_names=["Theron"],
+            turn_count=5,
+        )
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            path = save_session_metadata("001", metadata)
+
+        assert path.exists()
+        assert path.name == "config.yaml"
+        assert path.parent.name == "session_001"
+
+    def test_save_session_metadata_yaml_content(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test save_session_metadata writes correct YAML content."""
+        from models import SessionMetadata
+        from persistence import save_session_metadata
+
+        metadata = SessionMetadata(
+            session_id="001",
+            session_number=1,
+            name="Test Session",
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T12:00:00Z",
+            character_names=["Theron", "Lyra"],
+            turn_count=10,
+        )
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            path = save_session_metadata("001", metadata)
+
+        content = path.read_text(encoding="utf-8")
+        assert "session_id: '001'" in content or "session_id: \"001\"" in content or "session_id: 001" in content
+        assert "session_number: 1" in content
+        assert "name: Test Session" in content
+        assert "Theron" in content
+        assert "Lyra" in content
+        assert "turn_count: 10" in content
+
+    def test_load_session_metadata_roundtrip(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test save and load session metadata roundtrip."""
+        from models import SessionMetadata
+        from persistence import load_session_metadata, save_session_metadata
+
+        original = SessionMetadata(
+            session_id="001",
+            session_number=1,
+            name="Test Session",
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T12:00:00Z",
+            character_names=["Theron", "Lyra"],
+            turn_count=10,
+        )
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_session_metadata("001", original)
+            loaded = load_session_metadata("001")
+
+        assert loaded is not None
+        assert loaded.session_id == original.session_id
+        assert loaded.session_number == original.session_number
+        assert loaded.name == original.name
+        assert loaded.created_at == original.created_at
+        assert loaded.updated_at == original.updated_at
+        assert loaded.character_names == original.character_names
+        assert loaded.turn_count == original.turn_count
+
+    def test_load_session_metadata_missing_file(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test load_session_metadata returns None for missing config."""
+        from persistence import load_session_metadata
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            loaded = load_session_metadata("999")
+
+        assert loaded is None
+
+    def test_load_session_metadata_invalid_yaml(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test load_session_metadata returns None for invalid YAML."""
+        from persistence import load_session_metadata
+
+        session_dir = temp_campaigns_dir / "session_001"
+        session_dir.mkdir()
+        config_path = session_dir / "config.yaml"
+        config_path.write_text("invalid: yaml: content: [[", encoding="utf-8")
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            loaded = load_session_metadata("001")
+
+        assert loaded is None
+
+
+class TestListSessionsWithMetadata:
+    """Tests for list_sessions_with_metadata function (Story 4.3)."""
+
+    def test_list_sessions_with_metadata_empty(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test list_sessions_with_metadata with no sessions."""
+        from persistence import list_sessions_with_metadata
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            sessions = list_sessions_with_metadata()
+
+        assert sessions == []
+
+    def test_list_sessions_with_metadata_single_session(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test list_sessions_with_metadata with one session."""
+        from models import SessionMetadata
+        from persistence import list_sessions_with_metadata, save_session_metadata
+
+        metadata = SessionMetadata(
+            session_id="001",
+            session_number=1,
+            name="Test",
+            created_at="2026-01-28T10:00:00Z",
+            updated_at="2026-01-28T10:00:00Z",
+        )
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_session_metadata("001", metadata)
+            sessions = list_sessions_with_metadata()
+
+        assert len(sessions) == 1
+        assert sessions[0].session_id == "001"
+
+    def test_list_sessions_with_metadata_sorted_by_recency(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test sessions are sorted by updated_at (most recent first)."""
+        from models import SessionMetadata
+        from persistence import list_sessions_with_metadata, save_session_metadata
+
+        # Create sessions with different update times
+        sessions_data = [
+            ("001", "2026-01-25T10:00:00Z"),  # Oldest
+            ("002", "2026-01-28T10:00:00Z"),  # Newest
+            ("003", "2026-01-26T10:00:00Z"),  # Middle
+        ]
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            for session_id, updated_at in sessions_data:
+                metadata = SessionMetadata(
+                    session_id=session_id,
+                    session_number=int(session_id),
+                    created_at="2026-01-20T10:00:00Z",
+                    updated_at=updated_at,
+                )
+                save_session_metadata(session_id, metadata)
+
+            sessions = list_sessions_with_metadata()
+
+        assert len(sessions) == 3
+        # Should be sorted by updated_at descending
+        assert sessions[0].session_id == "002"  # Newest
+        assert sessions[1].session_id == "003"  # Middle
+        assert sessions[2].session_id == "001"  # Oldest
+
+    def test_list_sessions_with_metadata_skips_invalid_configs(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test invalid configs are skipped, valid ones returned."""
+        from models import SessionMetadata
+        from persistence import list_sessions_with_metadata, save_session_metadata
+
+        # Create valid session
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            metadata = SessionMetadata(
+                session_id="001",
+                session_number=1,
+                created_at="2026-01-28T10:00:00Z",
+                updated_at="2026-01-28T10:00:00Z",
+            )
+            save_session_metadata("001", metadata)
+
+        # Create invalid session manually
+        invalid_dir = temp_campaigns_dir / "session_002"
+        invalid_dir.mkdir()
+        (invalid_dir / "config.yaml").write_text("invalid yaml {{{{", encoding="utf-8")
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            sessions = list_sessions_with_metadata()
+
+        assert len(sessions) == 1
+        assert sessions[0].session_id == "001"
+
+
+class TestGetNextSessionNumber:
+    """Tests for get_next_session_number function (Story 4.3)."""
+
+    def test_get_next_session_number_empty(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test get_next_session_number returns 1 when no sessions exist."""
+        from persistence import get_next_session_number
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            next_num = get_next_session_number()
+
+        assert next_num == 1
+
+    def test_get_next_session_number_increments(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test get_next_session_number increments from existing sessions."""
+        from persistence import get_next_session_number
+
+        # Create some session directories
+        (temp_campaigns_dir / "session_001").mkdir()
+        (temp_campaigns_dir / "session_002").mkdir()
+        (temp_campaigns_dir / "session_003").mkdir()
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            next_num = get_next_session_number()
+
+        assert next_num == 4
+
+    def test_get_next_session_number_handles_gaps(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test get_next_session_number handles gaps in session numbers."""
+        from persistence import get_next_session_number
+
+        # Create sessions with gaps
+        (temp_campaigns_dir / "session_001").mkdir()
+        (temp_campaigns_dir / "session_005").mkdir()
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            next_num = get_next_session_number()
+
+        assert next_num == 6  # Max is 5, so next is 6
+
+
+class TestCreateNewSession:
+    """Tests for create_new_session function (Story 4.3)."""
+
+    def test_create_new_session_returns_session_id(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test create_new_session returns formatted session ID."""
+        from persistence import create_new_session
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            session_id = create_new_session()
+
+        assert session_id == "001"
+
+    def test_create_new_session_creates_directory(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test create_new_session creates session directory."""
+        from persistence import create_new_session
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            session_id = create_new_session()
+
+        session_dir = temp_campaigns_dir / f"session_{session_id}"
+        assert session_dir.exists()
+        assert session_dir.is_dir()
+
+    def test_create_new_session_creates_config_yaml(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test create_new_session creates config.yaml with metadata."""
+        from persistence import create_new_session, load_session_metadata
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            session_id = create_new_session(
+                name="New Adventure",
+                character_names=["Theron", "Lyra"],
+            )
+            metadata = load_session_metadata(session_id)
+
+        assert metadata is not None
+        assert metadata.session_id == session_id
+        assert metadata.name == "New Adventure"
+        assert metadata.character_names == ["Theron", "Lyra"]
+        assert metadata.turn_count == 0
+
+    def test_create_new_session_auto_increments(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test create_new_session auto-increments session number."""
+        from persistence import create_new_session
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            session1 = create_new_session()
+            session2 = create_new_session()
+            session3 = create_new_session()
+
+        assert session1 == "001"
+        assert session2 == "002"
+        assert session3 == "003"
+
+    def test_create_new_session_with_explicit_number(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test create_new_session with explicit session number."""
+        from persistence import create_new_session
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            session_id = create_new_session(session_number=42)
+
+        assert session_id == "042"
+
+
+class TestUpdateSessionMetadataOnCheckpoint:
+    """Tests for session metadata update on checkpoint save (Story 4.3)."""
+
+    def test_save_checkpoint_updates_metadata(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test save_checkpoint updates session metadata."""
+        from persistence import load_session_metadata
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 5)
+            metadata = load_session_metadata("001")
+
+        assert metadata is not None
+        assert metadata.turn_count == 5
+
+    def test_save_checkpoint_updates_timestamp(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test save_checkpoint updates the updated_at timestamp."""
+        from persistence import create_new_session, load_session_metadata
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            session_id = create_new_session()
+            metadata_before = load_session_metadata(session_id)
+
+        # Small delay to ensure timestamp difference
+        time.sleep(0.01)
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            sample_game_state["session_id"] = session_id
+            save_checkpoint(sample_game_state, session_id, 1)
+            metadata_after = load_session_metadata(session_id)
+
+        assert metadata_before is not None
+        assert metadata_after is not None
+        assert metadata_after.updated_at >= metadata_before.updated_at
+
+    def test_save_checkpoint_without_metadata_update(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test save_checkpoint with update_metadata=False skips metadata update."""
+        from persistence import load_session_metadata
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 5, update_metadata=False)
+            metadata = load_session_metadata("001")
+
+        # Should not have created metadata
+        assert metadata is None
+
+
+class TestGenerateRecapSummary:
+    """Tests for generate_recap_summary function (Story 4.3)."""
+
+    def test_generate_recap_summary_returns_recap_lines(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test generate_recap_summary returns newline-separated recap."""
+        from persistence import generate_recap_summary
+
+        sample_game_state["ground_truth_log"] = [
+            "[dm] The adventure begins in a dark tavern.",
+            "[fighter] I order an ale.",
+            "[rogue] I check my pockets for coins.",
+        ]
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 3)
+            recap = generate_recap_summary("001", num_turns=5)
+
+        assert recap is not None
+        # Recap lines are separated by newlines (CSS provides bullet styling)
+        assert recap.count("\n") == 2  # 3 lines = 2 newlines
+        assert "adventure begins" in recap
+        assert "order an ale" in recap
+        assert "check my pockets" in recap
+
+    def test_generate_recap_summary_truncates_long_entries(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test recap truncates entries longer than 150 chars."""
+        from persistence import generate_recap_summary
+
+        long_message = "[dm] " + "A" * 200
+        sample_game_state["ground_truth_log"] = [long_message]
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 1)
+            recap = generate_recap_summary("001", num_turns=1)
+
+        assert recap is not None
+        assert "..." in recap
+        # Entry should be truncated
+        assert len(recap.split("\n")[0]) < 200
+
+    def test_generate_recap_summary_no_checkpoints(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test generate_recap_summary returns None for no checkpoints."""
+        from persistence import generate_recap_summary
+
+        # Create session dir but no checkpoints
+        (temp_campaigns_dir / "session_001").mkdir()
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            recap = generate_recap_summary("001")
+
+        assert recap is None
+
+    def test_generate_recap_summary_empty_log(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test generate_recap_summary returns None for empty log."""
+        from persistence import generate_recap_summary
+
+        sample_game_state["ground_truth_log"] = []
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 0)
+            recap = generate_recap_summary("001")
+
+        assert recap is None
+
+
+class TestStory43AcceptanceCriteria:
+    """Acceptance tests for all Story 4.3 criteria."""
+
+    def test_ac1_session_browser_shows_all_sessions(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """AC #1: Session browser shows all available sessions."""
+        from models import SessionMetadata
+        from persistence import list_sessions_with_metadata, save_session_metadata
+
+        # Create multiple sessions
+        for i in range(3):
+            session_id = f"{i+1:03d}"
+            metadata = SessionMetadata(
+                session_id=session_id,
+                session_number=i + 1,
+                name=f"Session {i+1}",
+                created_at="2026-01-28T10:00:00Z",
+                updated_at="2026-01-28T10:00:00Z",
+                character_names=["Theron"],
+                turn_count=i * 5,
+            )
+            with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+                save_session_metadata(session_id, metadata)
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            sessions = list_sessions_with_metadata()
+
+        # All sessions should be retrievable
+        assert len(sessions) == 3
+
+    def test_ac2_session_card_shows_metadata(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """AC #2: Session card shows name, date, turn count, characters."""
+        from models import SessionMetadata
+        from persistence import load_session_metadata, save_session_metadata
+
+        metadata = SessionMetadata(
+            session_id="001",
+            session_number=1,
+            name="The Dragon's Lair",
+            created_at="2026-01-15T10:00:00Z",
+            updated_at="2026-01-28T14:30:00Z",
+            character_names=["Theron", "Lyra", "Magnus"],
+            turn_count=42,
+        )
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_session_metadata("001", metadata)
+            loaded = load_session_metadata("001")
+
+        assert loaded is not None
+        # Verify all card data is available
+        assert loaded.name == "The Dragon's Lair"
+        assert loaded.updated_at  # Date available
+        assert loaded.turn_count == 42
+        assert len(loaded.character_names) == 3
+
+    def test_ac3_continue_button_loads_latest_checkpoint(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """AC #3: Continue loads latest checkpoint and shows recap."""
+        from persistence import (
+            generate_recap_summary,
+            get_latest_checkpoint,
+            load_checkpoint,
+        )
+
+        # Create multiple checkpoints
+        for turn in range(1, 6):
+            sample_game_state["ground_truth_log"].append(f"[dm] Turn {turn} event.")
+            with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+                save_checkpoint(sample_game_state, "001", turn)
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            latest = get_latest_checkpoint("001")
+            state = load_checkpoint("001", latest)
+            recap = generate_recap_summary("001", num_turns=5)
+
+        assert latest == 5
+        assert state is not None
+        assert len(state["ground_truth_log"]) == 7  # Original 2 + 5 added
+        assert recap is not None
+
+    def test_ac4_new_session_creates_fresh_state(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """AC #4: New Session creates fresh game state."""
+        from persistence import create_new_session, load_session_metadata
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            session_id = create_new_session(
+                name="Fresh Adventure",
+                character_names=["Hero"],
+            )
+            metadata = load_session_metadata(session_id)
+
+        assert metadata is not None
+        assert metadata.turn_count == 0  # Fresh - no turns yet
+        assert metadata.name == "Fresh Adventure"
+
+    def test_ac5_recap_shows_recent_events(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """AC #5: Recap modal shows recent narrative events."""
+        from persistence import generate_recap_summary
+
+        sample_game_state["ground_truth_log"] = [
+            "[dm] The party entered the dungeon.",
+            "[fighter] I raise my shield.",
+            "[rogue] I scout ahead.",
+            "[dm] A goblin appears!",
+            "[wizard] I prepare a spell.",
+        ]
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 5)
+            recap = generate_recap_summary("001", num_turns=5)
+
+        assert recap is not None
+        # Should include all recent events
+        assert "dungeon" in recap
+        assert "shield" in recap
+        assert "scout" in recap
+        assert "goblin" in recap
+        assert "spell" in recap
+
+    def test_ac6_sessions_sorted_by_recency(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """AC #6: Sessions are sorted by most recently played first."""
+        from models import SessionMetadata
+        from persistence import list_sessions_with_metadata, save_session_metadata
+
+        # Create sessions in reverse order of desired sort
+        sessions_data = [
+            ("001", "2026-01-20T10:00:00Z"),  # Oldest
+            ("002", "2026-01-28T10:00:00Z"),  # Newest
+            ("003", "2026-01-24T10:00:00Z"),  # Middle
+        ]
+
+        for session_id, updated_at in sessions_data:
+            metadata = SessionMetadata(
+                session_id=session_id,
+                session_number=int(session_id),
+                created_at="2026-01-10T10:00:00Z",
+                updated_at=updated_at,
+            )
+            with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+                save_session_metadata(session_id, metadata)
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            sessions = list_sessions_with_metadata()
+
+        # Verify descending order by updated_at
+        assert sessions[0].session_id == "002"
+        assert sessions[1].session_id == "003"
+        assert sessions[2].session_id == "001"

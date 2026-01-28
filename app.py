@@ -14,7 +14,15 @@ import streamlit as st
 
 from config import AppConfig, get_config, validate_api_keys
 from graph import run_single_round
-from models import CharacterConfig, GameState, populate_game_state
+from models import CharacterConfig, GameState, SessionMetadata, populate_game_state
+from persistence import (
+    create_new_session,
+    generate_recap_summary,
+    get_latest_checkpoint,
+    list_sessions,
+    list_sessions_with_metadata,
+    load_checkpoint,
+)
 
 # Speed delay mappings for playback control
 SPEED_DELAYS: dict[str, float] = {
@@ -917,6 +925,18 @@ def render_narrative_messages(state: GameState) -> None:
 
 def initialize_session_state() -> None:
     """Initialize game state in session state if not present."""
+    # App view routing (Story 4.3)
+    if "app_view" not in st.session_state:
+        # Default to session browser if sessions exist, otherwise start new session
+        sessions = list_sessions()
+        st.session_state["app_view"] = "session_browser" if sessions else "game"
+
+    # Recap state (Story 4.3)
+    if "show_recap" not in st.session_state:
+        st.session_state["show_recap"] = False
+        st.session_state["recap_text"] = ""
+        st.session_state["current_session_id"] = None
+
     if "game" not in st.session_state:
         st.session_state["game"] = populate_game_state()
         st.session_state["ui_mode"] = "watch"
@@ -1540,6 +1560,13 @@ def render_sidebar(config: AppConfig) -> None:
                 for warning in warnings:
                     st.warning(warning, icon="⚠️")
 
+        st.markdown("---")
+
+        # Back to Sessions button (Story 4.3)
+        if st.button("Back to Sessions", key="back_to_sessions_btn"):
+            handle_back_to_sessions_click()
+            st.rerun()
+
 
 def handle_start_game_click() -> None:
     """Handle Start Game / Next Turn button click.
@@ -1617,6 +1644,260 @@ def render_viewport_warning() -> None:
     )
 
 
+# =============================================================================
+# Session Browser (Story 4.3)
+# =============================================================================
+
+
+def format_session_date(iso_timestamp: str) -> str:
+    """Format ISO timestamp for display.
+
+    Args:
+        iso_timestamp: ISO format timestamp string.
+
+    Returns:
+        Human-readable date string.
+    """
+    try:
+        # Parse ISO format (handles both with and without Z suffix)
+        ts = iso_timestamp.rstrip("Z")
+        from datetime import datetime as dt
+
+        parsed = dt.fromisoformat(ts)
+        return parsed.strftime("%b %d, %Y")
+    except (ValueError, TypeError):
+        return "Unknown date"
+
+
+def render_session_card_html(metadata: SessionMetadata) -> str:
+    """Generate HTML for a session card.
+
+    Args:
+        metadata: Session metadata for the card.
+
+    Returns:
+        HTML string for the session card.
+    """
+    # Format session number as Roman numeral
+    roman = int_to_roman(metadata.session_number)
+
+    # Format last played date
+    last_played = format_session_date(metadata.updated_at)
+
+    # Format character names (truncate if too many)
+    char_display = ", ".join(metadata.character_names[:3])
+    if len(metadata.character_names) > 3:
+        char_display += f" +{len(metadata.character_names) - 3} more"
+
+    # Session name or default
+    session_name = escape_html(metadata.name) if metadata.name else "Unnamed Adventure"
+
+    return (
+        '<div class="session-card">'
+        f'<div class="session-card-header">'
+        f'<span class="session-card-title">Session {escape_html(roman)}</span>'
+        f"</div>"
+        f'<div class="session-card-name">{session_name}</div>'
+        f'<div class="session-card-meta">'
+        f'<span class="session-card-date">Last played: {escape_html(last_played)}</span>'
+        f'<span class="session-card-turns">{metadata.turn_count} turns</span>'
+        f"</div>"
+        f'<div class="session-card-characters">{escape_html(char_display)}</div>'
+        f"</div>"
+    )
+
+
+def handle_session_continue(session_id: str) -> bool:
+    """Handle continue session button click.
+
+    Loads the latest checkpoint and sets up the game state.
+
+    Args:
+        session_id: Session ID to continue.
+
+    Returns:
+        True if session was loaded successfully, False otherwise.
+    """
+    # Get latest checkpoint
+    latest_turn = get_latest_checkpoint(session_id)
+    if latest_turn is None:
+        return False
+
+    # Load the checkpoint
+    state = load_checkpoint(session_id, latest_turn)
+    if state is None:
+        return False
+
+    # Update session state
+    st.session_state["game"] = state
+    st.session_state["current_session_id"] = session_id
+    st.session_state["app_view"] = "game"
+
+    # Reset UI state
+    st.session_state["ui_mode"] = "watch"
+    st.session_state["controlled_character"] = None
+    st.session_state["human_active"] = False
+    st.session_state["is_generating"] = False
+    st.session_state["is_paused"] = False
+    st.session_state["human_pending_action"] = None
+    st.session_state["waiting_for_human"] = False
+    st.session_state["pending_nudge"] = None
+    st.session_state["nudge_submitted"] = False
+    st.session_state["is_autopilot_running"] = False
+    st.session_state["autopilot_turn_count"] = 0
+
+    # Generate recap if there are turns
+    if latest_turn > 0:
+        recap = generate_recap_summary(session_id, num_turns=5)
+        if recap:
+            st.session_state["show_recap"] = True
+            st.session_state["recap_text"] = recap
+
+    return True
+
+
+def handle_new_session_click() -> None:
+    """Handle new session button click.
+
+    Creates a new session and initializes fresh game state.
+    """
+    # Create fresh game state
+    game = populate_game_state(include_sample_messages=False)
+
+    # Get character names from game state
+    characters = game.get("characters", {})
+    character_names = [config.name for key, config in characters.items() if key != "dm"]
+
+    # Create new session
+    session_id = create_new_session(character_names=character_names)
+
+    # Update game state with session info
+    try:
+        session_number = int(session_id)
+    except ValueError:
+        session_number = 1
+
+    game["session_id"] = session_id
+    game["session_number"] = session_number
+
+    # Update session state
+    st.session_state["game"] = game
+    st.session_state["current_session_id"] = session_id
+    st.session_state["app_view"] = "game"
+    st.session_state["show_recap"] = False
+    st.session_state["recap_text"] = ""
+
+    # Reset UI state
+    st.session_state["ui_mode"] = "watch"
+    st.session_state["controlled_character"] = None
+    st.session_state["human_active"] = False
+    st.session_state["is_generating"] = False
+    st.session_state["is_paused"] = False
+    st.session_state["is_autopilot_running"] = False
+    st.session_state["autopilot_turn_count"] = 0
+
+
+def handle_back_to_sessions_click() -> None:
+    """Handle back to sessions button click."""
+    st.session_state["app_view"] = "session_browser"
+    st.session_state["show_recap"] = False
+    st.session_state["recap_text"] = ""
+
+
+def render_recap_modal(recap_text: str) -> None:
+    """Render the "While you were away" recap modal.
+
+    Args:
+        recap_text: Recap summary text to display.
+    """
+    st.markdown('<div class="recap-modal">', unsafe_allow_html=True)
+
+    st.markdown(
+        '<h2 class="recap-header">While you were away...</h2>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown('<div class="recap-content">', unsafe_allow_html=True)
+
+    # Render each recap line
+    for line in recap_text.split("\n"):
+        if line.strip():
+            st.markdown(
+                f'<p class="recap-item">{escape_html(line)}</p>',
+                unsafe_allow_html=True,
+            )
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    # Continue button
+    if st.button("Continue Adventure", key="recap_continue_btn"):
+        st.session_state["show_recap"] = False
+        st.session_state["recap_text"] = ""
+        st.rerun()
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def render_session_browser() -> None:
+    """Render the session browser view.
+
+    Shows list of available sessions with Continue buttons and
+    a New Session button.
+    """
+    st.markdown('<div class="session-browser">', unsafe_allow_html=True)
+
+    st.markdown(
+        '<h2 class="session-browser-header">Your Adventures</h2>',
+        unsafe_allow_html=True,
+    )
+
+    # Get sessions with metadata
+    sessions = list_sessions_with_metadata()
+
+    if sessions:
+        for metadata in sessions:
+            # Render session card
+            st.markdown(
+                render_session_card_html(metadata),
+                unsafe_allow_html=True,
+            )
+
+            # Check if session has checkpoints (turn 0 is valid)
+            latest_turn = get_latest_checkpoint(metadata.session_id)
+            has_checkpoints = latest_turn is not None
+
+            # Continue button
+            col1, col2 = st.columns([3, 1])
+            with col2:
+                if st.button(
+                    "Continue",
+                    key=f"continue_{metadata.session_id}",
+                    disabled=not has_checkpoints,
+                ):
+                    if handle_session_continue(metadata.session_id):
+                        st.rerun()
+                    else:
+                        st.error("Failed to load session")
+
+            st.markdown("---")
+    else:
+        st.markdown(
+            '<p class="session-browser-empty">'
+            "No adventures yet. Start your first adventure!"
+            "</p>",
+            unsafe_allow_html=True,
+        )
+
+    # New Session button
+    st.markdown('<div class="new-session-container">', unsafe_allow_html=True)
+    if st.button("+ New Adventure", key="new_session_btn"):
+        handle_new_session_click()
+        st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
 def main() -> None:
     """Main Streamlit application entry point."""
     # Page config (kept from existing - 2.1)
@@ -1637,10 +1918,6 @@ def main() -> None:
     # Initialize session state (Task 3)
     initialize_session_state()
 
-    # Process keyboard actions early (before render) (Story 3.6)
-    if process_keyboard_action():
-        st.rerun()
-
     # Load configuration
     config = get_config()
 
@@ -1651,21 +1928,37 @@ def main() -> None:
     st.title("autodungeon")
     st.caption("Multi-agent D&D game engine")
 
-    # Render sidebar (Task 2.3, 2.5, 4.1, 4.2)
-    render_sidebar(config)
+    # App view routing (Story 4.3)
+    app_view = st.session_state.get("app_view", "session_browser")
 
-    # Main narrative area (Task 2.4, 4.3, 4.4)
-    render_main_content()
+    if app_view == "session_browser":
+        # Session browser view
+        render_session_browser()
+    else:
+        # Game view
+        # Show recap modal if needed
+        if st.session_state.get("show_recap"):
+            render_recap_modal(st.session_state.get("recap_text", ""))
+        else:
+            # Process keyboard actions (Story 3.6)
+            if process_keyboard_action():
+                st.rerun()
+
+            # Render sidebar (Task 2.3, 2.5, 4.1, 4.2)
+            render_sidebar(config)
+
+            # Main narrative area (Task 2.4, 4.3, 4.4)
+            render_main_content()
+
+            # Inject keyboard shortcut script (Story 3.6)
+            inject_keyboard_shortcut_script()
+
+            # Run autopilot step if active (Story 3.1)
+            # This executes at end of render to trigger next turn
+            run_autopilot_step()
 
     # Close app-content div
     st.markdown("</div>", unsafe_allow_html=True)
-
-    # Inject keyboard shortcut script (Story 3.6)
-    inject_keyboard_shortcut_script()
-
-    # Run autopilot step if active (Story 3.1)
-    # This executes at end of render to trigger next turn
-    run_autopilot_step()
 
 
 if __name__ == "__main__":
