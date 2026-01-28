@@ -10166,3 +10166,543 @@ class TestCheckpointBrowserUI:
             handle_checkpoint_restore("001", 1)
 
             assert mock_session_state["autopilot_turn_count"] == 0
+
+
+# =============================================================================
+# Story 4.2: Extended Test Coverage - Edge Cases & Error Paths
+# =============================================================================
+
+
+class TestRenderCheckpointEntryHtmlEdgeCases:
+    """Edge case tests for render_checkpoint_entry_html (Story 4.2 expanded)."""
+
+    def test_entry_html_with_empty_context(self) -> None:
+        """Test checkpoint entry with empty brief_context."""
+        from app import render_checkpoint_entry_html
+
+        html = render_checkpoint_entry_html(1, "2026-01-28 10:00", "")
+        assert 'class="checkpoint-entry"' in html
+        assert 'class="checkpoint-context"' in html
+
+    def test_entry_html_with_special_html_chars(self) -> None:
+        """Test entry HTML escapes all dangerous characters."""
+        from app import render_checkpoint_entry_html
+
+        html = render_checkpoint_entry_html(
+            1, "<time>", 'Context with "quotes" & <tags>'
+        )
+        assert "&lt;time&gt;" in html
+        assert "&lt;tags&gt;" in html
+        assert "&amp;" in html
+        assert "&quot;" in html
+
+    def test_entry_html_with_unicode_content(self) -> None:
+        """Test entry HTML handles unicode characters."""
+        from app import render_checkpoint_entry_html
+
+        html = render_checkpoint_entry_html(
+            1, "2026-01-28", "Dragon says: \u201cFire!\u201d \U0001f525"
+        )
+        assert "\u201c" in html or "&#8220;" in html  # Unicode or HTML entity
+
+    def test_entry_html_turn_number_zero(self) -> None:
+        """Test entry HTML with turn_number=0."""
+        from app import render_checkpoint_entry_html
+
+        html = render_checkpoint_entry_html(0, "2026-01-28", "Initial state")
+        assert "Turn 0" in html
+
+    def test_entry_html_turn_number_large(self) -> None:
+        """Test entry HTML with large turn number."""
+        from app import render_checkpoint_entry_html
+
+        html = render_checkpoint_entry_html(9999, "2026-01-28", "Late game")
+        assert "Turn 9999" in html
+
+
+class TestHandleCheckpointRestoreEdgeCases:
+    """Edge case tests for handle_checkpoint_restore (Story 4.2 expanded)."""
+
+    def test_restore_during_generation_clears_flag(self, tmp_path: Path) -> None:
+        """Test restore clears is_generating flag."""
+        from models import create_initial_game_state
+        from persistence import save_checkpoint
+
+        state = create_initial_game_state()
+
+        with patch("persistence.CAMPAIGNS_DIR", tmp_path):
+            save_checkpoint(state, "001", 1)
+
+        mock_session_state: dict = {
+            "game": {},
+            "is_autopilot_running": False,
+            "is_generating": True,
+        }
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("persistence.CAMPAIGNS_DIR", tmp_path),
+        ):
+            from app import handle_checkpoint_restore
+
+            result = handle_checkpoint_restore("001", 1)
+
+            assert result is True
+            assert mock_session_state["is_generating"] is False
+
+    def test_restore_clears_human_pending_action(self, tmp_path: Path) -> None:
+        """Test restore clears human_pending_action."""
+        from models import create_initial_game_state
+        from persistence import save_checkpoint
+
+        state = create_initial_game_state()
+
+        with patch("persistence.CAMPAIGNS_DIR", tmp_path):
+            save_checkpoint(state, "001", 1)
+
+        mock_session_state: dict = {
+            "game": {},
+            "is_autopilot_running": False,
+            "human_pending_action": "I attack!",
+        }
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("persistence.CAMPAIGNS_DIR", tmp_path),
+        ):
+            from app import handle_checkpoint_restore
+
+            handle_checkpoint_restore("001", 1)
+
+            assert mock_session_state["human_pending_action"] is None
+
+    def test_restore_clears_waiting_for_human(self, tmp_path: Path) -> None:
+        """Test restore clears waiting_for_human flag."""
+        from models import create_initial_game_state
+        from persistence import save_checkpoint
+
+        state = create_initial_game_state()
+
+        with patch("persistence.CAMPAIGNS_DIR", tmp_path):
+            save_checkpoint(state, "001", 1)
+
+        mock_session_state: dict = {
+            "game": {},
+            "is_autopilot_running": False,
+            "waiting_for_human": True,
+        }
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("persistence.CAMPAIGNS_DIR", tmp_path),
+        ):
+            from app import handle_checkpoint_restore
+
+            handle_checkpoint_restore("001", 1)
+
+            assert mock_session_state["waiting_for_human"] is False
+
+    def test_restore_clears_pending_nudge(self, tmp_path: Path) -> None:
+        """Test restore clears pending_nudge."""
+        from models import create_initial_game_state
+        from persistence import save_checkpoint
+
+        state = create_initial_game_state()
+
+        with patch("persistence.CAMPAIGNS_DIR", tmp_path):
+            save_checkpoint(state, "001", 1)
+
+        mock_session_state: dict = {
+            "game": {},
+            "is_autopilot_running": False,
+            "pending_nudge": "Hint text",
+        }
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("persistence.CAMPAIGNS_DIR", tmp_path),
+        ):
+            from app import handle_checkpoint_restore
+
+            handle_checkpoint_restore("001", 1)
+
+            assert mock_session_state["pending_nudge"] is None
+
+    def test_restore_clears_human_active(self, tmp_path: Path) -> None:
+        """Test restore clears human_active flag."""
+        from models import create_initial_game_state
+        from persistence import save_checkpoint
+
+        state = create_initial_game_state()
+
+        with patch("persistence.CAMPAIGNS_DIR", tmp_path):
+            save_checkpoint(state, "001", 1)
+
+        mock_session_state: dict = {
+            "game": {},
+            "is_autopilot_running": False,
+            "human_active": True,
+        }
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("persistence.CAMPAIGNS_DIR", tmp_path),
+        ):
+            from app import handle_checkpoint_restore
+
+            handle_checkpoint_restore("001", 1)
+
+            assert mock_session_state["human_active"] is False
+
+    def test_restore_with_corrupted_checkpoint(self, tmp_path: Path) -> None:
+        """Test restore returns False for corrupted checkpoint."""
+        session_dir = tmp_path / "session_001"
+        session_dir.mkdir()
+        corrupted = session_dir / "turn_001.json"
+        corrupted.write_text("not valid json", encoding="utf-8")
+
+        mock_session_state: dict = {
+            "game": {},
+            "is_autopilot_running": False,
+        }
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("persistence.CAMPAIGNS_DIR", tmp_path),
+        ):
+            from app import handle_checkpoint_restore
+
+            result = handle_checkpoint_restore("001", 1)
+
+            assert result is False
+
+    def test_restore_preserves_unrelated_session_state(self, tmp_path: Path) -> None:
+        """Test restore doesn't clear unrelated session state keys."""
+        from models import create_initial_game_state
+        from persistence import save_checkpoint
+
+        state = create_initial_game_state()
+
+        with patch("persistence.CAMPAIGNS_DIR", tmp_path):
+            save_checkpoint(state, "001", 1)
+
+        mock_session_state: dict = {
+            "game": {},
+            "is_autopilot_running": False,
+            "custom_user_setting": "preserved",
+            "another_key": 42,
+        }
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("persistence.CAMPAIGNS_DIR", tmp_path),
+        ):
+            from app import handle_checkpoint_restore
+
+            handle_checkpoint_restore("001", 1)
+
+            assert mock_session_state["custom_user_setting"] == "preserved"
+            assert mock_session_state["another_key"] == 42
+
+    def test_restore_clears_multiple_preview_keys(self, tmp_path: Path) -> None:
+        """Test restore clears all show_preview_ keys at once."""
+        from models import create_initial_game_state
+        from persistence import save_checkpoint
+
+        state = create_initial_game_state()
+
+        with patch("persistence.CAMPAIGNS_DIR", tmp_path):
+            save_checkpoint(state, "001", 1)
+
+        mock_session_state: dict = {
+            "game": {},
+            "is_autopilot_running": False,
+            "show_preview_1": True,
+            "show_preview_5": True,
+            "show_preview_10": True,
+            "show_preview_99": False,
+        }
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("persistence.CAMPAIGNS_DIR", tmp_path),
+        ):
+            from app import handle_checkpoint_restore
+
+            handle_checkpoint_restore("001", 1)
+
+            # All preview keys should be removed
+            assert "show_preview_1" not in mock_session_state
+            assert "show_preview_5" not in mock_session_state
+            assert "show_preview_10" not in mock_session_state
+            assert "show_preview_99" not in mock_session_state
+
+
+class TestRenderCheckpointPreviewEdgeCases:
+    """Edge case tests for render_checkpoint_preview (Story 4.2 expanded)."""
+
+    def test_preview_function_signature(self) -> None:
+        """Test render_checkpoint_preview accepts correct parameters."""
+        import inspect
+
+        from app import render_checkpoint_preview
+
+        sig = inspect.signature(render_checkpoint_preview)
+        params = list(sig.parameters.keys())
+        assert "session_id" in params
+        assert "turn_number" in params
+
+    def test_preview_with_empty_log(self, tmp_path: Path) -> None:
+        """Test render_checkpoint_preview with empty log."""
+        from unittest.mock import MagicMock
+
+        from models import create_initial_game_state
+        from persistence import save_checkpoint
+
+        state = create_initial_game_state()
+        state["ground_truth_log"] = []
+
+        with patch("persistence.CAMPAIGNS_DIR", tmp_path):
+            save_checkpoint(state, "001", 0)
+
+        mock_session_state: dict = {"game": {}}
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("persistence.CAMPAIGNS_DIR", tmp_path),
+            patch("streamlit.markdown") as mock_markdown,
+            patch("streamlit.warning") as mock_warning,
+            patch("streamlit.button", return_value=False),
+        ):
+            from app import render_checkpoint_preview
+
+            render_checkpoint_preview("001", 0)
+
+            # Should render checkpoint-preview div without calling warning
+            mock_warning.assert_not_called()
+
+
+class TestRenderRestoreConfirmationEdgeCases:
+    """Edge case tests for render_restore_confirmation (Story 4.2 expanded)."""
+
+    def test_confirmation_function_signature(self) -> None:
+        """Test render_restore_confirmation accepts correct parameters."""
+        import inspect
+
+        from app import render_restore_confirmation
+
+        sig = inspect.signature(render_restore_confirmation)
+        params = list(sig.parameters.keys())
+        assert "session_id" in params
+        assert "turn_number" in params
+
+    def test_confirmation_calculates_turns_to_undo(self, tmp_path: Path) -> None:
+        """Test confirmation shows correct turns to undo count."""
+        from unittest.mock import MagicMock
+
+        mock_session_state: dict = {
+            "game": {"ground_truth_log": ["msg1", "msg2", "msg3", "msg4", "msg5"]},
+            "pending_restore": 2,
+        }
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("persistence.CAMPAIGNS_DIR", tmp_path),
+            patch("streamlit.warning") as mock_warning,
+            patch("streamlit.columns", return_value=[MagicMock(), MagicMock()]),
+            patch("streamlit.button", return_value=False),
+        ):
+            from app import render_restore_confirmation
+
+            render_restore_confirmation("001", 2)
+
+            # Should show "undo 3 turn(s)" since current=5, restore_to=2
+            mock_warning.assert_called_once()
+            call_args = mock_warning.call_args[0][0]
+            assert "3 turn(s)" in call_args
+
+    def test_confirmation_with_zero_turns_to_undo(self, tmp_path: Path) -> None:
+        """Test confirmation when restoring to current turn (0 turns to undo)."""
+        from unittest.mock import MagicMock
+
+        mock_session_state: dict = {
+            "game": {"ground_truth_log": ["msg1", "msg2", "msg3"]},
+            "pending_restore": 3,
+        }
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("persistence.CAMPAIGNS_DIR", tmp_path),
+            patch("streamlit.warning") as mock_warning,
+            patch("streamlit.columns", return_value=[MagicMock(), MagicMock()]),
+            patch("streamlit.button", return_value=False),
+        ):
+            from app import render_restore_confirmation
+
+            render_restore_confirmation("001", 3)
+
+            call_args = mock_warning.call_args[0][0]
+            assert "0 turn(s)" in call_args
+
+
+class TestCheckpointBrowserCSSAdditional:
+    """Additional CSS tests for checkpoint browser (Story 4.2 expanded)."""
+
+    def test_checkpoint_entry_hover_state(self) -> None:
+        """Test checkpoint-entry has hover styling."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+        assert ".checkpoint-entry:hover" in css_content
+
+    def test_checkpoint_preview_typography(self) -> None:
+        """Test checkpoint-preview uses narrative font."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+        # Should use font-narrative for preview text
+        assert ".checkpoint-preview" in css_content
+        assert "var(--font-narrative)" in css_content
+
+    def test_checkpoint_list_layout(self) -> None:
+        """Test checkpoint-list uses flexbox layout."""
+        import re
+
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+        # Find checkpoint-list rule and verify flex direction
+        match = re.search(r"\.checkpoint-list\s*\{[^}]+\}", css_content)
+        assert match is not None
+        rule = match.group(0)
+        assert "flex-direction: column" in rule
+
+    def test_checkpoint_buttons_styled_in_sidebar(self) -> None:
+        """Test checkpoint buttons have sidebar-specific styling."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+        assert '[data-testid="stSidebar"] .checkpoint-list .stButton' in css_content
+
+
+class TestCheckpointBrowserUIIntegration:
+    """Integration tests for checkpoint browser UI (Story 4.2 expanded)."""
+
+    def test_render_checkpoint_browser_uses_session_id_from_game(self) -> None:
+        """Test browser uses session_id from game state."""
+        # Verify the implementation reads session_id from game
+        app_path = Path(__file__).parent.parent / "app.py"
+        source = app_path.read_text(encoding="utf-8")
+        assert 'session_id = game.get("session_id"' in source
+
+    def test_checkpoint_browser_respects_pending_restore(self) -> None:
+        """Test browser shows confirmation when pending_restore is set."""
+        app_path = Path(__file__).parent.parent / "app.py"
+        source = app_path.read_text(encoding="utf-8")
+        # Should check pending_restore and render confirmation
+        assert 'pending_restore = st.session_state.get("pending_restore")' in source
+        assert "render_restore_confirmation" in source
+
+    def test_restore_button_disabled_during_generation(self) -> None:
+        """Test restore button is disabled during generation."""
+        app_path = Path(__file__).parent.parent / "app.py"
+        source = app_path.read_text(encoding="utf-8")
+        # Should disable restore during generation
+        assert "disabled=is_generating" in source
+
+    def test_checkpoint_browser_shows_empty_message(self) -> None:
+        """Test browser shows message when no checkpoints available."""
+        app_path = Path(__file__).parent.parent / "app.py"
+        source = app_path.read_text(encoding="utf-8")
+        assert 'No checkpoints available' in source
+
+
+class TestCheckpointRestoreAcceptanceCriteria:
+    """Acceptance criteria tests for restore functionality (Story 4.2)."""
+
+    def test_ac_restore_stops_active_processes(self, tmp_path: Path) -> None:
+        """AC: Restore should stop all active processes (autopilot, generation)."""
+        from models import create_initial_game_state
+        from persistence import save_checkpoint
+
+        state = create_initial_game_state()
+
+        with patch("persistence.CAMPAIGNS_DIR", tmp_path):
+            save_checkpoint(state, "001", 1)
+
+        mock_session_state: dict = {
+            "game": {},
+            "is_autopilot_running": True,
+            "is_generating": True,
+            "is_paused": True,
+        }
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("persistence.CAMPAIGNS_DIR", tmp_path),
+        ):
+            from app import handle_checkpoint_restore
+
+            handle_checkpoint_restore("001", 1)
+
+            assert mock_session_state["is_autopilot_running"] is False
+            assert mock_session_state["is_generating"] is False
+            assert mock_session_state["is_paused"] is False
+
+    def test_ac_restore_resets_to_watch_mode(self, tmp_path: Path) -> None:
+        """AC: Restore should reset UI to watch mode."""
+        from models import create_initial_game_state
+        from persistence import save_checkpoint
+
+        state = create_initial_game_state()
+
+        with patch("persistence.CAMPAIGNS_DIR", tmp_path):
+            save_checkpoint(state, "001", 1)
+
+        mock_session_state: dict = {
+            "game": {},
+            "is_autopilot_running": False,
+            "ui_mode": "play",
+            "controlled_character": "fighter",
+        }
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("persistence.CAMPAIGNS_DIR", tmp_path),
+        ):
+            from app import handle_checkpoint_restore
+
+            handle_checkpoint_restore("001", 1)
+
+            assert mock_session_state["ui_mode"] == "watch"
+            assert mock_session_state["controlled_character"] is None
+
+    def test_ac_restore_replaces_game_state(self, tmp_path: Path) -> None:
+        """AC: Restore should completely replace current game state."""
+        from models import create_initial_game_state
+        from persistence import save_checkpoint
+
+        saved_state = create_initial_game_state()
+        saved_state["ground_truth_log"] = ["[dm] Saved state message."]
+        saved_state["current_turn"] = "rogue"
+
+        with patch("persistence.CAMPAIGNS_DIR", tmp_path):
+            save_checkpoint(saved_state, "001", 1)
+
+        mock_session_state: dict = {
+            "game": {
+                "ground_truth_log": ["[dm] Current state."],
+                "current_turn": "fighter",
+            },
+            "is_autopilot_running": False,
+        }
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("persistence.CAMPAIGNS_DIR", tmp_path),
+        ):
+            from app import handle_checkpoint_restore
+
+            handle_checkpoint_restore("001", 1)
+
+            # Game state should be completely replaced
+            assert mock_session_state["game"]["ground_truth_log"] == [
+                "[dm] Saved state message."
+            ]
+            assert mock_session_state["game"]["current_turn"] == "rogue"

@@ -2176,3 +2176,459 @@ class TestStory42AcceptanceCriteria:
 
         assert info is not None
         assert info.message_count == 7
+
+
+# =============================================================================
+# Story 4.2: Extended Test Coverage - Edge Cases & Error Paths
+# =============================================================================
+
+
+class TestCheckpointInfoEdgeCases:
+    """Edge case tests for CheckpointInfo (Story 4.2 expanded coverage)."""
+
+    def test_checkpoint_info_turn_number_zero(self) -> None:
+        """Test CheckpointInfo accepts turn_number=0 (boundary condition)."""
+        from persistence import CheckpointInfo
+
+        info = CheckpointInfo(turn_number=0, timestamp="2026-01-28 10:00")
+        assert info.turn_number == 0
+
+    def test_checkpoint_info_turn_number_large(self) -> None:
+        """Test CheckpointInfo accepts large turn numbers (9999)."""
+        from persistence import CheckpointInfo
+
+        info = CheckpointInfo(turn_number=9999, timestamp="2026-01-28 10:00")
+        assert info.turn_number == 9999
+
+    def test_checkpoint_info_negative_turn_raises(self) -> None:
+        """Test CheckpointInfo rejects negative turn numbers."""
+        from pydantic import ValidationError
+
+        from persistence import CheckpointInfo
+
+        with pytest.raises(ValidationError):
+            CheckpointInfo(turn_number=-1, timestamp="2026-01-28")
+
+    def test_checkpoint_info_negative_message_count_raises(self) -> None:
+        """Test CheckpointInfo rejects negative message_count."""
+        from pydantic import ValidationError
+
+        from persistence import CheckpointInfo
+
+        with pytest.raises(ValidationError):
+            CheckpointInfo(turn_number=1, timestamp="2026-01-28", message_count=-5)
+
+    def test_checkpoint_info_empty_timestamp(self) -> None:
+        """Test CheckpointInfo handles empty timestamp string."""
+        from persistence import CheckpointInfo
+
+        info = CheckpointInfo(turn_number=1, timestamp="")
+        assert info.timestamp == ""
+
+    def test_checkpoint_info_unicode_context(self) -> None:
+        """Test CheckpointInfo handles unicode characters in brief_context."""
+        from persistence import CheckpointInfo
+
+        info = CheckpointInfo(
+            turn_number=1, timestamp="2026-01-28", brief_context="Dragon says: \u201cFire!\u201d \U0001f525"
+        )
+        assert "\u201c" in info.brief_context
+
+
+class TestGetCheckpointInfoEdgeCases:
+    """Edge case tests for get_checkpoint_info (Story 4.2 expanded coverage)."""
+
+    def test_get_checkpoint_info_turn_zero(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test get_checkpoint_info handles turn 0."""
+        from persistence import get_checkpoint_info
+
+        sample_game_state["ground_truth_log"] = []
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 0)
+            info = get_checkpoint_info("001", 0)
+
+        assert info is not None
+        assert info.turn_number == 0
+        assert info.message_count == 0
+
+    def test_get_checkpoint_info_large_turn(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test get_checkpoint_info handles large turn number (9999)."""
+        from persistence import get_checkpoint_info
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 9999)
+            info = get_checkpoint_info("001", 9999)
+
+        assert info is not None
+        assert info.turn_number == 9999
+
+    def test_get_checkpoint_info_context_without_prefix(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test context extraction when log entry has no [agent] prefix."""
+        from persistence import get_checkpoint_info
+
+        sample_game_state["ground_truth_log"] = ["System: Game started."]
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 1)
+            info = get_checkpoint_info("001", 1)
+
+        assert info is not None
+        # Should use entire entry since no [agent] prefix
+        assert "System: Game started." in info.brief_context
+
+    def test_get_checkpoint_info_context_exactly_100_chars(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test context extraction when content is exactly 100 characters."""
+        from persistence import get_checkpoint_info
+
+        # Create message with exactly 100 chars after prefix removal
+        content = "A" * 100
+        sample_game_state["ground_truth_log"] = [f"[dm] {content}"]
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 1)
+            info = get_checkpoint_info("001", 1)
+
+        assert info is not None
+        # Should not have ellipsis since exactly 100
+        assert info.brief_context == content
+        assert not info.brief_context.endswith("...")
+
+    def test_get_checkpoint_info_context_101_chars(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test context truncation when content is 101 characters."""
+        from persistence import get_checkpoint_info
+
+        # Create message with exactly 101 chars after prefix removal
+        content = "A" * 101
+        sample_game_state["ground_truth_log"] = [f"[dm] {content}"]
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 1)
+            info = get_checkpoint_info("001", 1)
+
+        assert info is not None
+        assert info.brief_context.endswith("...")
+        assert len(info.brief_context) == 103  # 100 + "..."
+
+    def test_get_checkpoint_info_empty_bracket_prefix(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test context extraction with empty bracket prefix []."""
+        from persistence import get_checkpoint_info
+
+        sample_game_state["ground_truth_log"] = ["[] Empty prefix test"]
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 1)
+            info = get_checkpoint_info("001", 1)
+
+        assert info is not None
+        assert "Empty prefix test" in info.brief_context
+
+    def test_get_checkpoint_info_file_permission_error(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test get_checkpoint_info returns None on file read error."""
+        from persistence import get_checkpoint_info
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 1)
+            checkpoint_path = temp_campaigns_dir / "session_001" / "turn_001.json"
+
+            # Mock file read to raise OSError
+            with patch.object(Path, "read_text", side_effect=OSError("Permission denied")):
+                info = get_checkpoint_info("001", 1)
+
+        assert info is None
+
+
+class TestListCheckpointInfoEdgeCases:
+    """Edge case tests for list_checkpoint_info (Story 4.2 expanded coverage)."""
+
+    def test_list_checkpoint_info_single_checkpoint(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test list_checkpoint_info with single checkpoint."""
+        from persistence import list_checkpoint_info
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 1)
+            infos = list_checkpoint_info("001")
+
+        assert len(infos) == 1
+        assert infos[0].turn_number == 1
+
+    def test_list_checkpoint_info_many_checkpoints(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test list_checkpoint_info with many checkpoints (100)."""
+        from persistence import list_checkpoint_info
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            for i in range(100):
+                save_checkpoint(sample_game_state, "001", i)
+            infos = list_checkpoint_info("001")
+
+        assert len(infos) == 100
+        # Should be sorted descending
+        assert infos[0].turn_number == 99
+        assert infos[-1].turn_number == 0
+
+    def test_list_checkpoint_info_nonexistent_session(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test list_checkpoint_info for nonexistent session."""
+        from persistence import list_checkpoint_info
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            infos = list_checkpoint_info("999")
+
+        assert infos == []
+
+    def test_list_checkpoint_info_mixed_valid_invalid(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test list_checkpoint_info skips invalid but includes all valid."""
+        from persistence import list_checkpoint_info
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 1)
+            save_checkpoint(sample_game_state, "001", 3)
+            save_checkpoint(sample_game_state, "001", 5)
+
+        # Corrupt checkpoint 3
+        corrupted = temp_campaigns_dir / "session_001" / "turn_003.json"
+        corrupted.write_text("not json", encoding="utf-8")
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            infos = list_checkpoint_info("001")
+
+        assert len(infos) == 2
+        turn_numbers = [info.turn_number for info in infos]
+        assert 5 in turn_numbers
+        assert 1 in turn_numbers
+        assert 3 not in turn_numbers
+
+
+class TestCheckpointPreviewEdgeCases:
+    """Edge case tests for get_checkpoint_preview (Story 4.2 expanded coverage)."""
+
+    def test_preview_with_num_messages_zero(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test preview with num_messages=0 returns all messages (Python slice behavior)."""
+        from persistence import get_checkpoint_preview
+
+        sample_game_state["ground_truth_log"] = ["[dm] Message 1", "[dm] Message 2"]
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 1)
+            preview = get_checkpoint_preview("001", 1, num_messages=0)
+
+        # Note: log[-0:] equals log[0:] which returns all elements (Python slice behavior)
+        assert preview is not None
+        assert preview == ["[dm] Message 1", "[dm] Message 2"]
+
+    def test_preview_with_large_num_messages(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test preview with num_messages larger than available."""
+        from persistence import get_checkpoint_preview
+
+        sample_game_state["ground_truth_log"] = ["[dm] Only message."]
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 1)
+            preview = get_checkpoint_preview("001", 1, num_messages=1000)
+
+        assert preview is not None
+        assert len(preview) == 1
+
+    def test_preview_preserves_message_order(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test preview preserves chronological order."""
+        from persistence import get_checkpoint_preview
+
+        sample_game_state["ground_truth_log"] = [
+            f"[dm] Message {i}" for i in range(10)
+        ]
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 10)
+            preview = get_checkpoint_preview("001", 10, num_messages=3)
+
+        assert preview == ["[dm] Message 7", "[dm] Message 8", "[dm] Message 9"]
+
+    def test_preview_corrupted_checkpoint(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test preview returns None for corrupted checkpoint."""
+        from persistence import get_checkpoint_preview
+
+        session_dir = temp_campaigns_dir / "session_001"
+        session_dir.mkdir()
+        corrupted = session_dir / "turn_001.json"
+        corrupted.write_text('{"invalid": "structure"}', encoding="utf-8")
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            preview = get_checkpoint_preview("001", 1)
+
+        assert preview is None
+
+
+class TestCheckpointInfoIntegration:
+    """Integration tests for checkpoint browser data flow (Story 4.2)."""
+
+    def test_full_browser_data_flow(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test complete flow: save -> list -> info -> preview."""
+        from persistence import (
+            get_checkpoint_info,
+            get_checkpoint_preview,
+            list_checkpoint_info,
+        )
+
+        # Create multiple checkpoints with distinct content
+        for i in range(1, 4):
+            sample_game_state["ground_truth_log"] = [
+                f"[dm] Turn {i} narration."
+            ]
+            with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+                save_checkpoint(sample_game_state, "001", i)
+
+        # List all checkpoints
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            infos = list_checkpoint_info("001")
+
+        assert len(infos) == 3
+        assert infos[0].turn_number == 3  # Newest first
+
+        # Get info for specific checkpoint
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            info = get_checkpoint_info("001", 2)
+
+        assert info is not None
+        assert info.turn_number == 2
+        assert "Turn 2 narration" in info.brief_context
+
+        # Get preview for that checkpoint
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            preview = get_checkpoint_preview("001", 2)
+
+        assert preview is not None
+        assert "[dm] Turn 2 narration." in preview
+
+    def test_session_isolation(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test checkpoints are isolated between sessions."""
+        from persistence import list_checkpoint_info
+
+        # Create checkpoints in different sessions
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 1)
+            save_checkpoint(sample_game_state, "001", 2)
+            save_checkpoint(sample_game_state, "002", 1)
+
+            infos_001 = list_checkpoint_info("001")
+            infos_002 = list_checkpoint_info("002")
+
+        assert len(infos_001) == 2
+        assert len(infos_002) == 1
+
+
+class TestCheckpointValidationBoundaries:
+    """Boundary condition tests for checkpoint validation (Story 4.2)."""
+
+    def test_get_checkpoint_info_validates_session_id(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test get_checkpoint_info validates session_id."""
+        from persistence import get_checkpoint_info
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            with pytest.raises(ValueError, match="Invalid session_id"):
+                get_checkpoint_info("../etc/passwd", 1)
+
+    def test_get_checkpoint_info_validates_turn_number(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test get_checkpoint_info validates turn_number."""
+        from persistence import get_checkpoint_info
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            with pytest.raises(ValueError, match="Invalid turn_number"):
+                get_checkpoint_info("001", -1)
+
+    def test_get_checkpoint_preview_validates_session_id(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test get_checkpoint_preview validates session_id."""
+        from persistence import get_checkpoint_preview
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            with pytest.raises(ValueError, match="Invalid session_id"):
+                get_checkpoint_preview("bad/path", 1)
+
+    def test_list_checkpoint_info_validates_session_id(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test list_checkpoint_info validates session_id."""
+        from persistence import list_checkpoint_info
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            with pytest.raises(ValueError, match="Invalid session_id"):
+                list_checkpoint_info("")
+
+
+class TestCheckpointTimestampHandling:
+    """Tests for checkpoint timestamp extraction (Story 4.2)."""
+
+    def test_timestamp_format_yyyy_mm_dd_hh_mm(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test timestamp is formatted as YYYY-MM-DD HH:MM."""
+        import re
+
+        from persistence import get_checkpoint_info
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 1)
+            info = get_checkpoint_info("001", 1)
+
+        assert info is not None
+        # Should match format like "2026-01-28 10:30"
+        assert re.match(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}", info.timestamp)
+
+    def test_timestamp_from_file_mtime(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test timestamp comes from file modification time."""
+        import time
+
+        from persistence import get_checkpoint_info
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 1)
+
+            # Modify file mtime to a known value
+            checkpoint_path = temp_campaigns_dir / "session_001" / "turn_001.json"
+            known_time = time.mktime((2025, 6, 15, 14, 30, 0, 0, 0, -1))
+            os.utime(checkpoint_path, (known_time, known_time))
+
+            info = get_checkpoint_info("001", 1)
+
+        assert info is not None
+        assert "2025-06-15 14:30" in info.timestamp
