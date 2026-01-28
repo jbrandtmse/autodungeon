@@ -1009,3 +1009,155 @@ hr {
   border-radius: 3px;
   color: var(--text-primary);
 }
+
+/* ==========================================================================
+   Checkpoint Browser (Story 4.2)
+   ========================================================================== */
+
+/* Container for checkpoint list */
+.checkpoint-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+/* Individual checkpoint entry */
+.checkpoint-entry {
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  padding: var(--space-md);
+  border-left: 3px solid var(--accent-warm);
+  transition: background 0.15s ease;
+}
+
+.checkpoint-entry:hover {
+  background: var(--bg-message);
+}
+
+/* Header row with turn number and timestamp */
+.checkpoint-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-xs);
+}
+
+/* Turn number styling */
+.checkpoint-turn {
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: var(--text-name);
+  color: var(--text-primary);
+}
+
+/* Timestamp styling (secondary text) */
+.checkpoint-timestamp {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* Context preview text (italic, truncated) */
+.checkpoint-context {
+  font-family: var(--font-narrative);
+  font-size: var(--text-system);
+  font-style: italic;
+  color: var(--text-secondary);
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.4;
+}
+
+/* Preview expanded section */
+.checkpoint-preview {
+  background: var(--bg-primary);
+  border-radius: 4px;
+  padding: var(--space-sm);
+  margin: var(--space-sm) 0;
+  border-left: 2px solid var(--text-secondary);
+}
+
+.checkpoint-preview p {
+  font-family: var(--font-narrative);
+  font-size: var(--text-system);
+  color: var(--text-secondary);
+  margin: var(--space-xs) 0;
+  line-height: 1.4;
+}
+
+/* Restore confirmation warning styling */
+.restore-confirmation {
+  background: rgba(232, 168, 73, 0.1);
+  border: 1px solid var(--accent-warm);
+  border-radius: 8px;
+  padding: var(--space-md);
+  margin: var(--space-md) 0;
+}
+
+.restore-confirmation .warning-text {
+  font-family: var(--font-ui);
+  font-size: var(--text-ui);
+  color: var(--accent-warm);
+  margin-bottom: var(--space-sm);
+}
+
+/* Checkpoint browser buttons in sidebar */
+[data-testid="stSidebar"] .checkpoint-list .stButton > button {
+  background: transparent;
+  border: 1px solid var(--text-secondary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  padding: 4px 8px;
+  margin: 2px 0;
+}
+
+[data-testid="stSidebar"] .checkpoint-list .stButton > button:hover {
+  background: var(--bg-message);
+  border-color: var(--text-primary);
+  color: var(--text-primary);
+}
+
+/* Restore button - amber accent */
+[data-testid="stSidebar"] .stButton > button[data-testid*="restore_"] {
+  border-color: var(--accent-warm);
+  color: var(--accent-warm);
+}
+
+[data-testid="stSidebar"] .stButton > button[data-testid*="restore_"]:hover {
+  background: var(--accent-warm);
+  color: var(--bg-primary);
+}
+
+/* Confirm restore button */
+[data-testid="stSidebar"] .stButton > button[data-testid="confirm_restore"] {
+  background: var(--accent-warm);
+  border-color: var(--accent-warm);
+  color: var(--bg-primary);
+}
+
+[data-testid="stSidebar"] .stButton > button[data-testid="confirm_restore"]:hover {
+  background: #D49A3D;
+}
+
+/* Preview button styling */
+[data-testid="stSidebar"] .stButton > button[data-testid*="preview_"] {
+  border-color: var(--text-secondary);
+  color: var(--text-secondary);
+}
+
+[data-testid="stSidebar"] .stButton > button[data-testid*="preview_"]:hover {
+  background: var(--bg-message);
+  color: var(--text-primary);
+}
+
+/* Empty checkpoint message */
+.checkpoint-empty {
+  font-family: var(--font-ui);
+  font-size: var(--text-system);
+  color: var(--text-secondary);
+  font-style: italic;
+  text-align: center;
+  padding: var(--space-md);
+}

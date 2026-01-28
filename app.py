@@ -1266,6 +1266,214 @@ def render_character_card(
     st.markdown("</div>", unsafe_allow_html=True)
 
 
+# =============================================================================
+# Checkpoint Browser (Story 4.2)
+# =============================================================================
+
+
+def render_checkpoint_entry_html(
+    turn_number: int, timestamp: str, brief_context: str
+) -> str:
+    """Generate HTML for a single checkpoint list entry.
+
+    Args:
+        turn_number: Turn number for this checkpoint.
+        timestamp: Human-readable timestamp string.
+        brief_context: Brief preview of checkpoint content.
+
+    Returns:
+        HTML string for checkpoint entry.
+    """
+    return (
+        '<div class="checkpoint-entry">'
+        '<div class="checkpoint-header">'
+        f'<span class="checkpoint-turn">Turn {turn_number}</span>'
+        f'<span class="checkpoint-timestamp">{escape_html(timestamp)}</span>'
+        "</div>"
+        f'<p class="checkpoint-context">{escape_html(brief_context)}</p>'
+        "</div>"
+    )
+
+
+def handle_checkpoint_restore(session_id: str, turn_number: int) -> bool:
+    """Handle checkpoint restore request.
+
+    Loads the checkpoint, updates session state, and resets UI state.
+
+    Args:
+        session_id: Session ID to restore from.
+        turn_number: Turn number to restore to.
+
+    Returns:
+        True if restore succeeded, False otherwise.
+    """
+    from persistence import load_checkpoint
+
+    # Stop autopilot if running
+    st.session_state["is_autopilot_running"] = False
+
+    # Load the checkpoint
+    state = load_checkpoint(session_id, turn_number)
+    if state is None:
+        return False
+
+    # Update game state
+    st.session_state["game"] = state
+
+    # Reset UI state to defaults
+    st.session_state["ui_mode"] = "watch"
+    st.session_state["controlled_character"] = None
+    st.session_state["human_active"] = False
+    st.session_state["is_generating"] = False
+    st.session_state["is_paused"] = False
+    st.session_state["human_pending_action"] = None
+    st.session_state["waiting_for_human"] = False
+    st.session_state["pending_nudge"] = None
+    st.session_state["nudge_submitted"] = False
+    st.session_state["autopilot_turn_count"] = 0
+
+    # Clean up any lingering preview state keys
+    keys_to_remove = [k for k in st.session_state if k.startswith("show_preview_")]
+    for key in keys_to_remove:
+        del st.session_state[key]
+
+    return True
+
+
+def render_checkpoint_preview(session_id: str, turn_number: int) -> None:
+    """Render preview of a checkpoint's recent messages.
+
+    Args:
+        session_id: Session ID string.
+        turn_number: Turn number to preview.
+    """
+    from persistence import get_checkpoint_preview
+
+    preview = get_checkpoint_preview(session_id, turn_number)
+
+    if preview is None:
+        st.warning("Could not load preview")
+        return
+
+    st.markdown('<div class="checkpoint-preview">', unsafe_allow_html=True)
+
+    for entry in preview:
+        # HTML escape entry content to prevent XSS/markdown injection
+        escaped_entry = escape_html(entry)
+        st.markdown(f"<p><em>{escaped_entry}</em></p>", unsafe_allow_html=True)
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    # Close preview button
+    if st.button("Close", key=f"close_preview_{turn_number}"):
+        st.session_state[f"show_preview_{turn_number}"] = False
+        st.rerun()
+
+
+def render_restore_confirmation(session_id: str, turn_number: int) -> None:
+    """Render restore confirmation dialog.
+
+    Shows a warning about turns that will be undone and provides
+    Confirm/Cancel buttons.
+
+    Args:
+        session_id: Session ID string.
+        turn_number: Turn number to restore to.
+    """
+    game: GameState = st.session_state.get("game", {})
+    current_turn = len(game.get("ground_truth_log", []))
+    turns_to_undo = current_turn - turn_number
+
+    st.warning(
+        f"Restore to Turn {turn_number}? This will undo {turns_to_undo} turn(s).",
+        icon="⚠️",
+    )
+
+    col1, col2 = st.columns([1, 1])
+
+    with col1:
+        if st.button("Confirm Restore", key="confirm_restore"):
+            if handle_checkpoint_restore(session_id, turn_number):
+                st.session_state["pending_restore"] = None
+                st.toast(f"Restored to Turn {turn_number}", icon="✅")
+                st.rerun()
+            else:
+                st.error("Failed to restore checkpoint")
+
+    with col2:
+        if st.button("Cancel", key="cancel_restore"):
+            st.session_state["pending_restore"] = None
+            st.rerun()
+
+
+def render_checkpoint_browser() -> None:
+    """Render checkpoint browser section in sidebar.
+
+    Shows list of available checkpoints with preview and restore options.
+    Only shows checkpoints for the current session.
+    """
+    from persistence import list_checkpoint_info
+
+    game: GameState = st.session_state.get("game", {})
+    session_id = game.get("session_id", "001")
+
+    with st.expander("Session History", expanded=False):
+        # Handle pending restore confirmation first
+        pending_restore = st.session_state.get("pending_restore")
+        if pending_restore is not None:
+            render_restore_confirmation(session_id, pending_restore)
+            return  # Don't render list while showing confirmation
+
+        checkpoints = list_checkpoint_info(session_id)
+
+        if not checkpoints:
+            st.caption("No checkpoints available yet")
+            return
+
+        st.markdown('<div class="checkpoint-list">', unsafe_allow_html=True)
+
+        current_message_count = len(game.get("ground_truth_log", []))
+
+        for info in checkpoints:
+            # Display checkpoint info
+            st.markdown(
+                render_checkpoint_entry_html(
+                    info.turn_number, info.timestamp, info.brief_context
+                ),
+                unsafe_allow_html=True,
+            )
+
+            # Show preview if expanded
+            if st.session_state.get(f"show_preview_{info.turn_number}"):
+                render_checkpoint_preview(session_id, info.turn_number)
+            else:
+                # Action buttons row
+                col1, col2 = st.columns([1, 1])
+
+                with col1:
+                    if st.button("Preview", key=f"preview_{info.turn_number}"):
+                        st.session_state[f"show_preview_{info.turn_number}"] = True
+                        st.rerun()
+
+                with col2:
+                    # Disable during generation
+                    is_generating = st.session_state.get("is_generating", False)
+
+                    # Only show restore for past checkpoints (not current state)
+                    if info.message_count < current_message_count:
+                        if st.button(
+                            "Restore",
+                            key=f"restore_{info.turn_number}",
+                            disabled=is_generating,
+                        ):
+                            st.session_state["pending_restore"] = info.turn_number
+                            st.rerun()
+
+            st.markdown("---")
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+
 def render_sidebar(config: AppConfig) -> None:
     """Render the sidebar with mode indicator, party panel, and config status.
 
@@ -1309,6 +1517,11 @@ def render_sidebar(config: AppConfig) -> None:
 
         # Session controls (Story 2.5)
         render_session_controls()
+
+        st.markdown("---")
+
+        # Checkpoint Browser (Story 4.2)
+        render_checkpoint_browser()
 
         st.markdown("---")
 

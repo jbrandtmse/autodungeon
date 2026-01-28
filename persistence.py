@@ -4,6 +4,7 @@ This module implements checkpoint persistence for game state recovery:
 - Atomic writes for crash safety (temp file + rename pattern)
 - Full GameState serialization including nested Pydantic models
 - Checkpoint listing and retrieval utilities
+- Checkpoint metadata extraction for browser UI
 
 Checkpoint format: campaigns/session_XXX/turn_XXX.json
 Each checkpoint is self-contained (no delta encoding).
@@ -12,10 +13,11 @@ Each checkpoint is self-contained (no delta encoding).
 import json
 import os
 import tempfile
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from pydantic import ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from models import (
     AgentMemory,
@@ -27,12 +29,16 @@ from models import (
 
 __all__ = [
     "CAMPAIGNS_DIR",
+    "CheckpointInfo",
     "deserialize_game_state",
     "ensure_session_dir",
     "format_session_id",
+    "get_checkpoint_info",
     "get_checkpoint_path",
+    "get_checkpoint_preview",
     "get_latest_checkpoint",
     "get_session_dir",
+    "list_checkpoint_info",
     "list_checkpoints",
     "list_sessions",
     "load_checkpoint",
@@ -335,3 +341,124 @@ def get_latest_checkpoint(session_id: str) -> int | None:
     """
     turns = list_checkpoints(session_id)
     return turns[-1] if turns else None
+
+
+# =============================================================================
+# Checkpoint Metadata (Story 4.2)
+# =============================================================================
+
+
+class CheckpointInfo(BaseModel):
+    """Metadata about a checkpoint for display in the browser.
+
+    Provides lightweight checkpoint information without loading the full
+    GameState, suitable for displaying in the checkpoint browser UI.
+
+    Attributes:
+        turn_number: The turn number for this checkpoint.
+        timestamp: When the checkpoint was saved (human-readable format).
+        brief_context: First 100 chars of the last log entry for preview.
+        message_count: Number of messages in ground_truth_log.
+    """
+
+    turn_number: int = Field(..., ge=0)
+    timestamp: str = Field(...)
+    brief_context: str = Field(default="")
+    message_count: int = Field(default=0, ge=0)
+
+
+def get_checkpoint_info(session_id: str, turn_number: int) -> CheckpointInfo | None:
+    """Get metadata for a specific checkpoint.
+
+    Extracts metadata without loading the full GameState for efficiency.
+    Uses file mtime for timestamp since it's not stored in the checkpoint.
+
+    Args:
+        session_id: Session ID string.
+        turn_number: Turn number to get info for.
+
+    Returns:
+        CheckpointInfo with metadata, or None if checkpoint doesn't exist.
+    """
+    checkpoint_path = get_checkpoint_path(session_id, turn_number)
+
+    if not checkpoint_path.exists():
+        return None
+
+    try:
+        # Get file modification time for timestamp
+        mtime = checkpoint_path.stat().st_mtime
+        timestamp = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
+
+        # Load just enough to get context
+        json_content = checkpoint_path.read_text(encoding="utf-8")
+        data = json.loads(json_content)
+
+        log = data.get("ground_truth_log", [])
+        message_count = len(log)
+
+        # Get brief context from last log entry
+        brief_context = ""
+        if log:
+            last_entry = log[-1]
+            # Remove agent prefix [agent] if present
+            if last_entry.startswith("["):
+                bracket_end = last_entry.find("]")
+                if bracket_end > 0:
+                    last_entry = last_entry[bracket_end + 1 :].strip()
+            # Truncate to 100 chars with ellipsis if needed
+            if len(last_entry) > 100:
+                brief_context = last_entry[:100] + "..."
+            else:
+                brief_context = last_entry
+
+        return CheckpointInfo(
+            turn_number=turn_number,
+            timestamp=timestamp,
+            brief_context=brief_context,
+            message_count=message_count,
+        )
+    except (json.JSONDecodeError, KeyError, OSError):
+        return None
+
+
+def list_checkpoint_info(session_id: str) -> list[CheckpointInfo]:
+    """List all checkpoints with metadata for a session.
+
+    Args:
+        session_id: Session ID string.
+
+    Returns:
+        List of CheckpointInfo, sorted by turn number descending (newest first).
+    """
+    turn_numbers = list_checkpoints(session_id)
+
+    infos: list[CheckpointInfo] = []
+    for turn in turn_numbers:
+        info = get_checkpoint_info(session_id, turn)
+        if info:
+            infos.append(info)
+
+    # Sort descending (newest first) for display
+    return sorted(infos, key=lambda x: x.turn_number, reverse=True)
+
+
+def get_checkpoint_preview(
+    session_id: str, turn_number: int, num_messages: int = 5
+) -> list[str] | None:
+    """Get the last N log entries from a checkpoint for preview.
+
+    Args:
+        session_id: Session ID string.
+        turn_number: Turn number to preview.
+        num_messages: Number of recent messages to return (default 5).
+
+    Returns:
+        List of log entries (most recent last), or None if checkpoint doesn't exist.
+    """
+    state = load_checkpoint(session_id, turn_number)
+    if state is None:
+        return None
+
+    log = state.get("ground_truth_log", [])
+    return log[-num_messages:] if log else []

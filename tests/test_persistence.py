@@ -1025,7 +1025,7 @@ class TestEdgeCases:
             )
 
         with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
-            path = save_checkpoint(sample_game_state, "001", 1)
+            save_checkpoint(sample_game_state, "001", 1)
             loaded = load_checkpoint("001", 1)
 
         assert loaded is not None
@@ -1633,7 +1633,8 @@ class TestAutoCheckpointGraphIntegration:
         self, temp_campaigns_dir: Path
     ) -> None:
         """Test that run_single_round saves checkpoint after execution."""
-        from unittest.mock import MagicMock, patch as mock_patch
+        from unittest.mock import MagicMock
+        from unittest.mock import patch as mock_patch
 
         from langchain_core.messages import AIMessage
 
@@ -1663,7 +1664,7 @@ class TestAutoCheckpointGraphIntegration:
             ]
             mock_get_llm.return_value = mock_model
 
-            result = run_single_round(state)
+            run_single_round(state)
 
             # Verify checkpoint was created
             checkpoints = list_checkpoints("001")
@@ -1673,7 +1674,7 @@ class TestAutoCheckpointGraphIntegration:
         self, temp_campaigns_dir: Path
     ) -> None:
         """Test that human_intervention_node saves checkpoint after human action."""
-        from unittest.mock import MagicMock, patch as mock_patch
+        from unittest.mock import patch as mock_patch
 
         from graph import human_intervention_node
 
@@ -1776,3 +1777,402 @@ class TestCheckpointFileSizes:
         content = path.read_text(encoding="utf-8")
         data = json.loads(content)
         assert len(data["ground_truth_log"]) > 100
+
+
+# =============================================================================
+# Story 4.2: Checkpoint Browser & Restore Tests
+# =============================================================================
+
+
+class TestCheckpointInfo:
+    """Tests for CheckpointInfo model and get_checkpoint_info (Story 4.2)."""
+
+    def test_checkpoint_info_model_fields(self) -> None:
+        """Test CheckpointInfo model has all required fields."""
+        from persistence import CheckpointInfo
+
+        info = CheckpointInfo(
+            turn_number=5,
+            timestamp="2026-01-28 10:30",
+            brief_context="The adventure begins...",
+            message_count=10,
+        )
+
+        assert info.turn_number == 5
+        assert info.timestamp == "2026-01-28 10:30"
+        assert info.brief_context == "The adventure begins..."
+        assert info.message_count == 10
+
+    def test_checkpoint_info_default_values(self) -> None:
+        """Test CheckpointInfo has sensible defaults."""
+        from persistence import CheckpointInfo
+
+        info = CheckpointInfo(turn_number=1, timestamp="2026-01-28 10:00")
+
+        assert info.brief_context == ""
+        assert info.message_count == 0
+
+    def test_get_checkpoint_info_returns_metadata(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test get_checkpoint_info returns correct metadata."""
+        from persistence import get_checkpoint_info
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 5)
+            info = get_checkpoint_info("001", 5)
+
+        assert info is not None
+        assert info.turn_number == 5
+        assert info.timestamp  # Non-empty timestamp
+        assert info.message_count == len(sample_game_state["ground_truth_log"])
+
+    def test_get_checkpoint_info_extracts_brief_context(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test get_checkpoint_info extracts brief context from last log entry."""
+        from persistence import get_checkpoint_info
+
+        sample_game_state["ground_truth_log"] = [
+            "[dm] First message.",
+            "[fighter] I attack!",
+            "[dm] The enemy falls.",
+        ]
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 3)
+            info = get_checkpoint_info("001", 3)
+
+        assert info is not None
+        # Context should be from last entry, with [dm] prefix stripped
+        assert "The enemy falls." in info.brief_context
+
+    def test_get_checkpoint_info_truncates_long_context(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test brief_context is truncated to 100 chars with ellipsis."""
+        from persistence import get_checkpoint_info
+
+        long_message = "[dm] " + "A" * 200
+        sample_game_state["ground_truth_log"] = [long_message]
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 1)
+            info = get_checkpoint_info("001", 1)
+
+        assert info is not None
+        assert len(info.brief_context) <= 103  # 100 chars + "..."
+        assert info.brief_context.endswith("...")
+
+    def test_get_checkpoint_info_missing_checkpoint_returns_none(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test get_checkpoint_info returns None for missing checkpoint."""
+        from persistence import get_checkpoint_info
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            info = get_checkpoint_info("001", 999)
+
+        assert info is None
+
+    def test_get_checkpoint_info_corrupted_file_returns_none(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test get_checkpoint_info returns None for corrupted file."""
+        from persistence import get_checkpoint_info
+
+        session_dir = temp_campaigns_dir / "session_001"
+        session_dir.mkdir()
+        checkpoint_path = session_dir / "turn_001.json"
+        checkpoint_path.write_text("not valid json", encoding="utf-8")
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            info = get_checkpoint_info("001", 1)
+
+        assert info is None
+
+
+class TestListCheckpointInfo:
+    """Tests for list_checkpoint_info function (Story 4.2)."""
+
+    def test_list_checkpoint_info_returns_list(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test list_checkpoint_info returns list of CheckpointInfo."""
+        from persistence import CheckpointInfo, list_checkpoint_info
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 1)
+            save_checkpoint(sample_game_state, "001", 2)
+
+            infos = list_checkpoint_info("001")
+
+        assert len(infos) == 2
+        assert all(isinstance(info, CheckpointInfo) for info in infos)
+
+    def test_list_checkpoint_info_sorted_descending(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test list_checkpoint_info returns newest first (descending)."""
+        from persistence import list_checkpoint_info
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 1)
+            save_checkpoint(sample_game_state, "001", 3)
+            save_checkpoint(sample_game_state, "001", 2)
+
+            infos = list_checkpoint_info("001")
+
+        assert len(infos) == 3
+        assert infos[0].turn_number == 3  # Newest first
+        assert infos[1].turn_number == 2
+        assert infos[2].turn_number == 1
+
+    def test_list_checkpoint_info_empty_session(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test list_checkpoint_info returns empty list for empty session."""
+        from persistence import list_checkpoint_info
+
+        session_dir = temp_campaigns_dir / "session_001"
+        session_dir.mkdir()
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            infos = list_checkpoint_info("001")
+
+        assert infos == []
+
+    def test_list_checkpoint_info_skips_corrupted(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test list_checkpoint_info skips corrupted checkpoints."""
+        from persistence import list_checkpoint_info
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 1)
+
+        # Create corrupted checkpoint
+        session_dir = temp_campaigns_dir / "session_001"
+        corrupted_path = session_dir / "turn_002.json"
+        corrupted_path.write_text("invalid json", encoding="utf-8")
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            infos = list_checkpoint_info("001")
+
+        # Should only have the valid checkpoint
+        assert len(infos) == 1
+        assert infos[0].turn_number == 1
+
+
+class TestCheckpointPreview:
+    """Tests for get_checkpoint_preview function (Story 4.2)."""
+
+    def test_get_checkpoint_preview_returns_recent_messages(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test get_checkpoint_preview returns last N messages."""
+        from persistence import get_checkpoint_preview
+
+        sample_game_state["ground_truth_log"] = [
+            f"[dm] Message {i}" for i in range(10)
+        ]
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 10)
+            preview = get_checkpoint_preview("001", 10, num_messages=3)
+
+        assert preview is not None
+        assert len(preview) == 3
+        assert preview[-1] == "[dm] Message 9"  # Last message
+
+    def test_get_checkpoint_preview_default_num_messages(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test get_checkpoint_preview uses default of 5 messages."""
+        from persistence import get_checkpoint_preview
+
+        sample_game_state["ground_truth_log"] = [
+            f"[dm] Message {i}" for i in range(10)
+        ]
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 10)
+            preview = get_checkpoint_preview("001", 10)
+
+        assert preview is not None
+        assert len(preview) == 5
+
+    def test_get_checkpoint_preview_fewer_messages_than_requested(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test get_checkpoint_preview when fewer messages than requested."""
+        from persistence import get_checkpoint_preview
+
+        sample_game_state["ground_truth_log"] = ["[dm] Only one message."]
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 1)
+            preview = get_checkpoint_preview("001", 1, num_messages=5)
+
+        assert preview is not None
+        assert len(preview) == 1
+
+    def test_get_checkpoint_preview_empty_log(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test get_checkpoint_preview with empty ground_truth_log."""
+        from persistence import get_checkpoint_preview
+
+        sample_game_state["ground_truth_log"] = []
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 0)
+            preview = get_checkpoint_preview("001", 0)
+
+        assert preview is not None
+        assert preview == []
+
+    def test_get_checkpoint_preview_missing_checkpoint(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test get_checkpoint_preview returns None for missing checkpoint."""
+        from persistence import get_checkpoint_preview
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            preview = get_checkpoint_preview("001", 999)
+
+        assert preview is None
+
+
+class TestStory42AcceptanceCriteria:
+    """Acceptance tests for all Story 4.2 criteria."""
+
+    def test_ac1_checkpoint_list_shows_metadata(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """AC #1: Checkpoint list shows turn number, timestamp, brief context."""
+        from persistence import list_checkpoint_info
+
+        sample_game_state["ground_truth_log"] = ["[dm] The adventure begins."]
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 1)
+            infos = list_checkpoint_info("001")
+
+        assert len(infos) == 1
+        info = infos[0]
+        assert info.turn_number == 1
+        assert info.timestamp  # Non-empty
+        assert "The adventure begins" in info.brief_context
+
+    def test_ac2_checkpoint_preview_shows_content(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """AC #2: Checkpoint preview shows what was happening at that turn."""
+        from persistence import get_checkpoint_preview
+
+        sample_game_state["ground_truth_log"] = [
+            "[dm] You enter the dungeon.",
+            "[fighter] I draw my sword.",
+            "[rogue] I check for traps.",
+        ]
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 3)
+            preview = get_checkpoint_preview("001", 3)
+
+        assert preview is not None
+        assert len(preview) == 3
+        assert "[dm] You enter the dungeon." in preview
+        assert "[fighter] I draw my sword." in preview
+        assert "[rogue] I check for traps." in preview
+
+    def test_ac3_restore_loads_checkpoint(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """AC #3: Restore loads game state from checkpoint file."""
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            # Save checkpoint at turn 1
+            sample_game_state["ground_truth_log"] = ["[dm] Turn 1 state."]
+            save_checkpoint(sample_game_state, "001", 1)
+
+            # Load it back
+            loaded = load_checkpoint("001", 1)
+
+        assert loaded is not None
+        assert loaded["ground_truth_log"] == ["[dm] Turn 1 state."]
+
+    def test_ac3_restore_includes_agent_memories(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """AC #3: Restored state includes agent memories (FR36, NFR13)."""
+        # Modify agent memory before saving
+        sample_game_state["agent_memories"]["dm"].long_term_summary = "Important memory"
+        sample_game_state["agent_memories"]["dm"].short_term_buffer = [
+            "Recent event"
+        ]
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 1)
+            loaded_state = load_checkpoint("001", 1)
+
+        assert loaded_state is not None
+        dm_memory = loaded_state["agent_memories"]["dm"]
+        assert dm_memory.long_term_summary == "Important memory"
+        assert dm_memory.short_term_buffer == ["Recent event"]
+
+    def test_ac4_game_continues_from_restored_turn(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """AC #4: Game can continue from restored turn."""
+        # Save state at turn 2
+        sample_game_state["ground_truth_log"] = [
+            "[dm] Turn 1",
+            "[fighter] Turn 2",
+        ]
+        sample_game_state["current_turn"] = "rogue"
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 2)
+            loaded_state = load_checkpoint("001", 2)
+
+        assert loaded_state is not None
+        # State should be ready for next turn
+        assert loaded_state["current_turn"] == "rogue"
+        assert len(loaded_state["ground_truth_log"]) == 2
+
+    def test_ac5_deserialize_returns_valid_gamestate(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """AC #5: load_checkpoint deserializes to valid GameState."""
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 1)
+            loaded_state = load_checkpoint("001", 1)
+
+        assert loaded_state is not None
+        # Verify it's a valid GameState structure
+        assert "ground_truth_log" in loaded_state
+        assert "turn_queue" in loaded_state
+        assert "current_turn" in loaded_state
+        assert "agent_memories" in loaded_state
+        assert "game_config" in loaded_state
+        assert "dm_config" in loaded_state
+        assert "characters" in loaded_state
+        assert "human_active" in loaded_state
+
+    def test_checkpoint_info_message_count_accurate(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test message_count reflects actual log length."""
+        from persistence import get_checkpoint_info
+
+        sample_game_state["ground_truth_log"] = [
+            f"[dm] Message {i}" for i in range(7)
+        ]
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 7)
+            info = get_checkpoint_info("001", 7)
+
+        assert info is not None
+        assert info.message_count == 7

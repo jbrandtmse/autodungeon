@@ -9851,3 +9851,318 @@ class TestGetPartyCharacterKeysOrdering:
             keys3 = get_party_character_keys()
 
             assert keys1 == keys2 == keys3
+
+
+# =============================================================================
+# Story 4.2: Checkpoint Browser & Restore Tests
+# =============================================================================
+
+
+class TestCheckpointBrowserCSS:
+    """Tests for checkpoint browser CSS styling (Story 4.2, Task 6)."""
+
+    def test_checkpoint_list_class_exists(self) -> None:
+        """Test .checkpoint-list CSS class is defined."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+        assert ".checkpoint-list" in css_content
+
+    def test_checkpoint_entry_class_exists(self) -> None:
+        """Test .checkpoint-entry CSS class is defined."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+        assert ".checkpoint-entry" in css_content
+
+    def test_checkpoint_header_class_exists(self) -> None:
+        """Test .checkpoint-header CSS class is defined."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+        assert ".checkpoint-header" in css_content
+
+    def test_checkpoint_turn_class_exists(self) -> None:
+        """Test .checkpoint-turn CSS class is defined."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+        assert ".checkpoint-turn" in css_content
+
+    def test_checkpoint_timestamp_class_exists(self) -> None:
+        """Test .checkpoint-timestamp CSS class is defined."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+        assert ".checkpoint-timestamp" in css_content
+
+    def test_checkpoint_context_class_exists(self) -> None:
+        """Test .checkpoint-context CSS class is defined."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+        assert ".checkpoint-context" in css_content
+
+    def test_checkpoint_preview_class_exists(self) -> None:
+        """Test .checkpoint-preview CSS class is defined."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+        assert ".checkpoint-preview" in css_content
+
+    def test_restore_confirmation_class_exists(self) -> None:
+        """Test .restore-confirmation CSS class is defined."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+        assert ".restore-confirmation" in css_content
+
+    def test_checkpoint_entry_has_border_left(self) -> None:
+        """Test checkpoint entries have border-left styling."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+        # Check for border-left in checkpoint-entry context
+        assert "border-left: 3px solid var(--accent-warm)" in css_content
+
+    def test_checkpoint_empty_class_exists(self) -> None:
+        """Test .checkpoint-empty CSS class is defined."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+        assert ".checkpoint-empty" in css_content
+
+
+class TestRenderCheckpointEntryHtml:
+    """Tests for render_checkpoint_entry_html function (Story 4.2)."""
+
+    def test_checkpoint_entry_html_structure(self) -> None:
+        """Test checkpoint entry generates correct HTML structure."""
+        from app import render_checkpoint_entry_html
+
+        html = render_checkpoint_entry_html(5, "2026-01-28 10:30", "The adventure begins...")
+        assert 'class="checkpoint-entry"' in html
+        assert 'class="checkpoint-header"' in html
+        assert 'class="checkpoint-turn"' in html
+        assert 'class="checkpoint-timestamp"' in html
+        assert 'class="checkpoint-context"' in html
+
+    def test_checkpoint_entry_html_content(self) -> None:
+        """Test checkpoint entry contains correct content."""
+        from app import render_checkpoint_entry_html
+
+        html = render_checkpoint_entry_html(5, "2026-01-28 10:30", "The adventure begins...")
+        assert "Turn 5" in html
+        assert "2026-01-28 10:30" in html
+        assert "The adventure begins..." in html
+
+    def test_checkpoint_entry_html_escapes_content(self) -> None:
+        """Test checkpoint entry HTML escapes special characters."""
+        from app import render_checkpoint_entry_html
+
+        html = render_checkpoint_entry_html(
+            1, "2026-01-28", '<script>alert("xss")</script>'
+        )
+        assert "<script>" not in html
+        assert "&lt;script&gt;" in html
+
+
+class TestHandleCheckpointRestore:
+    """Tests for handle_checkpoint_restore function (Story 4.2)."""
+
+    def test_handle_restore_updates_game_state(self, tmp_path: Path) -> None:
+        """Test restore updates session_state['game']."""
+        from models import create_initial_game_state
+        from persistence import save_checkpoint
+
+        state = create_initial_game_state()
+        state["ground_truth_log"] = ["[dm] Restored message."]
+
+        with patch("persistence.CAMPAIGNS_DIR", tmp_path):
+            save_checkpoint(state, "001", 1)
+
+        mock_session_state: dict = {"game": {}, "is_autopilot_running": True}
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("persistence.CAMPAIGNS_DIR", tmp_path),
+        ):
+            from app import handle_checkpoint_restore
+
+            result = handle_checkpoint_restore("001", 1)
+
+            assert result is True
+            assert mock_session_state["game"]["ground_truth_log"] == ["[dm] Restored message."]
+
+    def test_handle_restore_stops_autopilot(self, tmp_path: Path) -> None:
+        """Test restore stops autopilot if running."""
+        from models import create_initial_game_state
+        from persistence import save_checkpoint
+
+        state = create_initial_game_state()
+
+        with patch("persistence.CAMPAIGNS_DIR", tmp_path):
+            save_checkpoint(state, "001", 1)
+
+        mock_session_state: dict = {"game": {}, "is_autopilot_running": True}
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("persistence.CAMPAIGNS_DIR", tmp_path),
+        ):
+            from app import handle_checkpoint_restore
+
+            handle_checkpoint_restore("001", 1)
+
+            assert mock_session_state["is_autopilot_running"] is False
+
+    def test_handle_restore_resets_ui_state(self, tmp_path: Path) -> None:
+        """Test restore resets UI state to defaults."""
+        from models import create_initial_game_state
+        from persistence import save_checkpoint
+
+        state = create_initial_game_state()
+
+        with patch("persistence.CAMPAIGNS_DIR", tmp_path):
+            save_checkpoint(state, "001", 1)
+
+        mock_session_state: dict = {
+            "game": {},
+            "is_autopilot_running": False,
+            "ui_mode": "play",
+            "controlled_character": "fighter",
+            "is_generating": True,
+            "is_paused": True,
+        }
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("persistence.CAMPAIGNS_DIR", tmp_path),
+        ):
+            from app import handle_checkpoint_restore
+
+            handle_checkpoint_restore("001", 1)
+
+            assert mock_session_state["ui_mode"] == "watch"
+            assert mock_session_state["controlled_character"] is None
+            assert mock_session_state["is_generating"] is False
+            assert mock_session_state["is_paused"] is False
+
+    def test_handle_restore_returns_false_for_invalid(self, tmp_path: Path) -> None:
+        """Test restore returns False for invalid checkpoint."""
+        mock_session_state: dict = {"game": {}, "is_autopilot_running": False}
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("persistence.CAMPAIGNS_DIR", tmp_path),
+        ):
+            from app import handle_checkpoint_restore
+
+            result = handle_checkpoint_restore("invalid", 999)
+
+        assert result is False
+
+
+class TestCheckpointBrowserUI:
+    """Tests for checkpoint browser UI integration (Story 4.2)."""
+
+    def test_checkpoint_browser_shown_in_sidebar(self) -> None:
+        """Test render_checkpoint_browser is called from render_sidebar."""
+        # Verify the function is imported and called in render_sidebar
+        app_path = Path(__file__).parent.parent / "app.py"
+        source = app_path.read_text(encoding="utf-8")
+
+        # Check that render_checkpoint_browser is called in render_sidebar
+        assert "render_checkpoint_browser()" in source
+
+    def test_render_checkpoint_browser_function_exists(self) -> None:
+        """Test render_checkpoint_browser function is defined."""
+        from app import render_checkpoint_browser
+
+        assert callable(render_checkpoint_browser)
+
+    def test_render_checkpoint_preview_function_exists(self) -> None:
+        """Test render_checkpoint_preview function is defined."""
+        from app import render_checkpoint_preview
+
+        assert callable(render_checkpoint_preview)
+
+    def test_render_restore_confirmation_function_exists(self) -> None:
+        """Test render_restore_confirmation function is defined."""
+        from app import render_restore_confirmation
+
+        assert callable(render_restore_confirmation)
+
+    def test_handle_restore_clears_preview_state_keys(self, tmp_path: Path) -> None:
+        """Test restore clears lingering show_preview_ session state keys."""
+        from models import create_initial_game_state
+        from persistence import save_checkpoint
+
+        state = create_initial_game_state()
+
+        with patch("persistence.CAMPAIGNS_DIR", tmp_path):
+            save_checkpoint(state, "001", 1)
+
+        mock_session_state: dict = {
+            "game": {},
+            "is_autopilot_running": False,
+            "show_preview_1": True,
+            "show_preview_5": True,
+            "other_key": "preserved",
+        }
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("persistence.CAMPAIGNS_DIR", tmp_path),
+        ):
+            from app import handle_checkpoint_restore
+
+            handle_checkpoint_restore("001", 1)
+
+            # Preview keys should be removed
+            assert "show_preview_1" not in mock_session_state
+            assert "show_preview_5" not in mock_session_state
+            # Other keys should remain
+            assert mock_session_state["other_key"] == "preserved"
+
+    def test_handle_restore_resets_nudge_submitted(self, tmp_path: Path) -> None:
+        """Test restore clears nudge_submitted flag to prevent stale toast."""
+        from models import create_initial_game_state
+        from persistence import save_checkpoint
+
+        state = create_initial_game_state()
+
+        with patch("persistence.CAMPAIGNS_DIR", tmp_path):
+            save_checkpoint(state, "001", 1)
+
+        mock_session_state: dict = {
+            "game": {},
+            "is_autopilot_running": False,
+            "nudge_submitted": True,
+        }
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("persistence.CAMPAIGNS_DIR", tmp_path),
+        ):
+            from app import handle_checkpoint_restore
+
+            handle_checkpoint_restore("001", 1)
+
+            assert mock_session_state["nudge_submitted"] is False
+
+    def test_handle_restore_resets_autopilot_turn_count(self, tmp_path: Path) -> None:
+        """Test restore resets autopilot_turn_count to zero."""
+        from models import create_initial_game_state
+        from persistence import save_checkpoint
+
+        state = create_initial_game_state()
+
+        with patch("persistence.CAMPAIGNS_DIR", tmp_path):
+            save_checkpoint(state, "001", 1)
+
+        mock_session_state: dict = {
+            "game": {},
+            "is_autopilot_running": False,
+            "autopilot_turn_count": 50,
+        }
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("persistence.CAMPAIGNS_DIR", tmp_path),
+        ):
+            from app import handle_checkpoint_restore
+
+            handle_checkpoint_restore("001", 1)
+
+            assert mock_session_state["autopilot_turn_count"] == 0
