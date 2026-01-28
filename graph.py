@@ -72,23 +72,67 @@ def route_to_next_agent(state: GameState) -> str:
 
 
 def human_intervention_node(state: GameState) -> GameState:
-    """Placeholder for human input handling.
+    """Process human input and add to game log.
 
-    In Epic 3, this will:
-    1. Pause the graph execution
-    2. Wait for Streamlit user input
-    3. Return state with human's response added
-
-    For now, just return state unchanged.
+    Reads the pending human action from Streamlit session state,
+    formats it as a log entry with character attribution, and adds
+    to ground_truth_log. Also updates the character's agent memory
+    for consistency with PC turn behavior.
 
     Args:
         state: Current game state.
 
     Returns:
-        Unchanged game state (placeholder behavior).
+        Updated game state with human action added to log and memory.
     """
-    # TODO: Implement in Story 3.2 (Drop-In Mode)
-    return state
+    import streamlit as st
+
+    from models import AgentMemory
+
+    # Get pending action from session state
+    pending_action = st.session_state.get("human_pending_action")
+
+    if not pending_action:
+        # No action submitted yet - return state unchanged
+        return state
+
+    # Get controlled character
+    controlled = state.get("controlled_character")
+    if not controlled:
+        return state
+
+    # Format log entry like PC messages: "[agent_key]: content"
+    log_entry = f"[{controlled}]: {pending_action}"
+
+    # Add to ground truth log
+    new_log = list(state.get("ground_truth_log", []))
+    new_log.append(log_entry)
+
+    # Update character's agent memory (matches PC turn behavior)
+    agent_memories = state.get("agent_memories", {})
+    new_memories = {k: v.model_copy() for k, v in agent_memories.items()}
+
+    # Get character name for memory entry
+    char_config = state.get("characters", {}).get(controlled)
+    char_name = char_config.name if char_config else controlled.title()
+
+    # Create memory if it doesn't exist
+    if controlled not in new_memories:
+        new_memories[controlled] = AgentMemory()
+
+    # Add action to character's short-term buffer (like pc_turn does)
+    memory_entry = f"{char_name}: {pending_action}"
+    new_memories[controlled].short_term_buffer.append(memory_entry)
+
+    # Clear the pending action from session state
+    st.session_state["human_pending_action"] = None
+
+    # Return updated state
+    return {
+        **state,
+        "ground_truth_log": new_log,
+        "agent_memories": new_memories,
+    }
 
 
 def create_game_workflow(  # type: ignore[return-value]

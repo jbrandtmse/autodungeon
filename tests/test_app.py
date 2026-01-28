@@ -3031,3 +3031,2155 @@ class TestStory31AcceptanceCriteria:
         # Button should show "Release" when controlled
         label = get_drop_in_button_label(controlled=True)
         assert label == "Release"
+
+
+# =============================================================================
+# Story 3.2: Drop-In Mode Tests
+# =============================================================================
+
+
+class TestInputContextBar:
+    """Tests for input context bar rendering (Story 3.2, Task 1)."""
+
+    def test_render_input_context_bar_html_shows_character_info(self) -> None:
+        """Test context bar displays character name and class."""
+        from app import render_input_context_bar_html
+
+        html = render_input_context_bar_html("Shadowmere", "Rogue")
+
+        assert "You are" in html
+        assert "Shadowmere" in html
+        assert "Rogue" in html
+        assert "input-context" in html
+        assert "rogue" in html  # class slug for styling
+
+    def test_render_input_context_bar_html_fighter(self) -> None:
+        """Test context bar with Fighter class."""
+        from app import render_input_context_bar_html
+
+        html = render_input_context_bar_html("Theron", "Fighter")
+
+        assert "Theron" in html
+        assert "Fighter" in html
+        assert "input-context fighter" in html
+
+    def test_render_input_context_bar_html_wizard(self) -> None:
+        """Test context bar with Wizard class."""
+        from app import render_input_context_bar_html
+
+        html = render_input_context_bar_html("Elara", "Wizard")
+
+        assert "Elara" in html
+        assert "Wizard" in html
+        assert "wizard" in html
+
+    def test_render_input_context_bar_html_cleric(self) -> None:
+        """Test context bar with Cleric class."""
+        from app import render_input_context_bar_html
+
+        html = render_input_context_bar_html("Brother Marcus", "Cleric")
+
+        assert "Brother Marcus" in html
+        assert "Cleric" in html
+        assert "cleric" in html
+
+    def test_render_input_context_bar_html_escapes_special_chars(self) -> None:
+        """Test context bar escapes HTML special characters."""
+        from app import render_input_context_bar_html
+
+        html = render_input_context_bar_html("<script>alert('xss')</script>", "Rogue")
+
+        assert "<script>" not in html
+        assert "&lt;script&gt;" in html
+
+    def test_input_context_css_character_colors_exist(self) -> None:
+        """Test that character-specific input context colors are defined in CSS."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        assert ".input-context.fighter" in css_content
+        assert ".input-context.rogue" in css_content
+        assert ".input-context.wizard" in css_content
+        assert ".input-context.cleric" in css_content
+
+
+class TestHumanInputArea:
+    """Tests for human action input area (Story 3.2, Task 2)."""
+
+    def test_handle_human_action_submit_stores_action(self) -> None:
+        """Test that submitted action is stored in session state."""
+        mock_session_state: dict = {}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_human_action_submit
+
+            handle_human_action_submit("I check for traps.")
+
+            assert mock_session_state["human_pending_action"] == "I check for traps."
+
+    def test_handle_human_action_submit_strips_whitespace(self) -> None:
+        """Test that action text is stripped of whitespace."""
+        mock_session_state: dict = {}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_human_action_submit
+
+            handle_human_action_submit("  I cast fireball.  ")
+
+            assert mock_session_state["human_pending_action"] == "I cast fireball."
+
+    def test_handle_human_action_submit_truncates_long_text(self) -> None:
+        """Test that action text is truncated at MAX_ACTION_LENGTH."""
+        from app import MAX_ACTION_LENGTH
+
+        mock_session_state: dict = {}
+        long_action = "A" * (MAX_ACTION_LENGTH + 500)
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_human_action_submit
+
+            handle_human_action_submit(long_action)
+
+            stored_action = mock_session_state["human_pending_action"]
+            assert len(stored_action) == MAX_ACTION_LENGTH
+
+    def test_handle_human_action_submit_ignores_empty(self) -> None:
+        """Test that empty action is not stored."""
+        mock_session_state: dict = {}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_human_action_submit
+
+            handle_human_action_submit("   ")
+
+            assert "human_pending_action" not in mock_session_state
+
+    def test_human_input_area_css_exists(self) -> None:
+        """Test that human input area CSS is defined."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        assert ".human-input-area" in css_content
+
+
+class TestHumanInterventionNodeStory32:
+    """Tests for human intervention node processing (Story 3.2, Task 3)."""
+
+    def test_human_intervention_node_adds_action_to_log(self) -> None:
+        """Test human action is added to ground_truth_log."""
+        from models import AgentMemory, DMConfig, GameConfig, GameState
+
+        mock_session_state: dict = {"human_pending_action": "I check for traps."}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from graph import human_intervention_node
+
+            state: GameState = {
+                "ground_truth_log": [],
+                "turn_queue": ["dm", "rogue"],
+                "current_turn": "rogue",
+                "agent_memories": {"dm": AgentMemory()},
+                "game_config": GameConfig(),
+                "dm_config": DMConfig(),
+                "characters": {},
+                "whisper_queue": [],
+                "human_active": True,
+                "controlled_character": "rogue",
+                "session_number": 1,
+            }
+
+            result = human_intervention_node(state)
+
+            assert len(result["ground_truth_log"]) == 1
+            assert "[rogue]: I check for traps." in result["ground_truth_log"][0]
+
+    def test_human_intervention_node_clears_pending_action(self) -> None:
+        """Test pending action is cleared after processing."""
+        from models import AgentMemory, DMConfig, GameConfig, GameState
+
+        mock_session_state: dict = {"human_pending_action": "I attack the goblin."}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from graph import human_intervention_node
+
+            state: GameState = {
+                "ground_truth_log": [],
+                "turn_queue": ["dm", "fighter"],
+                "current_turn": "fighter",
+                "agent_memories": {"dm": AgentMemory()},
+                "game_config": GameConfig(),
+                "dm_config": DMConfig(),
+                "characters": {},
+                "whisper_queue": [],
+                "human_active": True,
+                "controlled_character": "fighter",
+                "session_number": 1,
+            }
+
+            human_intervention_node(state)
+
+            assert mock_session_state["human_pending_action"] is None
+
+    def test_human_intervention_node_no_action_returns_unchanged(self) -> None:
+        """Test node returns unchanged state when no pending action."""
+        from models import AgentMemory, DMConfig, GameConfig, GameState
+
+        mock_session_state: dict = {"human_pending_action": None}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from graph import human_intervention_node
+
+            state: GameState = {
+                "ground_truth_log": ["[dm]: You enter the dungeon."],
+                "turn_queue": ["dm", "rogue"],
+                "current_turn": "rogue",
+                "agent_memories": {"dm": AgentMemory()},
+                "game_config": GameConfig(),
+                "dm_config": DMConfig(),
+                "characters": {},
+                "whisper_queue": [],
+                "human_active": True,
+                "controlled_character": "rogue",
+                "session_number": 1,
+            }
+
+            result = human_intervention_node(state)
+
+            # Log should be unchanged
+            assert len(result["ground_truth_log"]) == 1
+
+    def test_human_intervention_node_no_controlled_char_returns_unchanged(self) -> None:
+        """Test node returns unchanged state when no controlled character."""
+        from models import AgentMemory, DMConfig, GameConfig, GameState
+
+        mock_session_state: dict = {"human_pending_action": "I do something."}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from graph import human_intervention_node
+
+            state: GameState = {
+                "ground_truth_log": [],
+                "turn_queue": ["dm", "rogue"],
+                "current_turn": "rogue",
+                "agent_memories": {"dm": AgentMemory()},
+                "game_config": GameConfig(),
+                "dm_config": DMConfig(),
+                "characters": {},
+                "whisper_queue": [],
+                "human_active": True,
+                "controlled_character": None,
+                "session_number": 1,
+            }
+
+            result = human_intervention_node(state)
+
+            # Log should be unchanged
+            assert len(result["ground_truth_log"]) == 0
+
+    def test_human_intervention_node_formats_log_entry_correctly(self) -> None:
+        """Test log entry format matches PC message format."""
+        from models import AgentMemory, DMConfig, GameConfig, GameState
+
+        mock_session_state: dict = {"human_pending_action": "I search the room."}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from graph import human_intervention_node
+
+            state: GameState = {
+                "ground_truth_log": [],
+                "turn_queue": ["dm", "wizard"],
+                "current_turn": "wizard",
+                "agent_memories": {"dm": AgentMemory()},
+                "game_config": GameConfig(),
+                "dm_config": DMConfig(),
+                "characters": {},
+                "whisper_queue": [],
+                "human_active": True,
+                "controlled_character": "wizard",
+                "session_number": 1,
+            }
+
+            result = human_intervention_node(state)
+
+            # Format should be "[agent_key]: content"
+            entry = result["ground_truth_log"][0]
+            assert entry.startswith("[wizard]:")
+            assert "I search the room." in entry
+
+    def test_human_intervention_node_updates_agent_memory(self) -> None:
+        """Test human action is added to character's agent memory (code review fix)."""
+        from models import AgentMemory, CharacterConfig, DMConfig, GameConfig, GameState
+
+        mock_session_state: dict = {"human_pending_action": "I cast fireball!"}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from graph import human_intervention_node
+
+            state: GameState = {
+                "ground_truth_log": [],
+                "turn_queue": ["dm", "wizard"],
+                "current_turn": "wizard",
+                "agent_memories": {"dm": AgentMemory(), "wizard": AgentMemory()},
+                "game_config": GameConfig(),
+                "dm_config": DMConfig(),
+                "characters": {
+                    "wizard": CharacterConfig(
+                        name="Elara",
+                        character_class="Wizard",
+                        personality="Studious",
+                        color="#7B68B8",
+                    )
+                },
+                "whisper_queue": [],
+                "human_active": True,
+                "controlled_character": "wizard",
+                "session_number": 1,
+            }
+
+            result = human_intervention_node(state)
+
+            # Action should be in character's memory with character name
+            assert "wizard" in result["agent_memories"]
+            memory_buffer = result["agent_memories"]["wizard"].short_term_buffer
+            assert len(memory_buffer) == 1
+            assert "Elara: I cast fireball!" in memory_buffer[0]
+
+    def test_human_intervention_node_creates_memory_if_missing(self) -> None:
+        """Test human intervention creates agent memory if it doesn't exist."""
+        from models import AgentMemory, CharacterConfig, DMConfig, GameConfig, GameState
+
+        mock_session_state: dict = {"human_pending_action": "I attack!"}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from graph import human_intervention_node
+
+            state: GameState = {
+                "ground_truth_log": [],
+                "turn_queue": ["dm", "fighter"],
+                "current_turn": "fighter",
+                "agent_memories": {"dm": AgentMemory()},  # No fighter memory
+                "game_config": GameConfig(),
+                "dm_config": DMConfig(),
+                "characters": {
+                    "fighter": CharacterConfig(
+                        name="Theron",
+                        character_class="Fighter",
+                        personality="Bold",
+                        color="#C45C4A",
+                    )
+                },
+                "whisper_queue": [],
+                "human_active": True,
+                "controlled_character": "fighter",
+                "session_number": 1,
+            }
+
+            result = human_intervention_node(state)
+
+            # Memory should be created for fighter
+            assert "fighter" in result["agent_memories"]
+            assert "Theron: I attack!" in result["agent_memories"]["fighter"].short_term_buffer[0]
+
+    def test_human_intervention_node_uses_fallback_name_without_config(self) -> None:
+        """Test human intervention uses agent key as fallback name."""
+        from models import AgentMemory, DMConfig, GameConfig, GameState
+
+        mock_session_state: dict = {"human_pending_action": "I sneak."}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from graph import human_intervention_node
+
+            state: GameState = {
+                "ground_truth_log": [],
+                "turn_queue": ["dm", "rogue"],
+                "current_turn": "rogue",
+                "agent_memories": {"dm": AgentMemory()},
+                "game_config": GameConfig(),
+                "dm_config": DMConfig(),
+                "characters": {},  # No character config
+                "whisper_queue": [],
+                "human_active": True,
+                "controlled_character": "rogue",
+                "session_number": 1,
+            }
+
+            result = human_intervention_node(state)
+
+            # Should use title-cased agent key as fallback
+            assert "rogue" in result["agent_memories"]
+            assert "Rogue: I sneak." in result["agent_memories"]["rogue"].short_term_buffer[0]
+
+
+class TestInputContextBarWrapper:
+    """Tests for render_input_context_bar wrapper function (code review fix)."""
+
+    def test_render_input_context_bar_not_rendered_in_watch_mode(self) -> None:
+        """Test context bar is not rendered in watch mode."""
+        mock_session_state: dict = {
+            "ui_mode": "watch",
+            "controlled_character": "rogue",
+            "game": {"characters": {}},
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            with patch("streamlit.markdown") as mock_markdown:
+                from app import render_input_context_bar
+
+                render_input_context_bar()
+
+                # Should not render anything
+                mock_markdown.assert_not_called()
+
+    def test_render_input_context_bar_not_rendered_without_controlled_char(self) -> None:
+        """Test context bar is not rendered without controlled character."""
+        mock_session_state: dict = {
+            "ui_mode": "play",
+            "controlled_character": None,
+            "game": {"characters": {}},
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            with patch("streamlit.markdown") as mock_markdown:
+                from app import render_input_context_bar
+
+                render_input_context_bar()
+
+                # Should not render anything
+                mock_markdown.assert_not_called()
+
+    def test_render_input_context_bar_renders_in_play_mode(self) -> None:
+        """Test context bar renders correctly in play mode with controlled character."""
+        from models import CharacterConfig
+
+        mock_session_state: dict = {
+            "ui_mode": "play",
+            "controlled_character": "rogue",
+            "game": {
+                "characters": {
+                    "rogue": CharacterConfig(
+                        name="Shadowmere",
+                        character_class="Rogue",
+                        personality="Cunning",
+                        color="#6B8E6B",
+                    )
+                }
+            },
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            with patch("streamlit.markdown") as mock_markdown:
+                from app import render_input_context_bar
+
+                render_input_context_bar()
+
+                # Should render with character info
+                mock_markdown.assert_called_once()
+                call_args = mock_markdown.call_args[0][0]
+                assert "Shadowmere" in call_args
+                assert "Rogue" in call_args
+
+
+class TestHumanInputAreaWrapper:
+    """Tests for render_human_input_area wrapper function (code review fix)."""
+
+    def test_human_input_area_not_rendered_in_watch_mode(self) -> None:
+        """Test input area is not rendered in watch mode."""
+        mock_session_state: dict = {
+            "ui_mode": "watch",
+            "controlled_character": "rogue",
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            with patch("streamlit.markdown"):
+                with patch("streamlit.text_area") as mock_text_area:
+                    from app import render_human_input_area
+
+                    render_human_input_area()
+
+                    # Should not render text area
+                    mock_text_area.assert_not_called()
+
+    def test_human_input_area_not_rendered_without_controlled_char(self) -> None:
+        """Test input area is not rendered without controlled character."""
+        mock_session_state: dict = {
+            "ui_mode": "play",
+            "controlled_character": None,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            with patch("streamlit.markdown"):
+                with patch("streamlit.text_area") as mock_text_area:
+                    from app import render_human_input_area
+
+                    render_human_input_area()
+
+                    # Should not render text area
+                    mock_text_area.assert_not_called()
+
+
+class TestGameLoopHumanIntegration:
+    """Tests for game loop integration with human input (Story 3.2, Task 4)."""
+
+    def test_run_game_turn_waits_for_human_when_controlled_turn(self) -> None:
+        """Test game turn waits for human input when it's their turn."""
+        mock_session_state: dict = {
+            "is_paused": False,
+            "human_active": True,
+            "controlled_character": "rogue",
+            "game": {"current_turn": "rogue", "turn_queue": ["dm", "rogue"]},
+            "human_pending_action": None,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import run_game_turn
+
+            result = run_game_turn()
+
+            assert result is False
+            assert mock_session_state["waiting_for_human"] is True
+
+    def test_run_game_turn_proceeds_when_action_pending(self) -> None:
+        """Test game turn proceeds when human has pending action."""
+        from models import populate_game_state
+
+        mock_session_state: dict = {
+            "is_paused": False,
+            "human_active": True,
+            "controlled_character": "rogue",
+            "game": populate_game_state(),
+            "human_pending_action": "I attack!",
+            "waiting_for_human": False,
+            "is_generating": False,
+            "playback_speed": "fast",
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            with patch("app.run_single_round") as mock_run:
+                mock_run.return_value = mock_session_state["game"]
+                from app import run_game_turn
+
+                run_game_turn()
+
+                # Should proceed with the turn
+                assert mock_run.called
+
+    def test_run_game_turn_clears_waiting_flag_on_proceed(self) -> None:
+        """Test waiting_for_human is cleared when proceeding."""
+        from models import populate_game_state
+
+        mock_session_state: dict = {
+            "is_paused": False,
+            "human_active": True,
+            "controlled_character": "rogue",
+            "game": populate_game_state(),
+            "human_pending_action": "I sneak past.",
+            "waiting_for_human": True,
+            "is_generating": False,
+            "playback_speed": "fast",
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            with patch("app.run_single_round") as mock_run:
+                mock_run.return_value = mock_session_state["game"]
+                from app import run_game_turn
+
+                run_game_turn()
+
+                assert mock_session_state["waiting_for_human"] is False
+
+
+class TestDropInReleaseCleanup:
+    """Tests for Drop-In release cleanup (Story 3.2)."""
+
+    def test_release_control_clears_pending_action(self) -> None:
+        """Test releasing control clears pending action."""
+        mock_session_state: dict = {
+            "controlled_character": "rogue",
+            "ui_mode": "play",
+            "human_active": True,
+            "human_pending_action": "Unfinished action",
+            "waiting_for_human": True,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_drop_in_click
+
+            handle_drop_in_click("rogue")
+
+            assert mock_session_state["human_pending_action"] is None
+            assert mock_session_state["waiting_for_human"] is False
+            assert mock_session_state["human_active"] is False
+
+
+class TestInitializeSessionStateStory32:
+    """Tests for session state initialization (Story 3.2)."""
+
+    def test_initialize_session_state_includes_human_pending_action(self) -> None:
+        """Test session state includes human_pending_action key."""
+        mock_session_state: dict = {}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import initialize_session_state
+
+            initialize_session_state()
+
+            assert "human_pending_action" in mock_session_state
+            assert mock_session_state["human_pending_action"] is None
+
+    def test_initialize_session_state_includes_waiting_for_human(self) -> None:
+        """Test session state includes waiting_for_human key."""
+        mock_session_state: dict = {}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import initialize_session_state
+
+            initialize_session_state()
+
+            assert "waiting_for_human" in mock_session_state
+            assert mock_session_state["waiting_for_human"] is False
+
+
+class TestStory32AcceptanceCriteria:
+    """Integration tests validating all acceptance criteria (Story 3.2)."""
+
+    def test_ac1_drop_in_takes_control_under_2_seconds(self) -> None:
+        """AC#1: Drop-in transition completes instantly (no blocking operations)."""
+        import time
+
+        mock_session_state: dict = {
+            "controlled_character": None,
+            "ui_mode": "watch",
+            "human_active": False,
+            "is_autopilot_running": True,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_drop_in_click
+
+            start_time = time.time()
+            handle_drop_in_click("fighter")
+            elapsed = time.time() - start_time
+
+            # Function should complete nearly instantly (< 100ms)
+            # The 2-second requirement is for UI update perception
+            assert elapsed < 0.1
+            assert mock_session_state["controlled_character"] == "fighter"
+            assert mock_session_state["human_active"] is True
+
+    def test_ac1_no_confirmation_dialog(self) -> None:
+        """AC#1: No confirmation dialog appears on drop-in."""
+        # handle_drop_in_click doesn't show any dialogs - it's synchronous
+        # This test verifies the function signature and behavior
+        mock_session_state: dict = {
+            "controlled_character": None,
+            "ui_mode": "watch",
+            "human_active": False,
+            "is_autopilot_running": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_drop_in_click
+
+            # Should not raise any exceptions or require additional input
+            handle_drop_in_click("rogue")
+
+            assert mock_session_state["ui_mode"] == "play"
+
+    def test_ac2_mode_indicator_shows_playing_as_character(self) -> None:
+        """AC#2: Mode indicator shows 'Playing as [Character Name]'."""
+        from app import render_mode_indicator_html
+        from models import CharacterConfig
+
+        characters = {
+            "rogue": CharacterConfig(
+                name="Shadowmere",
+                character_class="Rogue",
+                personality="cunning",
+                color="#6B8E6B",
+            )
+        }
+
+        html = render_mode_indicator_html("play", False, "rogue", characters)
+
+        assert "Playing as Shadowmere" in html
+        assert "rogue" in html  # Character class in CSS class
+
+    def test_ac3_input_context_bar_shows_character_info(self) -> None:
+        """AC#3: Input context bar shows 'You are [Name], the [Class]'."""
+        from app import render_input_context_bar_html
+
+        html = render_input_context_bar_html("Shadowmere", "Rogue")
+
+        assert "You are" in html
+        assert "Shadowmere" in html
+        assert "Rogue" in html
+
+    def test_ac4_human_action_added_to_log_with_attribution(self) -> None:
+        """AC#4: Human action appears in log with character attribution."""
+        from models import AgentMemory, DMConfig, GameConfig, GameState
+
+        mock_session_state: dict = {"human_pending_action": "I search for secret doors."}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from graph import human_intervention_node
+
+            state: GameState = {
+                "ground_truth_log": [],
+                "turn_queue": ["dm", "rogue"],
+                "current_turn": "rogue",
+                "agent_memories": {"dm": AgentMemory()},
+                "game_config": GameConfig(),
+                "dm_config": DMConfig(),
+                "characters": {},
+                "whisper_queue": [],
+                "human_active": True,
+                "controlled_character": "rogue",
+                "session_number": 1,
+            }
+
+            result = human_intervention_node(state)
+
+            # Action should be in log with attribution
+            assert "[rogue]: I search for secret doors." in result["ground_truth_log"]
+
+    def test_ac5_routing_to_human_node_when_controlled_turn(self) -> None:
+        """AC#5: LangGraph routes to human_intervention_node when controlled character's turn."""
+        from graph import route_to_next_agent
+        from models import AgentMemory, DMConfig, GameConfig, GameState
+
+        state: GameState = {
+            "ground_truth_log": [],
+            "turn_queue": ["dm", "rogue"],
+            "current_turn": "rogue",
+            "agent_memories": {"dm": AgentMemory()},
+            "game_config": GameConfig(),
+            "dm_config": DMConfig(),
+            "characters": {},
+            "whisper_queue": [],
+            "human_active": True,
+            "controlled_character": "rogue",
+            "session_number": 1,
+        }
+
+        result = route_to_next_agent(state)
+
+        assert result == "human"
+
+
+# =============================================================================
+# Test Automation Expansion: Coverage Gap Tests
+# =============================================================================
+
+
+class TestRunContinuousLoopCoverageExpansion:
+    """Tests for run_continuous_loop function to fill coverage gaps (lines 161-182)."""
+
+    def test_run_continuous_loop_returns_zero_when_autopilot_not_running(self) -> None:
+        """Test run_continuous_loop returns 0 when autopilot not active."""
+        mock_session_state = {"is_autopilot_running": False}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import run_continuous_loop
+
+            result = run_continuous_loop()
+            assert result == 0
+
+    def test_run_continuous_loop_stops_when_paused(self) -> None:
+        """Test run_continuous_loop stops and resets when is_paused is True."""
+        mock_session_state = {
+            "is_autopilot_running": True,
+            "is_paused": True,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import run_continuous_loop
+
+            result = run_continuous_loop()
+            assert result == 0
+            assert mock_session_state["is_autopilot_running"] is False
+
+    def test_run_continuous_loop_stops_when_human_active(self) -> None:
+        """Test run_continuous_loop stops when human takes control."""
+        mock_session_state = {
+            "is_autopilot_running": True,
+            "is_paused": False,
+            "human_active": True,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import run_continuous_loop
+
+            result = run_continuous_loop()
+            assert result == 0
+            assert mock_session_state["is_autopilot_running"] is False
+
+    def test_run_continuous_loop_stops_at_max_turns(self) -> None:
+        """Test run_continuous_loop stops when max_turns is reached."""
+        mock_session_state = {
+            "is_autopilot_running": True,
+            "is_paused": False,
+            "human_active": False,
+            "autopilot_turn_count": 100,  # Already at default max
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import run_continuous_loop
+
+            result = run_continuous_loop(max_turns=100)
+            assert result == 0
+            assert mock_session_state["is_autopilot_running"] is False
+
+    def test_run_continuous_loop_increments_turn_count_and_reruns(self) -> None:
+        """Test run_continuous_loop executes turn and triggers rerun."""
+        from models import populate_game_state
+
+        game = populate_game_state(include_sample_messages=False)
+        mock_session_state = {
+            "game": game,
+            "is_autopilot_running": True,
+            "is_paused": False,
+            "human_active": False,
+            "is_generating": False,
+            "autopilot_turn_count": 5,
+            "waiting_for_human": False,
+            "playback_speed": "fast",
+        }
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("app.run_single_round") as mock_run,
+            patch("app.st.rerun") as mock_rerun,
+            patch("app.time.sleep"),  # Skip delay
+        ):
+            mock_run.return_value = game
+            from app import run_continuous_loop
+
+            # run_continuous_loop triggers rerun, so we won't get a normal return
+            # Just verify the side effects
+            try:
+                run_continuous_loop(max_turns=100)
+            except Exception:
+                pass  # Rerun may raise in tests
+
+            assert mock_session_state["autopilot_turn_count"] == 6
+            mock_rerun.assert_called_once()
+
+
+class TestRenderNarrativeMessagesFallback:
+    """Tests for render_narrative_messages fallback path (lines 692-693)."""
+
+    def test_render_narrative_unknown_agent_returns_fallback(self) -> None:
+        """Test that unknown agent names use fallback tuple."""
+        from app import get_character_info
+        from models import DMConfig, GameConfig, GameState
+
+        # Create state with no characters matching the agent
+        state: GameState = {
+            "ground_truth_log": [],
+            "turn_queue": [],
+            "current_turn": "",
+            "agent_memories": {},
+            "game_config": GameConfig(),
+            "dm_config": DMConfig(),
+            "characters": {},  # Empty - no characters
+            "whisper_queue": [],
+            "human_active": False,
+            "controlled_character": None,
+        }
+
+        # get_character_info returns fallback tuple for unknown agent
+        result = get_character_info(state, "unknown_agent")
+        assert result == ("Unknown", "Adventurer")
+
+    def test_render_narrative_dm_returns_none(self) -> None:
+        """Test that DM agent returns None from get_character_info."""
+        from app import get_character_info
+        from models import DMConfig, GameConfig, GameState
+
+        state: GameState = {
+            "ground_truth_log": [],
+            "turn_queue": [],
+            "current_turn": "",
+            "agent_memories": {},
+            "game_config": GameConfig(),
+            "dm_config": DMConfig(),
+            "characters": {},
+            "whisper_queue": [],
+            "human_active": False,
+            "controlled_character": None,
+        }
+
+        result = get_character_info(state, "dm")
+        assert result is None
+
+    def test_render_narrative_with_unknown_agent_uses_fallback_tuple(self) -> None:
+        """Test fallback uses Unknown/Adventurer for unknown agent."""
+        from models import CharacterConfig, DMConfig, GameConfig, GameState
+
+        # Create state with log entry from unknown agent
+        state: GameState = {
+            "ground_truth_log": ["[mystery_char] Hello world"],
+            "turn_queue": [],
+            "current_turn": "",
+            "agent_memories": {},
+            "game_config": GameConfig(),
+            "dm_config": DMConfig(),
+            "characters": {
+                "known_char": CharacterConfig(
+                    name="Known",
+                    character_class="Fighter",
+                    personality="Test",
+                    color="#FF0000",
+                )
+            },
+            "whisper_queue": [],
+            "human_active": False,
+            "controlled_character": None,
+        }
+
+        with (
+            patch("app.st.markdown"),
+            patch("app.render_dm_message"),
+            patch("app.render_pc_message") as mock_pc,
+        ):
+            from app import render_narrative_messages
+
+            render_narrative_messages(state)
+
+            # Should have called render_pc_message with fallback values
+            mock_pc.assert_called_once()
+            args = mock_pc.call_args[0]
+            assert args[0] == "Unknown"  # Fallback name
+            assert args[1] == "Adventurer"  # Fallback class
+
+
+class TestAutopilotToggleCoverage:
+    """Tests for autopilot toggle (lines 776-786)."""
+
+    def test_handle_autopilot_toggle_start(self) -> None:
+        """Test starting autopilot resets turn count."""
+        mock_session_state = {
+            "is_autopilot_running": False,
+            "autopilot_turn_count": 50,  # Previous count
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_autopilot_toggle
+
+            handle_autopilot_toggle()
+
+            assert mock_session_state["is_autopilot_running"] is True
+            assert mock_session_state["autopilot_turn_count"] == 0
+
+    def test_handle_autopilot_toggle_stop(self) -> None:
+        """Test stopping autopilot sets flag to False."""
+        mock_session_state = {
+            "is_autopilot_running": True,
+            "autopilot_turn_count": 10,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_autopilot_toggle
+
+            handle_autopilot_toggle()
+
+            assert mock_session_state["is_autopilot_running"] is False
+
+
+class TestRenderHumanInputAreaCoverage:
+    """Tests for render_human_input_area internal logic (lines 926-946)."""
+
+    def test_handle_human_action_submit_truncates_long_input(self) -> None:
+        """Test handle_human_action_submit truncates at MAX_ACTION_LENGTH."""
+        from app import MAX_ACTION_LENGTH
+
+        mock_session_state: dict = {}
+        long_action = "x" * (MAX_ACTION_LENGTH + 500)
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_human_action_submit
+
+            handle_human_action_submit(long_action)
+
+            # Should be truncated to MAX_ACTION_LENGTH
+            assert len(mock_session_state["human_pending_action"]) == MAX_ACTION_LENGTH
+
+    def test_handle_human_action_submit_strips_whitespace(self) -> None:
+        """Test handle_human_action_submit strips leading/trailing whitespace."""
+        mock_session_state: dict = {}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_human_action_submit
+
+            handle_human_action_submit("   attack the goblin   ")
+
+            assert mock_session_state["human_pending_action"] == "attack the goblin"
+
+    def test_handle_human_action_submit_ignores_empty(self) -> None:
+        """Test handle_human_action_submit ignores whitespace-only input."""
+        mock_session_state: dict = {}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_human_action_submit
+
+            handle_human_action_submit("   ")
+
+            assert "human_pending_action" not in mock_session_state
+
+
+class TestGetDropInButtonLabelCoverage:
+    """Tests for get_drop_in_button_label function."""
+
+    def test_get_drop_in_button_label_not_controlled(self) -> None:
+        """Test button label when not controlling character."""
+        from app import get_drop_in_button_label
+
+        label = get_drop_in_button_label(False)
+        assert label == "Drop-In"  # Hyphenated per implementation
+
+    def test_get_drop_in_button_label_controlled(self) -> None:
+        """Test button label when controlling character."""
+        from app import get_drop_in_button_label
+
+        label = get_drop_in_button_label(True)
+        assert label == "Release"
+
+
+class TestGetPartyCharactersCoverage:
+    """Tests for get_party_characters function."""
+
+    def test_get_party_characters_returns_only_non_dm(self) -> None:
+        """Test get_party_characters excludes DM."""
+        from app import get_party_characters
+        from models import CharacterConfig, DMConfig, GameConfig, GameState
+
+        state: GameState = {
+            "ground_truth_log": [],
+            "turn_queue": [],
+            "current_turn": "",
+            "agent_memories": {},
+            "game_config": GameConfig(),
+            "dm_config": DMConfig(),
+            "characters": {
+                "dm": CharacterConfig(
+                    name="DM", character_class="DM", personality="", color="#D4A574"
+                ),
+                "fighter": CharacterConfig(
+                    name="Fighter",
+                    character_class="Fighter",
+                    personality="Bold",
+                    color="#C45C4A",
+                ),
+            },
+            "whisper_queue": [],
+            "human_active": False,
+            "controlled_character": None,
+        }
+
+        result = get_party_characters(state)
+        assert "dm" not in result
+        assert "fighter" in result
+
+
+class TestRenderViewportWarningCoverage:
+    """Tests for render_viewport_warning function."""
+
+    def test_render_viewport_warning_html_structure(self) -> None:
+        """Test viewport warning renders correct HTML."""
+        with patch("app.st.markdown") as mock_markdown:
+            from app import render_viewport_warning
+
+            render_viewport_warning()
+
+            mock_markdown.assert_called_once()
+            call_args = mock_markdown.call_args[0][0]
+            assert "viewport-warning" in call_args
+            assert "Viewport Too Narrow" in call_args
+
+
+class TestInjectAutoScrollScriptCoverage:
+    """Tests for inject_auto_scroll_script function (lines 362-367)."""
+
+    def test_inject_auto_scroll_script_when_enabled(self) -> None:
+        """Test script is injected when auto_scroll_enabled is True."""
+        mock_session_state = {"auto_scroll_enabled": True}
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("streamlit.components.v1.html") as mock_html,
+        ):
+            from app import inject_auto_scroll_script
+
+            inject_auto_scroll_script()
+
+            mock_html.assert_called_once()
+            call_args = mock_html.call_args[0][0]
+            assert "<script>" in call_args
+
+    def test_inject_auto_scroll_script_when_disabled(self) -> None:
+        """Test script is NOT injected when auto_scroll_enabled is False."""
+        mock_session_state = {"auto_scroll_enabled": False}
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("streamlit.components.v1.html") as mock_html,
+        ):
+            from app import inject_auto_scroll_script
+
+            inject_auto_scroll_script()
+
+            mock_html.assert_not_called()
+
+
+class TestRenderThinkingIndicatorCoverage:
+    """Tests for render_thinking_indicator function (lines 399-404)."""
+
+    def test_render_thinking_indicator_when_generating(self) -> None:
+        """Test thinking indicator renders when generating."""
+        mock_session_state = {"is_generating": True, "is_paused": False}
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("app.st.markdown") as mock_markdown,
+        ):
+            from app import render_thinking_indicator
+
+            render_thinking_indicator()
+
+            mock_markdown.assert_called_once()
+            call_args = mock_markdown.call_args[0][0]
+            assert "thinking-indicator" in call_args
+
+    def test_render_thinking_indicator_when_not_generating(self) -> None:
+        """Test thinking indicator does not render when not generating."""
+        mock_session_state = {"is_generating": False, "is_paused": False}
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("app.st.markdown") as mock_markdown,
+        ):
+            from app import render_thinking_indicator
+
+            render_thinking_indicator()
+
+            # Should not call markdown since HTML is empty
+            mock_markdown.assert_not_called()
+
+
+class TestRenderAutoScrollIndicatorCoverage:
+    """Tests for render_auto_scroll_indicator function (lines 327-334)."""
+
+    def test_render_auto_scroll_indicator_when_disabled_renders_html(self) -> None:
+        """Test auto-scroll indicator renders when disabled."""
+        mock_session_state = {"auto_scroll_enabled": False}
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("app.st.markdown") as mock_markdown,
+            patch("app.st.button", return_value=False),
+        ):
+            from app import render_auto_scroll_indicator
+
+            render_auto_scroll_indicator()
+
+            mock_markdown.assert_called_once()
+            call_args = mock_markdown.call_args[0][0]
+            assert "auto-scroll-indicator" in call_args
+
+    def test_render_auto_scroll_indicator_when_enabled_no_render(self) -> None:
+        """Test auto-scroll indicator does not render when enabled."""
+        mock_session_state = {"auto_scroll_enabled": True}
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("app.st.markdown") as mock_markdown,
+        ):
+            from app import render_auto_scroll_indicator
+
+            render_auto_scroll_indicator()
+
+            # Should not call markdown since HTML is empty
+            mock_markdown.assert_not_called()
+
+
+# =============================================================================
+# Story 3.3: Release Control & Character Switching Tests
+# =============================================================================
+
+
+class TestReleaseControl:
+    """Tests for releasing control back to AI (Story 3.3, Task 1)."""
+
+    def test_release_clears_controlled_character_to_none(self) -> None:
+        """Test that releasing control sets controlled_character to None."""
+        mock_session_state = {
+            "controlled_character": "rogue",
+            "human_active": True,
+            "ui_mode": "play",
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_drop_in_click
+
+            handle_drop_in_click("rogue")  # Same character = release
+
+            assert mock_session_state.get("controlled_character") is None
+
+    def test_release_sets_human_active_to_false(self) -> None:
+        """Test that releasing control sets human_active to False."""
+        mock_session_state = {
+            "controlled_character": "fighter",
+            "human_active": True,
+            "ui_mode": "play",
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_drop_in_click
+
+            handle_drop_in_click("fighter")
+
+            assert mock_session_state.get("human_active") is False
+
+    def test_release_returns_ui_mode_to_watch(self) -> None:
+        """Test that releasing control returns ui_mode to 'watch'."""
+        mock_session_state = {
+            "controlled_character": "wizard",
+            "human_active": True,
+            "ui_mode": "play",
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_drop_in_click
+
+            handle_drop_in_click("wizard")
+
+            assert mock_session_state.get("ui_mode") == "watch"
+
+    def test_release_clears_human_pending_action(self) -> None:
+        """Test that releasing control clears human_pending_action."""
+        mock_session_state = {
+            "controlled_character": "cleric",
+            "human_active": True,
+            "ui_mode": "play",
+            "human_pending_action": "I cast healing word",
+            "waiting_for_human": True,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_drop_in_click
+
+            handle_drop_in_click("cleric")
+
+            assert mock_session_state.get("human_pending_action") is None
+
+    def test_release_clears_waiting_for_human(self) -> None:
+        """Test that releasing control clears waiting_for_human flag."""
+        mock_session_state = {
+            "controlled_character": "rogue",
+            "human_active": True,
+            "ui_mode": "play",
+            "human_pending_action": None,
+            "waiting_for_human": True,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_drop_in_click
+
+            handle_drop_in_click("rogue")
+
+            assert mock_session_state.get("waiting_for_human") is False
+
+    def test_release_all_state_transitions_together(self) -> None:
+        """Test all release state transitions happen together (AC #1, #4)."""
+        mock_session_state = {
+            "controlled_character": "fighter",
+            "human_active": True,
+            "ui_mode": "play",
+            "human_pending_action": "Attack the goblin",
+            "waiting_for_human": True,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_drop_in_click
+
+            handle_drop_in_click("fighter")
+
+            # All state should be cleared
+            assert mock_session_state.get("controlled_character") is None
+            assert mock_session_state.get("human_active") is False
+            assert mock_session_state.get("ui_mode") == "watch"
+            assert mock_session_state.get("human_pending_action") is None
+            assert mock_session_state.get("waiting_for_human") is False
+
+
+class TestCharacterSwitching:
+    """Tests for quick character switching (Story 3.3, Task 3)."""
+
+    def test_switch_auto_releases_previous_character(self) -> None:
+        """Test that switching characters auto-releases the previous one (AC #3)."""
+        mock_session_state = {
+            "controlled_character": "rogue",
+            "human_active": True,
+            "ui_mode": "play",
+            "is_autopilot_running": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_drop_in_click
+
+            handle_drop_in_click("fighter")  # Switch to fighter
+
+            # Should now control fighter, not rogue
+            assert mock_session_state.get("controlled_character") == "fighter"
+            assert mock_session_state.get("human_active") is True
+            assert mock_session_state.get("ui_mode") == "play"
+
+    def test_switch_clears_pending_action_from_previous_character(self) -> None:
+        """Test that switching clears pending action from previous character."""
+        mock_session_state = {
+            "controlled_character": "rogue",
+            "human_active": True,
+            "ui_mode": "play",
+            "human_pending_action": "I search for traps",
+            "waiting_for_human": True,
+            "is_autopilot_running": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_drop_in_click
+
+            handle_drop_in_click("wizard")  # Switch to wizard
+
+            # Pending action from rogue should be cleared
+            assert mock_session_state.get("human_pending_action") is None
+            assert mock_session_state.get("waiting_for_human") is False
+            # But we're now controlling wizard
+            assert mock_session_state.get("controlled_character") == "wizard"
+
+    def test_switch_no_explicit_release_required(self) -> None:
+        """Test that switching doesn't require explicit release step (AC #3)."""
+        mock_session_state = {
+            "controlled_character": "fighter",
+            "human_active": True,
+            "ui_mode": "play",
+            "is_autopilot_running": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_drop_in_click
+
+            # Directly click wizard while controlling fighter
+            handle_drop_in_click("wizard")
+
+            # Should be controlling wizard now (no intermediate watch state)
+            assert mock_session_state.get("controlled_character") == "wizard"
+            assert mock_session_state.get("ui_mode") == "play"
+
+    def test_switch_completes_under_100ms(self) -> None:
+        """Test that character switching completes quickly (AC #3: under 2 seconds)."""
+        import time
+
+        mock_session_state = {
+            "controlled_character": "rogue",
+            "human_active": True,
+            "ui_mode": "play",
+            "human_pending_action": "Some action",
+            "waiting_for_human": True,
+            "is_autopilot_running": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_drop_in_click
+
+            start_time = time.time()
+            handle_drop_in_click("cleric")
+            elapsed = time.time() - start_time
+
+            # Function should complete nearly instantly (well under 2 seconds)
+            assert elapsed < 0.1
+
+    def test_switch_stops_autopilot(self) -> None:
+        """Test that switching characters stops autopilot."""
+        mock_session_state = {
+            "controlled_character": "rogue",
+            "human_active": True,
+            "ui_mode": "play",
+            "is_autopilot_running": True,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_drop_in_click
+
+            handle_drop_in_click("fighter")
+
+            assert mock_session_state.get("is_autopilot_running") is False
+
+    def test_full_switch_flow(self) -> None:
+        """Integration test for complete character switching flow."""
+        mock_session_state: dict = {
+            "controlled_character": None,
+            "human_active": False,
+            "ui_mode": "watch",
+            "human_pending_action": None,
+            "waiting_for_human": False,
+            "is_autopilot_running": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_drop_in_click
+
+            # Start controlling rogue
+            handle_drop_in_click("rogue")
+            assert mock_session_state.get("controlled_character") == "rogue"
+
+            # Type an action (simulated)
+            mock_session_state["human_pending_action"] = "I hide in shadows"
+            mock_session_state["waiting_for_human"] = True
+
+            # Switch to fighter (should auto-release rogue and clear pending)
+            handle_drop_in_click("fighter")
+
+            assert mock_session_state.get("controlled_character") == "fighter"
+            assert mock_session_state.get("human_active") is True
+            assert mock_session_state.get("ui_mode") == "play"
+            assert mock_session_state.get("human_pending_action") is None
+            assert mock_session_state.get("waiting_for_human") is False
+
+
+class TestModeIndicatorRelease:
+    """Tests for mode indicator updates on release (Story 3.3, Task 4)."""
+
+    def test_mode_indicator_shows_watching_after_release(self) -> None:
+        """Test mode indicator shows 'Watching' after release (AC #1)."""
+        from app import render_mode_indicator_html
+
+        # After release, ui_mode = "watch"
+        html = render_mode_indicator_html("watch", False, None, None)
+
+        assert "Watching" in html
+        assert "watch" in html  # CSS class
+
+    def test_mode_indicator_shows_playing_as_after_switch(self) -> None:
+        """Test mode indicator shows 'Playing as [Character B]' after switch (AC #4)."""
+        from app import render_mode_indicator_html
+        from models import CharacterConfig
+
+        characters = {
+            "wizard": CharacterConfig(
+                name="Zephyr",
+                character_class="Wizard",
+                personality="wise",
+                color="#7B68B8",
+            )
+        }
+
+        html = render_mode_indicator_html("play", False, "wizard", characters)
+
+        assert "Playing as Zephyr" in html
+        assert "wizard" in html  # Character class in CSS
+
+    def test_mode_indicator_pulse_dot_present_in_watch_mode(self) -> None:
+        """Test pulse dot is present in watch mode (AC #1)."""
+        from app import render_mode_indicator_html
+
+        html = render_mode_indicator_html("watch", False, None, None)
+
+        assert "pulse-dot" in html
+
+    def test_mode_indicator_pulse_dot_present_in_play_mode(self) -> None:
+        """Test pulse dot is present in play mode."""
+        from app import render_mode_indicator_html
+        from models import CharacterConfig
+
+        characters = {
+            "fighter": CharacterConfig(
+                name="Theron",
+                character_class="Fighter",
+                personality="brave",
+                color="#C45C4A",
+            )
+        }
+
+        html = render_mode_indicator_html("play", False, "fighter", characters)
+
+        assert "pulse-dot" in html
+
+
+class TestInputAreaCollapse:
+    """Tests for input area visibility on release (Story 3.3, Task 5)."""
+
+    def test_render_human_input_area_returns_early_in_watch_mode(self) -> None:
+        """Test render_human_input_area returns early when ui_mode='watch' (AC #4)."""
+        mock_session_state = {
+            "ui_mode": "watch",
+            "controlled_character": None,
+        }
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("app.st.markdown"),
+            patch("app.st.text_area") as mock_text_area,
+            patch("app.st.button") as mock_button,
+        ):
+            from app import render_human_input_area
+
+            render_human_input_area()
+
+            # Should not render any UI elements
+            mock_text_area.assert_not_called()
+            mock_button.assert_not_called()
+
+    def test_render_human_input_area_returns_early_when_no_controlled_character(
+        self,
+    ) -> None:
+        """Test render_human_input_area returns early when no controlled character."""
+        mock_session_state = {
+            "ui_mode": "play",
+            "controlled_character": None,
+        }
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("app.st.markdown"),
+            patch("app.st.text_area") as mock_text_area,
+            patch("app.st.button") as mock_button,
+        ):
+            from app import render_human_input_area
+
+            render_human_input_area()
+
+            # Should not render text area or button
+            mock_text_area.assert_not_called()
+            mock_button.assert_not_called()
+
+    def test_input_context_bar_not_rendered_in_watch_mode(self) -> None:
+        """Test input context bar is not rendered when ui_mode='watch'."""
+        mock_session_state = {
+            "ui_mode": "watch",
+            "controlled_character": None,
+        }
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("app.st.markdown") as mock_markdown,
+        ):
+            from app import render_input_context_bar
+
+            render_input_context_bar()
+
+            # Should not render
+            mock_markdown.assert_not_called()
+
+
+class TestControlledCardStyling:
+    """Tests for character card controlled state styling (Story 3.3, Task 2, 7)."""
+
+    def test_character_card_html_includes_controlled_class_when_controlled(self) -> None:
+        """Test character card HTML includes 'controlled' class when controlled."""
+        from app import render_character_card_html
+
+        html = render_character_card_html("Theron", "Fighter", controlled=True)
+
+        assert "controlled" in html
+
+    def test_character_card_html_no_controlled_class_when_not_controlled(self) -> None:
+        """Test character card HTML does not include 'controlled' class when not controlled."""
+        from app import render_character_card_html
+
+        html = render_character_card_html("Theron", "Fighter", controlled=False)
+
+        assert "controlled" not in html
+
+    def test_button_label_changes_to_drop_in_after_release(self) -> None:
+        """Test button label shows 'Drop-In' when not controlled."""
+        from app import get_drop_in_button_label
+
+        label = get_drop_in_button_label(controlled=False)
+
+        assert label == "Drop-In"
+
+    def test_button_label_shows_release_when_controlled(self) -> None:
+        """Test button label shows 'Release' when controlled."""
+        from app import get_drop_in_button_label
+
+        label = get_drop_in_button_label(controlled=True)
+
+        assert label == "Release"
+
+    def test_css_has_controlled_character_card_glow(self) -> None:
+        """Test CSS includes controlled card glow effect styling."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        assert ".character-card.controlled" in css_content
+        # Check for glow/box-shadow effect
+        assert "box-shadow" in css_content
+
+    def test_css_has_character_card_transition(self) -> None:
+        """Test CSS includes transition for control state changes."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        # Check for transition on character-card
+        assert ".character-card" in css_content
+        # Check for transition property (Story 3.3)
+        assert "transition:" in css_content
+        assert "box-shadow" in css_content
+
+    def test_css_has_fighter_controlled_glow(self) -> None:
+        """Test CSS includes fighter-specific controlled glow (Story 3.3)."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        assert ".character-card.controlled.fighter" in css_content
+
+    def test_css_has_rogue_controlled_glow(self) -> None:
+        """Test CSS includes rogue-specific controlled glow (Story 3.3)."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        assert ".character-card.controlled.rogue" in css_content
+
+    def test_css_has_wizard_controlled_glow(self) -> None:
+        """Test CSS includes wizard-specific controlled glow (Story 3.3)."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        assert ".character-card.controlled.wizard" in css_content
+
+    def test_css_has_cleric_controlled_glow(self) -> None:
+        """Test CSS includes cleric-specific controlled glow (Story 3.3)."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        assert ".character-card.controlled.cleric" in css_content
+
+
+class TestAIAgentResume:
+    """Tests for AI agent resume behavior (Story 3.3, Task 6)."""
+
+    def test_route_to_next_agent_routes_to_ai_when_human_inactive(self) -> None:
+        """Test route_to_next_agent routes to AI when human_active=False (AC #5)."""
+        from models import AgentMemory, DMConfig, GameConfig, GameState
+
+        state: GameState = {
+            "ground_truth_log": [],
+            "turn_queue": ["dm", "fighter", "rogue"],
+            "current_turn": "fighter",
+            "agent_memories": {"dm": AgentMemory()},
+            "game_config": GameConfig(),
+            "dm_config": DMConfig(),
+            "characters": {},
+            "whisper_queue": [],
+            "human_active": False,  # Human released control
+            "controlled_character": None,
+            "session_number": 1,
+        }
+
+        from graph import route_to_next_agent
+
+        next_agent = route_to_next_agent(state)
+
+        # Should route to next PC (rogue), not human
+        assert next_agent == "rogue"
+
+    def test_route_to_next_agent_uses_ai_for_all_characters_after_release(self) -> None:
+        """Test all characters use AI agents after release (AC #5)."""
+        from models import AgentMemory, DMConfig, GameConfig, GameState
+
+        # After release, human_active=False and controlled_character=None
+        state: GameState = {
+            "ground_truth_log": [],
+            "turn_queue": ["dm", "fighter", "rogue", "wizard", "cleric"],
+            "current_turn": "rogue",  # Previously controlled character
+            "agent_memories": {"dm": AgentMemory()},
+            "game_config": GameConfig(),
+            "dm_config": DMConfig(),
+            "characters": {},
+            "whisper_queue": [],
+            "human_active": False,
+            "controlled_character": None,  # Released
+            "session_number": 1,
+        }
+
+        from graph import route_to_next_agent
+
+        next_agent = route_to_next_agent(state)
+
+        # Should route to wizard (next in queue), not human
+        assert next_agent == "wizard"
+
+    def test_ai_continues_naturally_no_human_node_after_release(self) -> None:
+        """Test AI continues naturally without routing to human node after release."""
+        from models import AgentMemory, DMConfig, GameConfig, GameState
+
+        state: GameState = {
+            "ground_truth_log": ["[dm]: The adventure continues..."],
+            "turn_queue": ["dm", "fighter"],
+            "current_turn": "dm",
+            "agent_memories": {"dm": AgentMemory()},
+            "game_config": GameConfig(),
+            "dm_config": DMConfig(),
+            "characters": {},
+            "whisper_queue": [],
+            "human_active": False,
+            "controlled_character": None,
+            "session_number": 1,
+        }
+
+        from graph import route_to_next_agent
+
+        next_agent = route_to_next_agent(state)
+
+        # Should route to fighter (AI), not human
+        assert next_agent == "fighter"
+
+
+class TestStory33AcceptanceCriteria:
+    """Integration tests for full Story 3.3 acceptance criteria."""
+
+    def test_ac1_release_button_returns_control_to_ai(self) -> None:
+        """AC#1: Clicking Release returns control to AI immediately."""
+        mock_session_state = {
+            "controlled_character": "fighter",
+            "human_active": True,
+            "ui_mode": "play",
+            "human_pending_action": None,
+            "waiting_for_human": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_drop_in_click
+
+            handle_drop_in_click("fighter")  # Release
+
+            assert mock_session_state.get("human_active") is False
+            assert mock_session_state.get("ui_mode") == "watch"
+
+    def test_ac1_mode_indicator_returns_to_watching(self) -> None:
+        """AC#1: Mode indicator returns to 'Watching' after release."""
+        from app import render_mode_indicator_html
+
+        # After release: ui_mode="watch", no controlled character
+        html = render_mode_indicator_html("watch", False, None, None)
+
+        assert "Watching" in html
+
+    def test_ac2_ai_takes_over_seamlessly(self) -> None:
+        """AC#2: AI takes over seamlessly with no narrative disruption."""
+        from models import AgentMemory, DMConfig, GameConfig, GameState
+
+        # State after human releases control mid-scene
+        state: GameState = {
+            "ground_truth_log": [
+                "[dm]: You enter the dark cave.",
+                "[fighter]: I light my torch.",
+            ],
+            "turn_queue": ["dm", "fighter", "rogue"],
+            "current_turn": "fighter",
+            "agent_memories": {"dm": AgentMemory(), "fighter": AgentMemory()},
+            "game_config": GameConfig(),
+            "dm_config": DMConfig(),
+            "characters": {},
+            "whisper_queue": [],
+            "human_active": False,  # Just released
+            "controlled_character": None,
+            "session_number": 1,
+        }
+
+        from graph import route_to_next_agent
+
+        next_agent = route_to_next_agent(state)
+
+        # AI should continue to next character naturally
+        assert next_agent == "rogue"
+
+    def test_ac3_auto_release_on_switch(self) -> None:
+        """AC#3: Clicking Drop-In on Character B auto-releases Character A."""
+        mock_session_state = {
+            "controlled_character": "fighter",
+            "human_active": True,
+            "ui_mode": "play",
+            "human_pending_action": "Attacking...",
+            "waiting_for_human": True,
+            "is_autopilot_running": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_drop_in_click
+
+            # Click on rogue while controlling fighter
+            handle_drop_in_click("rogue")
+
+            # Fighter auto-released, now controlling rogue
+            assert mock_session_state.get("controlled_character") == "rogue"
+            assert mock_session_state.get("human_active") is True
+            # Pending action from fighter should be cleared
+            assert mock_session_state.get("human_pending_action") is None
+            assert mock_session_state.get("waiting_for_human") is False
+
+    def test_ac4_ui_updates_on_release(self) -> None:
+        """AC#4: UI updates correctly on release (input collapses, card styling)."""
+        # Test input area collapses
+        mock_session_state = {
+            "ui_mode": "watch",  # After release
+            "controlled_character": None,
+        }
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("app.st.text_area") as mock_text_area,
+            patch("app.st.button") as mock_button,
+        ):
+            from app import render_human_input_area
+
+            render_human_input_area()
+
+            # Input should not render
+            mock_text_area.assert_not_called()
+            mock_button.assert_not_called()
+
+        # Test character card styling
+        from app import render_character_card_html
+
+        # After release, card should not have controlled class
+        html = render_character_card_html("Theron", "Fighter", controlled=False)
+        assert "controlled" not in html
+
+    def test_ac5_human_active_transition_affects_routing(self) -> None:
+        """AC#5: human_active=False causes all characters to use AI agents."""
+        from models import AgentMemory, DMConfig, GameConfig, GameState
+
+        state: GameState = {
+            "ground_truth_log": [],
+            "turn_queue": ["dm", "fighter", "rogue", "wizard"],
+            "current_turn": "rogue",
+            "agent_memories": {"dm": AgentMemory()},
+            "game_config": GameConfig(),
+            "dm_config": DMConfig(),
+            "characters": {},
+            "whisper_queue": [],
+            "human_active": False,
+            "controlled_character": None,
+            "session_number": 1,
+        }
+
+        from graph import route_to_next_agent
+
+        # Should route to wizard (AI), not human
+        next_agent = route_to_next_agent(state)
+        assert next_agent == "wizard"
+
+    def test_full_release_flow_play_to_watch(self) -> None:
+        """Integration test: full release flow from play mode to watch mode."""
+        mock_session_state = {
+            "controlled_character": "rogue",
+            "human_active": True,
+            "ui_mode": "play",
+            "human_pending_action": "I disarm the trap",
+            "waiting_for_human": True,
+            "is_autopilot_running": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_drop_in_click
+
+            # Release control
+            handle_drop_in_click("rogue")
+
+            # Verify all state transitions
+            assert mock_session_state.get("controlled_character") is None
+            assert mock_session_state.get("human_active") is False
+            assert mock_session_state.get("ui_mode") == "watch"
+            assert mock_session_state.get("human_pending_action") is None
+            assert mock_session_state.get("waiting_for_human") is False
+
+    def test_full_switch_flow_controlling_a_to_b(self) -> None:
+        """Integration test: switching from Character A to Character B."""
+        mock_session_state = {
+            "controlled_character": "fighter",
+            "human_active": True,
+            "ui_mode": "play",
+            "human_pending_action": "I attack",
+            "waiting_for_human": True,
+            "is_autopilot_running": True,  # Should be stopped
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_drop_in_click
+
+            # Switch to wizard
+            handle_drop_in_click("wizard")
+
+            # Verify state
+            assert mock_session_state.get("controlled_character") == "wizard"
+            assert mock_session_state.get("human_active") is True
+            assert mock_session_state.get("ui_mode") == "play"
+            assert mock_session_state.get("human_pending_action") is None
+            assert mock_session_state.get("waiting_for_human") is False
+            assert mock_session_state.get("is_autopilot_running") is False
+
+    def test_mode_indicator_through_full_cycle(self) -> None:
+        """Integration test: mode indicator through watch -> play -> watch."""
+        from app import render_mode_indicator_html
+        from models import CharacterConfig
+
+        characters = {
+            "rogue": CharacterConfig(
+                name="Shadow",
+                character_class="Rogue",
+                personality="cunning",
+                color="#6B8E6B",
+            )
+        }
+
+        # Initial watch mode
+        html_watch = render_mode_indicator_html("watch", False, None, None)
+        assert "Watching" in html_watch
+
+        # Play mode after drop-in
+        html_play = render_mode_indicator_html("play", False, "rogue", characters)
+        assert "Playing as Shadow" in html_play
+
+        # Back to watch after release
+        html_watch_again = render_mode_indicator_html("watch", False, None, None)
+        assert "Watching" in html_watch_again
+
+    def test_character_card_styling_through_full_cycle(self) -> None:
+        """Integration test: card styling through not controlled -> controlled -> not controlled."""
+        from app import render_character_card_html
+
+        # Not controlled
+        html1 = render_character_card_html("Theron", "Fighter", controlled=False)
+        assert "controlled" not in html1
+
+        # Controlled
+        html2 = render_character_card_html("Theron", "Fighter", controlled=True)
+        assert "controlled" in html2
+
+        # Not controlled again
+        html3 = render_character_card_html("Theron", "Fighter", controlled=False)
+        assert "controlled" not in html3
+
+    def test_state_consistency_across_all_transitions(self) -> None:
+        """Integration test: state remains consistent across all transitions."""
+        mock_session_state: dict = {
+            "controlled_character": None,
+            "human_active": False,
+            "ui_mode": "watch",
+            "human_pending_action": None,
+            "waiting_for_human": False,
+            "is_autopilot_running": True,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_drop_in_click
+
+            # Take control of fighter
+            handle_drop_in_click("fighter")
+            assert mock_session_state["controlled_character"] == "fighter"
+            assert mock_session_state["human_active"] is True
+            assert mock_session_state["ui_mode"] == "play"
+            assert mock_session_state["is_autopilot_running"] is False
+
+            # Simulate typing action
+            mock_session_state["human_pending_action"] = "I charge!"
+            mock_session_state["waiting_for_human"] = True
+
+            # Switch to rogue
+            handle_drop_in_click("rogue")
+            assert mock_session_state["controlled_character"] == "rogue"
+            assert mock_session_state["human_active"] is True
+            assert mock_session_state["ui_mode"] == "play"
+            assert mock_session_state["human_pending_action"] is None
+            assert mock_session_state["waiting_for_human"] is False
+
+            # Release control
+            handle_drop_in_click("rogue")
+            assert mock_session_state["controlled_character"] is None
+            assert mock_session_state["human_active"] is False
+            assert mock_session_state["ui_mode"] == "watch"
+            assert mock_session_state["human_pending_action"] is None
+            assert mock_session_state["waiting_for_human"] is False
+
+    def test_rapid_switching_settles_on_last_clicked(self) -> None:
+        """Edge case: Rapid switching between characters settles on last clicked."""
+        mock_session_state: dict = {
+            "controlled_character": None,
+            "human_active": False,
+            "ui_mode": "watch",
+            "human_pending_action": None,
+            "waiting_for_human": False,
+            "is_autopilot_running": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_drop_in_click
+
+            # Rapid sequence of clicks (simulating fast user interaction)
+            handle_drop_in_click("fighter")
+            handle_drop_in_click("rogue")
+            handle_drop_in_click("wizard")
+            handle_drop_in_click("cleric")
+
+            # State should settle on last clicked character
+            assert mock_session_state["controlled_character"] == "cleric"
+            assert mock_session_state["human_active"] is True
+            assert mock_session_state["ui_mode"] == "play"
+            # All intermediate pending actions should be cleared
+            assert mock_session_state["human_pending_action"] is None
+            assert mock_session_state["waiting_for_human"] is False
+
+    def test_rapid_switching_with_pending_actions_clears_all(self) -> None:
+        """Edge case: Rapid switching clears pending actions at each step."""
+        mock_session_state: dict = {
+            "controlled_character": "fighter",
+            "human_active": True,
+            "ui_mode": "play",
+            "human_pending_action": "Fighter action",
+            "waiting_for_human": True,
+            "is_autopilot_running": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_drop_in_click
+
+            # Switch with pending action
+            handle_drop_in_click("rogue")
+            assert mock_session_state["human_pending_action"] is None
+
+            # Add new pending action
+            mock_session_state["human_pending_action"] = "Rogue action"
+
+            # Switch again
+            handle_drop_in_click("wizard")
+            assert mock_session_state["human_pending_action"] is None
+            assert mock_session_state["controlled_character"] == "wizard"
+
+    def test_switch_during_generation_state_is_valid(self) -> None:
+        """Edge case: Switching during generation maintains valid state.
+
+        Note: In Streamlit's single-threaded model, button clicks trigger reruns.
+        This test verifies the state remains valid regardless of is_generating flag.
+        """
+        mock_session_state: dict = {
+            "controlled_character": "fighter",
+            "human_active": True,
+            "ui_mode": "play",
+            "human_pending_action": None,
+            "waiting_for_human": False,
+            "is_autopilot_running": False,
+            "is_generating": True,  # Simulate mid-generation state
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_drop_in_click
+
+            # Attempt switch during generation
+            handle_drop_in_click("rogue")
+
+            # State should be valid (handle_drop_in_click doesn't check is_generating)
+            assert mock_session_state["controlled_character"] == "rogue"
+            assert mock_session_state["human_active"] is True
+            assert mock_session_state["ui_mode"] == "play"
+            # is_generating remains unchanged (not affected by drop-in)
+            assert mock_session_state["is_generating"] is True
+
+
+class TestDropInButtonDisabledDuringGeneration:
+    """Tests for Drop-In button disabled state during generation (Story 3.3 code review fix)."""
+
+    def test_drop_in_button_disabled_when_generating(self) -> None:
+        """Test that Drop-In button is disabled when is_generating=True."""
+        from models import CharacterConfig
+
+        mock_session_state: dict = {
+            "is_generating": True,
+            "controlled_character": None,
+        }
+
+        char_config = CharacterConfig(
+            name="Theron",
+            character_class="Fighter",
+            personality="brave",
+            color="#C45C4A",
+        )
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("app.st.markdown"),
+            patch("app.st.button") as mock_button,
+        ):
+            mock_button.return_value = False
+            from app import render_character_card
+
+            render_character_card("fighter", char_config, controlled=False)
+
+            # Verify button was called with disabled=True
+            mock_button.assert_called_once()
+            call_kwargs = mock_button.call_args[1]
+            assert call_kwargs.get("disabled") is True
+
+    def test_drop_in_button_enabled_when_not_generating(self) -> None:
+        """Test that Drop-In button is enabled when is_generating=False."""
+        from models import CharacterConfig
+
+        mock_session_state: dict = {
+            "is_generating": False,
+            "controlled_character": None,
+        }
+
+        char_config = CharacterConfig(
+            name="Theron",
+            character_class="Fighter",
+            personality="brave",
+            color="#C45C4A",
+        )
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("app.st.markdown"),
+            patch("app.st.button") as mock_button,
+        ):
+            mock_button.return_value = False
+            from app import render_character_card
+
+            render_character_card("fighter", char_config, controlled=False)
+
+            # Verify button was called with disabled=False
+            mock_button.assert_called_once()
+            call_kwargs = mock_button.call_args[1]
+            assert call_kwargs.get("disabled") is False
+
+    def test_release_button_also_disabled_when_generating(self) -> None:
+        """Test that Release button is also disabled when is_generating=True."""
+        from models import CharacterConfig
+
+        mock_session_state: dict = {
+            "is_generating": True,
+            "controlled_character": "fighter",
+        }
+
+        char_config = CharacterConfig(
+            name="Theron",
+            character_class="Fighter",
+            personality="brave",
+            color="#C45C4A",
+        )
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("app.st.markdown"),
+            patch("app.st.button") as mock_button,
+        ):
+            mock_button.return_value = False
+            from app import render_character_card
+
+            render_character_card("fighter", char_config, controlled=True)
+
+            # Verify button was called with disabled=True and label "Release"
+            mock_button.assert_called_once()
+            call_args = mock_button.call_args[0]
+            call_kwargs = mock_button.call_args[1]
+            assert call_args[0] == "Release"
+            assert call_kwargs.get("disabled") is True

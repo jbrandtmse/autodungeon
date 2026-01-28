@@ -82,11 +82,30 @@ def run_game_turn() -> bool:
     Runs one complete round via run_single_round(), managing the
     is_generating flag, respecting pause state, and applying speed delay.
 
+    For human-controlled characters:
+    - If it's the human's turn and no pending action, skip (wait for input)
+    - If pending action exists, process it through the graph
+
     Returns:
-        True if turn was executed, False if skipped (paused).
+        True if turn was executed, False if skipped (paused/waiting for human).
     """
     if st.session_state.get("is_paused", False):
         return False
+
+    # Check if we should wait for human input
+    if st.session_state.get("human_active", False):
+        game = st.session_state.get("game", {})
+        current_turn = game.get("current_turn", "")
+        controlled = st.session_state.get("controlled_character", "")
+
+        # If it's the controlled character's turn and no pending action, wait
+        if current_turn == controlled:
+            if not st.session_state.get("human_pending_action"):
+                st.session_state["waiting_for_human"] = True
+                return False
+
+    # Clear waiting flag since we're proceeding
+    st.session_state["waiting_for_human"] = False
 
     # Set generating flag
     st.session_state["is_generating"] = True
@@ -427,6 +446,29 @@ def render_mode_indicator_html(
         )
 
 
+def render_input_context_bar_html(name: str, char_class: str) -> str:
+    """Generate HTML for input context bar.
+
+    Shows "You are [Name], the [Class]" with character-colored left border.
+    Displayed above the human input area when controlling a character.
+
+    Args:
+        name: Character display name (e.g., "Shadowmere").
+        char_class: Character class (e.g., "Rogue").
+
+    Returns:
+        HTML string for context bar.
+    """
+    class_slug = char_class.lower()
+    return (
+        f'<div class="input-context {class_slug}">'
+        f'<span class="input-context-text">You are </span>'
+        f'<span class="input-context-character">{escape_html(name)}</span>'
+        f'<span class="input-context-text">, the {escape_html(char_class)}</span>'
+        "</div>"
+    )
+
+
 def render_dm_message_html(content: str, is_current: bool = False) -> str:
     """Generate HTML for DM narration message.
 
@@ -666,6 +708,9 @@ def initialize_session_state() -> None:
         st.session_state["is_autopilot_running"] = False
         st.session_state["autopilot_turn_count"] = 0
         st.session_state["max_turns_per_session"] = DEFAULT_MAX_TURNS_PER_SESSION
+        # Human intervention state (Story 3.2)
+        st.session_state["human_pending_action"] = None
+        st.session_state["waiting_for_human"] = False
 
 
 def get_api_key_status(config: AppConfig) -> str:
@@ -805,16 +850,104 @@ def handle_drop_in_click(agent_key: str) -> None:
     """
     controlled = st.session_state.get("controlled_character")
     if controlled == agent_key:
-        # Release control
+        # Release control - clear any pending action
         st.session_state["controlled_character"] = None
         st.session_state["ui_mode"] = "watch"
         st.session_state["human_active"] = False
+        st.session_state["human_pending_action"] = None
+        st.session_state["waiting_for_human"] = False
     else:
         # Take control - stop autopilot first
         st.session_state["is_autopilot_running"] = False
+        # Clear any pending state from previous character (character switching)
+        st.session_state["human_pending_action"] = None
+        st.session_state["waiting_for_human"] = False
+        # Set new controlled character
         st.session_state["controlled_character"] = agent_key
         st.session_state["ui_mode"] = "play"
         st.session_state["human_active"] = True
+
+
+# Maximum action text length for safety
+MAX_ACTION_LENGTH = 2000
+
+
+def handle_human_action_submit(action: str) -> None:
+    """Handle submission of human action.
+
+    Stores the submitted action in session state for processing
+    by the human_intervention_node in the game loop.
+
+    Args:
+        action: The user's action text.
+    """
+    # Limit action length for safety
+    sanitized = action.strip()[:MAX_ACTION_LENGTH]
+
+    if sanitized:
+        st.session_state["human_pending_action"] = sanitized
+
+
+def render_input_context_bar(controlled_character: str | None = None) -> None:
+    """Render input context bar showing which character the human controls.
+
+    Only renders when ui_mode="play" and controlled_character is set.
+    Shows "You are [Name], the [Class]" with character-colored styling.
+
+    Args:
+        controlled_character: Agent key of controlled character, or None.
+    """
+    if st.session_state.get("ui_mode") != "play":
+        return
+
+    controlled = controlled_character or st.session_state.get("controlled_character")
+    if not controlled:
+        return
+
+    game: GameState = st.session_state.get("game", {})
+    characters = game.get("characters", {})
+    char_config = characters.get(controlled)
+
+    if char_config:
+        html = render_input_context_bar_html(char_config.name, char_config.character_class)
+        st.markdown(html, unsafe_allow_html=True)
+
+
+def render_human_input_area() -> None:
+    """Render text input and submit button for human actions.
+
+    Only renders when ui_mode="play" and controlled_character is set.
+    Includes the input context bar above the text input.
+    """
+    if st.session_state.get("ui_mode") != "play":
+        return
+
+    controlled = st.session_state.get("controlled_character")
+    if not controlled:
+        return
+
+    # Render context bar first
+    render_input_context_bar(controlled)
+
+    # Wrap input area in styled container
+    st.markdown('<div class="human-input-area">', unsafe_allow_html=True)
+
+    # Text input area
+    action = st.text_area(
+        "Your action:",
+        key="human_action_input",
+        placeholder="What does your character do? (e.g., 'I check the door for traps.')",
+        label_visibility="collapsed",
+    )
+
+    # Submit button (disabled while generating)
+    is_generating = st.session_state.get("is_generating", False)
+    if st.button("Send", key="human_action_submit", disabled=is_generating):
+        if action and action.strip():
+            handle_human_action_submit(action.strip())
+            st.rerun()
+
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def render_character_card(
@@ -850,8 +983,10 @@ def render_character_card(
     )
 
     # Render the functional Streamlit button (styled via CSS targeting the wrapper)
+    # Disabled during generation for UX consistency (Story 3.3 code review fix)
     button_label = get_drop_in_button_label(controlled)
-    if st.button(button_label, key=f"drop_in_{agent_key}"):
+    is_generating = st.session_state.get("is_generating", False)
+    if st.button(button_label, key=f"drop_in_{agent_key}", disabled=is_generating):
         handle_drop_in_click(agent_key)
         st.rerun()
 
@@ -972,6 +1107,9 @@ def render_main_content() -> None:
 
     # Inject auto-scroll JavaScript when enabled (Story 2.6)
     inject_auto_scroll_script()
+
+    # Human input area - only shown in play mode (Story 3.2)
+    render_human_input_area()
 
 
 def render_viewport_warning() -> None:

@@ -269,6 +269,28 @@ h2, h3, h4 {
   box-shadow: 0 0 12px rgba(232, 168, 73, 0.2);
 }
 
+/* Character-specific controlled glow colors (Story 3.3) */
+.character-card.controlled.fighter {
+  box-shadow: 0 0 12px 2px rgba(196, 92, 74, 0.3);
+}
+
+.character-card.controlled.rogue {
+  box-shadow: 0 0 12px 2px rgba(107, 142, 107, 0.3);
+}
+
+.character-card.controlled.wizard {
+  box-shadow: 0 0 12px 2px rgba(123, 104, 184, 0.3);
+}
+
+.character-card.controlled.cleric {
+  box-shadow: 0 0 12px 2px rgba(74, 144, 164, 0.3);
+}
+
+/* Smooth transition for control state changes (Story 3.3) */
+.character-card {
+  transition: box-shadow 0.2s ease-in-out, border-left-width 0.2s ease-in-out, background 0.2s ease-in-out;
+}
+
 /* Character name styling */
 .character-name {
   font-family: var(--font-ui);
@@ -567,6 +589,35 @@ h2, h3, h4 {
   font-weight: 500;
 }
 
+/* Character-specific input context bar colors (Story 3.2) */
+.input-context.fighter {
+  border-left-color: var(--color-fighter);
+}
+.input-context.fighter .input-context-character {
+  color: var(--color-fighter);
+}
+
+.input-context.rogue {
+  border-left-color: var(--color-rogue);
+}
+.input-context.rogue .input-context-character {
+  color: var(--color-rogue);
+}
+
+.input-context.wizard {
+  border-left-color: var(--color-wizard);
+}
+.input-context.wizard .input-context-character {
+  color: var(--color-wizard);
+}
+
+.input-context.cleric {
+  border-left-color: var(--color-cleric);
+}
+.input-context.cleric .input-context-character {
+  color: var(--color-cleric);
+}
+
 /* ==========================================================================
    Narrative Container (Story 2.2, 2.6)
    ========================================================================== */
@@ -815,4 +866,50 @@ hr {
   scroll-behavior: smooth;
   padding: var(--space-md);
   position: relative;
+}
+
+/* ==========================================================================
+   Human Input Area (Story 3.2)
+   ========================================================================== */
+
+/* Container for human action input */
+.human-input-area {
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  padding: var(--space-md);
+  margin-top: var(--space-md);
+}
+
+/* Text area styling for human input */
+.human-input-area .stTextArea > div > div > textarea {
+  background: var(--bg-message) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--bg-message) !important;
+  border-radius: 4px;
+  font-family: var(--font-narrative);
+  font-size: 16px;
+  line-height: 1.6;
+  min-height: 80px;
+}
+
+.human-input-area .stTextArea > div > div > textarea:focus {
+  border-color: var(--accent-warm) !important;
+  box-shadow: 0 0 0 1px var(--accent-warm);
+}
+
+/* Submit button styling */
+.human-input-area .stButton > button {
+  background: var(--accent-warm) !important;
+  color: var(--bg-primary) !important;
+  border: none !important;
+  font-weight: 500;
+}
+
+.human-input-area .stButton > button:hover:not(:disabled) {
+  background: #D49A3D !important;
+}
+
+.human-input-area .stButton > button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
