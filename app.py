@@ -5,16 +5,75 @@ This is the main application entry point. Run with:
 """
 
 import re
+import time
+from datetime import date
 from html import escape as escape_html
 from pathlib import Path
 
 import streamlit as st
 
 from config import AppConfig, get_config, validate_api_keys
+from graph import run_single_round
 from models import CharacterConfig, GameState, populate_game_state
+
+# Speed delay mappings for playback control
+SPEED_DELAYS: dict[str, float] = {
+    "slow": 3.0,  # 3 seconds between turns
+    "normal": 1.0,  # 1 second between turns
+    "fast": 0.2,  # 200ms between turns (near-instant)
+}
 
 # Module-level compiled regex for action text styling
 ACTION_PATTERN = re.compile(r"\*([^*]+)\*")
+
+# Roman numeral mappings for session numbers
+_ROMAN_VALUES = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1]
+_ROMAN_SYMBOLS = ["M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I"]
+
+
+def get_turn_delay() -> float:
+    """Get delay in seconds based on playback_speed setting.
+
+    Returns:
+        Delay in seconds: 3.0 for slow, 1.0 for normal, 0.2 for fast.
+    """
+    speed = st.session_state.get("playback_speed", "normal")
+    return SPEED_DELAYS.get(speed, 1.0)
+
+
+def run_game_turn() -> bool:
+    """Execute one game turn and update session state.
+
+    Runs one complete round via run_single_round(), managing the
+    is_generating flag, respecting pause state, and applying speed delay.
+
+    Returns:
+        True if turn was executed, False if skipped (paused).
+    """
+    if st.session_state.get("is_paused", False):
+        return False
+
+    # Set generating flag
+    st.session_state["is_generating"] = True
+
+    try:
+        # Get current game state
+        game = st.session_state.get("game", {})
+
+        # Execute one round
+        updated_state = run_single_round(game)
+
+        # Update session state
+        st.session_state["game"] = updated_state
+
+        # Apply speed-based delay between turns
+        delay = get_turn_delay()
+        if delay > 0:
+            time.sleep(delay)
+
+        return True
+    finally:
+        st.session_state["is_generating"] = False
 
 
 def load_css() -> str:
@@ -29,7 +88,216 @@ def load_css() -> str:
     return ""
 
 
-def render_dm_message_html(content: str) -> str:
+def int_to_roman(num: int) -> str:
+    """Convert integer to Roman numeral string.
+
+    Args:
+        num: Integer to convert (1-3999).
+
+    Returns:
+        Roman numeral string.
+
+    Raises:
+        ValueError: If num is out of valid range.
+    """
+    if not 1 <= num <= 3999:
+        raise ValueError(f"Number {num} out of range (1-3999)")
+
+    result = ""
+    for i, v in enumerate(_ROMAN_VALUES):
+        while num >= v:
+            result += _ROMAN_SYMBOLS[i]
+            num -= v
+    return result
+
+
+def render_session_header_html(session_number: int, session_info: str) -> str:
+    """Generate HTML for session header with roman numeral.
+
+    Args:
+        session_number: Session number (1-3999).
+        session_info: Subtitle text (e.g., "January 27, 2026 • Turn 15").
+
+    Returns:
+        HTML string for session header.
+    """
+    roman = int_to_roman(session_number)
+    return (
+        '<div class="session-header">'
+        f'<h1 class="session-title">Session {escape_html(roman)}</h1>'
+        f'<p class="session-subtitle">{escape_html(session_info)}</p>'
+        "</div>"
+    )
+
+
+def get_session_subtitle(game: GameState) -> str:
+    """Generate session subtitle text.
+
+    Args:
+        game: Current game state.
+
+    Returns:
+        Formatted subtitle string with date and optional turn count.
+    """
+    today = date.today().strftime("%B %d, %Y")
+    turn_count = len(game.get("ground_truth_log", []))
+
+    if turn_count > 0:
+        return f"{today} • Turn {turn_count}"
+    return today
+
+
+def render_auto_scroll_indicator_html(auto_scroll_enabled: bool) -> str:
+    """Generate HTML for auto-scroll resume indicator.
+
+    Args:
+        auto_scroll_enabled: Whether auto-scroll is currently enabled.
+
+    Returns:
+        HTML string for indicator when disabled, empty string when enabled.
+    """
+    if auto_scroll_enabled:
+        return ""
+
+    return (
+        '<div class="auto-scroll-indicator visible">'
+        "↓ Resume auto-scroll"
+        "</div>"
+    )
+
+
+def handle_resume_auto_scroll_click() -> None:
+    """Handle click on resume auto-scroll indicator."""
+    st.session_state["auto_scroll_enabled"] = True
+
+
+def handle_pause_auto_scroll_click() -> None:
+    """Handle pause auto-scroll (when user scrolls up manually)."""
+    st.session_state["auto_scroll_enabled"] = False
+
+
+def render_auto_scroll_indicator() -> None:
+    """Render auto-scroll resume indicator when auto-scroll is paused."""
+    auto_scroll_enabled = st.session_state.get("auto_scroll_enabled", True)
+
+    html = render_auto_scroll_indicator_html(auto_scroll_enabled)
+    if html:
+        st.markdown(html, unsafe_allow_html=True)
+        if st.button("Resume", key="resume_auto_scroll_btn"):
+            handle_resume_auto_scroll_click()
+            st.rerun()
+
+
+def get_auto_scroll_script() -> str:
+    """Generate JavaScript for auto-scroll behavior.
+
+    Returns:
+        JavaScript code string that scrolls narrative container to bottom.
+    """
+    return """
+        <script>
+        (function() {
+            // Find the narrative container in parent document
+            const container = parent.document.querySelector('.narrative-container');
+            if (container) {
+                container.scrollTop = container.scrollHeight;
+            }
+        })();
+        </script>
+    """
+
+
+def inject_auto_scroll_script() -> None:
+    """Inject JavaScript for auto-scroll behavior.
+
+    Scrolls the narrative container to the bottom when auto_scroll_enabled
+    is True. Uses st.components.v1.html for reliable script execution.
+    """
+    import streamlit.components.v1 as components
+
+    auto_scroll_enabled = st.session_state.get("auto_scroll_enabled", True)
+
+    if auto_scroll_enabled:
+        components.html(get_auto_scroll_script(), height=0)
+
+
+def render_thinking_indicator_html(is_generating: bool, is_paused: bool) -> str:
+    """Generate HTML for thinking indicator (pure function).
+
+    The indicator has a 500ms CSS delay before appearing, per NFR3.
+
+    Args:
+        is_generating: Whether the LLM is currently generating a response.
+        is_paused: Whether game playback is paused.
+
+    Returns:
+        HTML string for thinking indicator, or empty string if not needed.
+    """
+    if not is_generating or is_paused:
+        return ""
+
+    return (
+        '<div class="thinking-indicator">'
+        '<span class="thinking-dot"></span>'
+        '<span class="thinking-text">The story unfolds...</span>'
+        "</div>"
+    )
+
+
+def render_thinking_indicator() -> None:
+    """Render thinking indicator to Streamlit when generating.
+
+    Shows a "The story unfolds..." indicator with a 500ms CSS delay,
+    per NFR3 requirement for spinner appearance after delay.
+    """
+    is_generating = st.session_state.get("is_generating", False)
+    is_paused = st.session_state.get("is_paused", False)
+
+    html = render_thinking_indicator_html(is_generating, is_paused)
+    if html:
+        st.markdown(html, unsafe_allow_html=True)
+
+
+def render_mode_indicator_html(
+    ui_mode: str,
+    is_generating: bool,
+    controlled_character: str | None = None,
+    characters: dict[str, CharacterConfig] | None = None,
+) -> str:
+    """Generate HTML for mode indicator badge.
+
+    Args:
+        ui_mode: "watch" or "play"
+        is_generating: Whether story is actively generating
+        controlled_character: Agent key of controlled character, or None
+        characters: Dict of agent_key -> CharacterConfig
+
+    Returns:
+        HTML string for mode indicator.
+    """
+    if ui_mode == "watch":
+        # Show pulse dot only when generating in watch mode
+        pulse_html = '<span class="pulse-dot"></span>' if is_generating else ""
+        return f'<div class="mode-indicator watch">{pulse_html}Watching</div>'
+    else:
+        # Play mode - show character name with character color
+        # Pulse dot always shown in play mode (active player control indicator)
+        characters = characters or {}
+        char_config = characters.get(controlled_character or "")
+        if char_config:
+            name = char_config.name
+            class_slug = char_config.character_class.lower()
+        else:
+            name = controlled_character or "Unknown"
+            class_slug = ""
+
+        return (
+            f'<div class="mode-indicator play {class_slug}">'
+            f'<span class="pulse-dot"></span>Playing as {escape_html(name)}</div>'
+        )
+
+
+def render_dm_message_html(content: str, is_current: bool = False) -> str:
     """Generate HTML for DM narration message.
 
     Creates HTML structure with dm-message CSS class for gold border,
@@ -37,21 +305,24 @@ def render_dm_message_html(content: str) -> str:
 
     Args:
         content: The DM narration text content.
+        is_current: If True, adds current-turn class for highlight animation.
 
     Returns:
         HTML string for the DM message div.
     """
     escaped_content = escape_html(content)
-    return f'<div class="dm-message"><p>{escaped_content}</p></div>'
+    current_class = " current-turn" if is_current else ""
+    return f'<div class="dm-message{current_class}"><p>{escaped_content}</p></div>'
 
 
-def render_dm_message(content: str) -> None:
+def render_dm_message(content: str, is_current: bool = False) -> None:
     """Render DM narration message to Streamlit.
 
     Args:
         content: The DM narration text content.
+        is_current: If True, adds current-turn class for highlight animation.
     """
-    st.markdown(render_dm_message_html(content), unsafe_allow_html=True)
+    st.markdown(render_dm_message_html(content, is_current), unsafe_allow_html=True)
 
 
 def format_pc_content(content: str) -> str:
@@ -70,7 +341,9 @@ def format_pc_content(content: str) -> str:
     return ACTION_PATTERN.sub(r'<span class="action-text">\1</span>', escaped)
 
 
-def render_pc_message_html(name: str, char_class: str, content: str) -> str:
+def render_pc_message_html(
+    name: str, char_class: str, content: str, is_current: bool = False
+) -> str:
     """Generate HTML for PC dialogue message.
 
     Creates HTML structure with pc-message CSS class and character-specific
@@ -80,14 +353,16 @@ def render_pc_message_html(name: str, char_class: str, content: str) -> str:
         name: Character display name (e.g., "Theron").
         char_class: Character class (e.g., "Fighter").
         content: The PC dialogue/action content.
+        is_current: If True, adds current-turn class for highlight animation.
 
     Returns:
         HTML string for the PC message div.
     """
     class_slug = char_class.lower()
+    current_class = " current-turn" if is_current else ""
     formatted_content = format_pc_content(content)
     return (
-        f'<div class="pc-message {class_slug}">'
+        f'<div class="pc-message {class_slug}{current_class}">'
         f'<span class="pc-attribution {class_slug}">{escape_html(name)}, '
         f"the {escape_html(char_class)}:</span>"
         f"<p>{formatted_content}</p>"
@@ -95,16 +370,19 @@ def render_pc_message_html(name: str, char_class: str, content: str) -> str:
     )
 
 
-def render_pc_message(name: str, char_class: str, content: str) -> None:
+def render_pc_message(
+    name: str, char_class: str, content: str, is_current: bool = False
+) -> None:
     """Render PC dialogue message to Streamlit.
 
     Args:
         name: Character display name.
         char_class: Character class.
         content: The PC dialogue/action content.
+        is_current: If True, adds current-turn class for highlight animation.
     """
     st.markdown(
-        render_pc_message_html(name, char_class, content),
+        render_pc_message_html(name, char_class, content, is_current),
         unsafe_allow_html=True,
     )
 
@@ -133,6 +411,28 @@ def render_character_card_html(
         f'<span class="character-class">{escape_html(char_class)}</span>'
         f"</div>"
     )
+
+
+def get_start_button_label(game: GameState) -> str:
+    """Get button label based on game state.
+
+    Args:
+        game: Current game state.
+
+    Returns:
+        "Start Game" if no messages, "Next Turn" otherwise.
+    """
+    log = game.get("ground_truth_log", [])
+    return "Start Game" if len(log) == 0 else "Next Turn"
+
+
+def is_start_button_disabled() -> bool:
+    """Check if start/next turn button should be disabled.
+
+    Returns:
+        True if button should be disabled (game is generating).
+    """
+    return st.session_state.get("is_generating", False)
 
 
 def get_drop_in_button_label(controlled: bool) -> str:
@@ -182,7 +482,8 @@ def render_narrative_messages(state: GameState) -> None:
     """Render all messages from ground_truth_log.
 
     Iterates through the log, parses each entry, determines message type,
-    and routes to appropriate renderer (DM or PC).
+    and routes to appropriate renderer (DM or PC). The last message receives
+    a current-turn highlight class for visual emphasis.
 
     Args:
         state: Current game state with ground_truth_log.
@@ -201,11 +502,14 @@ def render_narrative_messages(state: GameState) -> None:
         )
         return
 
-    for entry in log:
+    last_index = len(log) - 1
+
+    for i, entry in enumerate(log):
         message = parse_log_entry(entry)
+        is_current = i == last_index
 
         if message.message_type == "dm_narration":
-            render_dm_message(message.content)
+            render_dm_message(message.content, is_current)
         else:
             # PC dialogue - look up character info
             char_info = get_character_info(state, message.agent)
@@ -215,7 +519,7 @@ def render_narrative_messages(state: GameState) -> None:
                 # Fallback for unknown agents
                 name = message.agent.title()
                 char_class = "Adventurer"
-            render_pc_message(name, char_class, message.content)
+            render_pc_message(name, char_class, message.content, is_current)
 
 
 def initialize_session_state() -> None:
@@ -224,6 +528,10 @@ def initialize_session_state() -> None:
         st.session_state["game"] = populate_game_state()
         st.session_state["ui_mode"] = "watch"
         st.session_state["controlled_character"] = None
+        st.session_state["is_generating"] = False
+        st.session_state["is_paused"] = False
+        st.session_state["playback_speed"] = "normal"
+        st.session_state["auto_scroll_enabled"] = True
 
 
 def get_api_key_status(config: AppConfig) -> str:
@@ -253,6 +561,51 @@ def get_api_key_status(config: AppConfig) -> str:
     lines.append("- Ollama: Available")
 
     return "\n".join(lines)
+
+
+def handle_pause_toggle() -> None:
+    """Toggle the pause state for game playback."""
+    st.session_state["is_paused"] = not st.session_state.get("is_paused", False)
+
+
+def render_session_controls() -> None:
+    """Render session playback controls in the sidebar.
+
+    Includes Pause/Resume button and Speed control dropdown.
+    These controls prepare UI for Epic 3 (Human Participation) integration.
+    """
+    st.markdown('<div class="session-controls">', unsafe_allow_html=True)
+    st.markdown("### Session Controls")
+
+    # Pause/Resume button
+    is_paused = st.session_state.get("is_paused", False)
+    button_label = "Resume" if is_paused else "Pause"
+    if st.button(button_label, key="pause_resume_btn"):
+        handle_pause_toggle()
+        st.rerun()
+
+    # Speed control dropdown
+    speed_options = ["Slow", "Normal", "Fast"]
+    current_speed = st.session_state.get("playback_speed", "normal")
+    # Convert internal value to display value
+    speed_display = current_speed.capitalize()
+    default_index = (
+        speed_options.index(speed_display) if speed_display in speed_options else 1
+    )
+
+    selected_speed = st.selectbox(
+        "Speed",
+        speed_options,
+        index=default_index,
+        key="session_speed_select",
+    )
+
+    # Update session state if speed changed and trigger rerun for consistency
+    if selected_speed and selected_speed.lower() != current_speed:
+        st.session_state["playback_speed"] = selected_speed.lower()
+        st.rerun()
+
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def handle_drop_in_click(agent_key: str) -> None:
@@ -324,13 +677,17 @@ def render_sidebar(config: AppConfig) -> None:
         config: The application configuration.
     """
     with st.sidebar:
-        # Mode indicator placeholder (4.1)
+        # Mode indicator with dynamic Watching/Playing states (Story 2.5)
         ui_mode = st.session_state.get("ui_mode", "watch")
-        mode_label = "Watch Mode" if ui_mode == "watch" else "Play Mode"
-        mode_class = "watch" if ui_mode == "watch" else "play"
+        is_generating = st.session_state.get("is_generating", False)
+        controlled_character = st.session_state.get("controlled_character")
+        game: GameState = st.session_state.get("game", {})
+        characters = game.get("characters", {})
+
         st.markdown(
-            f'<div class="mode-indicator {mode_class}">'
-            f'<span class="pulse-dot"></span>{mode_label}</div>',
+            render_mode_indicator_html(
+                ui_mode, is_generating, controlled_character, characters
+            ),
             unsafe_allow_html=True,
         )
 
@@ -339,9 +696,7 @@ def render_sidebar(config: AppConfig) -> None:
         # Party panel (Story 2.4)
         st.markdown("### Party")
 
-        game: GameState = st.session_state.get("game", {})
         party_characters = get_party_characters(game)
-        controlled_character = st.session_state.get("controlled_character")
 
         if party_characters:
             for agent_key, char_config in party_characters.items():
@@ -349,6 +704,11 @@ def render_sidebar(config: AppConfig) -> None:
                 render_character_card(agent_key, char_config, is_controlled)
         else:
             st.caption("No characters loaded")
+
+        st.markdown("---")
+
+        # Session controls (Story 2.5)
+        render_session_controls()
 
         st.markdown("---")
 
@@ -363,25 +723,66 @@ def render_sidebar(config: AppConfig) -> None:
                     st.warning(warning, icon="⚠️")
 
 
+def handle_start_game_click() -> None:
+    """Handle Start Game / Next Turn button click.
+
+    Executes one game turn and triggers a rerun to update the UI.
+    """
+    if run_game_turn():
+        st.rerun()
+
+
+def render_game_controls() -> None:
+    """Render game control buttons (Start Game / Next Turn).
+
+    Displays a button to trigger game execution. Button label changes
+    based on whether the game has started, and is disabled during
+    LLM generation.
+    """
+    game: GameState = st.session_state.get("game", {})
+    label = get_start_button_label(game)
+    disabled = is_start_button_disabled()
+
+    st.markdown('<div class="game-controls">', unsafe_allow_html=True)
+
+    if st.button(label, key="start_game_btn", disabled=disabled):
+        handle_start_game_click()
+
+    # Show thinking indicator when generating
+    render_thinking_indicator()
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
 def render_main_content() -> None:
     """Render the main narrative area with session header and narrative container."""
-    # Session header placeholder (4.3)
+    # Get game state for dynamic session header
+    game: GameState = st.session_state.get("game", {})
+
+    # Session header with dynamic session number (Story 2.5)
+    session_number = game.get("session_number", 1)
+    session_info = get_session_subtitle(game)
     st.markdown(
-        '<div class="session-header">'
-        '<h1 class="session-title">Session I</h1>'
-        '<p class="session-subtitle">Game will begin when started</p>'
-        "</div>",
+        render_session_header_html(session_number, session_info),
         unsafe_allow_html=True,
     )
 
-    # Narrative container with messages (Story 2.3)
+    # Game controls (Start Game / Next Turn button) (Story 2.6)
+    render_game_controls()
+
+    # Narrative container with messages (Story 2.3, 2.6)
     st.markdown('<div class="narrative-container">', unsafe_allow_html=True)
 
     # Render messages from ground_truth_log
-    game: GameState = st.session_state.get("game", {})
     render_narrative_messages(game)
 
+    # Auto-scroll indicator for resuming after manual scroll (Story 2.6)
+    render_auto_scroll_indicator()
+
     st.markdown("</div>", unsafe_allow_html=True)
+
+    # Inject auto-scroll JavaScript when enabled (Story 2.6)
+    inject_auto_scroll_script()
 
 
 def render_viewport_warning() -> None:

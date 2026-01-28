@@ -53,13 +53,13 @@ development_status:
   epic-1-retrospective: optional
 
   # Epic 2: Streamlit Viewer Experience (6 stories)
-  epic-2: in-progress
+  epic-2: done
   2-1-streamlit-application-shell: done
   2-2-campfire-theme-css-foundation: done
   2-3-narrative-message-display: done
   2-4-party-panel-character-cards: done
-  2-5-session-header-controls: backlog
-  2-6-real-time-narrative-flow: backlog
+  2-5-session-header-controls: done
+  2-6-real-time-narrative-flow: done
   epic-2-retrospective: optional
 
   # Epic 3: Human Participation (6 stories)

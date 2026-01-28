@@ -222,6 +222,7 @@ class GameState(TypedDict):
         whisper_queue: Private messages between agents (DM-to-player hints).
         human_active: Whether a human has taken control.
         controlled_character: Name of the character the human controls, or None.
+        session_number: Current session number for display (default 1).
     """
 
     ground_truth_log: list[str]
@@ -234,6 +235,7 @@ class GameState(TypedDict):
     whisper_queue: list[str]
     human_active: bool
     controlled_character: str | None
+    session_number: int
 
 
 class MessageSegment(BaseModel):
@@ -414,6 +416,7 @@ def create_initial_game_state() -> GameState:
         whisper_queue=[],
         human_active=False,
         controlled_character=None,
+        session_number=1,
     )
 
 
@@ -463,6 +466,7 @@ def populate_game_state(include_sample_messages: bool = True) -> GameState:
         whisper_queue=[],
         human_active=False,
         controlled_character=None,
+        session_number=1,
     )
 
 

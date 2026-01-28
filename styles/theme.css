@@ -447,6 +447,92 @@ h2, h3, h4 {
   50% { opacity: 0.5; transform: scale(0.8); }
 }
 
+/* Mode indicator character colors for play mode (Story 2.5) */
+.mode-indicator.play.fighter {
+  background: rgba(196, 92, 74, 0.2);
+  color: var(--color-fighter);
+}
+.mode-indicator.play.rogue {
+  background: rgba(107, 142, 107, 0.2);
+  color: var(--color-rogue);
+}
+.mode-indicator.play.wizard {
+  background: rgba(123, 104, 184, 0.2);
+  color: var(--color-wizard);
+}
+.mode-indicator.play.cleric {
+  background: rgba(74, 144, 164, 0.2);
+  color: var(--color-cleric);
+}
+
+/* ==========================================================================
+   Session Controls (Story 2.5)
+   ========================================================================== */
+
+.session-controls {
+  margin-top: var(--space-md);
+  padding: var(--space-sm);
+}
+
+.session-controls .control-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+}
+
+.session-controls .control-label {
+  font-family: var(--font-ui);
+  font-size: var(--text-system);
+  color: var(--text-secondary);
+  min-width: 60px;
+}
+
+/* Secondary button style for session controls (per button hierarchy) */
+.control-button-secondary {
+  background: transparent;
+  border: 1px solid var(--text-secondary);
+  color: var(--text-primary);
+  border-radius: 4px;
+  padding: 6px 12px;
+  font-family: var(--font-ui);
+  font-size: var(--text-system);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.control-button-secondary:hover {
+  background: var(--bg-message);
+  border-color: var(--text-primary);
+}
+
+/* Speed dropdown styling to match theme */
+.speed-select {
+  background: var(--bg-secondary);
+  border: 1px solid var(--bg-message);
+  color: var(--text-primary);
+  border-radius: 4px;
+  padding: 6px 12px;
+  font-family: var(--font-ui);
+  font-size: var(--text-system);
+  cursor: pointer;
+}
+
+/* Sidebar session controls - secondary button styling for Pause/Resume only
+   Uses :not() to exclude character card buttons which have their own styling */
+[data-testid="stSidebar"] .stButton > button:not([data-testid*="drop_in"]) {
+  background: transparent;
+  border: 1px solid var(--text-secondary);
+  color: var(--text-primary);
+}
+
+/* Ensure session controls button doesn't override character card buttons */
+.session-controls .stButton > button {
+  background: transparent;
+  border: 1px solid var(--text-secondary);
+  color: var(--text-primary);
+}
+
 /* ==========================================================================
    Input Context Bar (Story 2.2)
    ========================================================================== */
@@ -471,15 +557,10 @@ h2, h3, h4 {
 }
 
 /* ==========================================================================
-   Narrative Container (Story 2.2)
+   Narrative Container (Story 2.2, 2.6)
    ========================================================================== */
 
-/* Narrative container */
-.narrative-container {
-  background-color: var(--bg-primary);
-  min-height: 400px;
-  padding: var(--space-md);
-}
+/* Note: .narrative-container is defined in Real-time Narrative Flow section */
 
 /* Narrative placeholder text (before game starts) */
 .narrative-placeholder {
@@ -604,4 +685,123 @@ hr {
   .app-content {
     display: none;
   }
+}
+
+/* ==========================================================================
+   Real-time Narrative Flow (Story 2.6)
+   ========================================================================== */
+
+/* Thinking indicator with 500ms delay (NFR3) */
+.thinking-indicator {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  color: var(--text-secondary);
+  font-family: var(--font-narrative);
+  font-style: italic;
+  opacity: 0;
+  animation: fade-in-delayed 0.3s ease-in 0.5s forwards;
+}
+
+@keyframes fade-in-delayed {
+  to { opacity: 1; }
+}
+
+.thinking-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-warm);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.thinking-text {
+  font-size: var(--text-pc);
+}
+
+/* Current turn highlight - subtle glow that fades (AC#3) */
+.dm-message.current-turn,
+.pc-message.current-turn {
+  animation: current-turn-highlight 3s ease-out;
+}
+
+@keyframes current-turn-highlight {
+  0% {
+    box-shadow: 0 0 15px rgba(232, 168, 73, 0.4);
+  }
+  100% {
+    box-shadow: none;
+  }
+}
+
+/* Game controls (Start Game / Next Turn button) */
+.game-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
+}
+
+/* Primary button styling for game controls */
+.game-controls .stButton > button {
+  background-color: var(--accent-warm);
+  color: var(--bg-primary);
+  border: none;
+  border-radius: 4px;
+  font-family: var(--font-ui);
+  font-weight: 500;
+  padding: var(--space-sm) var(--space-lg);
+}
+
+.game-controls .stButton > button:hover:not(:disabled) {
+  background-color: #D49A3D;
+}
+
+.game-controls .stButton > button:disabled {
+  background-color: var(--bg-message);
+  color: var(--text-secondary);
+  cursor: not-allowed;
+}
+
+/* Auto-scroll indicator (AC#2) */
+.auto-scroll-indicator {
+  position: sticky;
+  bottom: var(--space-md);
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(45, 37, 32, 0.9);
+  border: 1px solid var(--bg-message);
+  border-radius: 20px;
+  padding: var(--space-xs) var(--space-md);
+  font-family: var(--font-ui);
+  font-size: var(--text-system);
+  color: var(--text-secondary);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  z-index: 100;
+  text-align: center;
+  width: fit-content;
+  margin: 0 auto;
+}
+
+.auto-scroll-indicator.visible {
+  opacity: 1;
+}
+
+.auto-scroll-indicator:hover {
+  background: var(--bg-message);
+  color: var(--text-primary);
+}
+
+/* Narrative container scrollable (AC#4) */
+.narrative-container {
+  background-color: var(--bg-primary);
+  min-height: 400px;
+  max-height: 70vh;
+  overflow-y: auto;
+  scroll-behavior: smooth;
+  padding: var(--space-md);
+  position: relative;
 }

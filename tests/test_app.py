@@ -1354,7 +1354,9 @@ class TestStreamlitButtonCSS:
         css_content = css_path.read_text(encoding="utf-8")
 
         assert ".character-card-wrapper.controlled .stButton > button" in css_content
-        assert ".character-card-wrapper.controlled .stButton > button:hover" in css_content
+        assert (
+            ".character-card-wrapper.controlled .stButton > button:hover" in css_content
+        )
 
 
 class TestPartyPanelIntegration:
@@ -1369,7 +1371,9 @@ class TestPartyPanelIntegration:
         party = get_party_characters(state)
 
         # Should have exactly 4 PC characters
-        assert len(party) == 4, f"Expected 4 PCs, got {len(party)}: {list(party.keys())}"
+        assert len(party) == 4, (
+            f"Expected 4 PCs, got {len(party)}: {list(party.keys())}"
+        )
 
         # DM should not be in the party
         assert "dm" not in party
@@ -1444,7 +1448,923 @@ class TestPartyPanelIntegration:
             assert mock_session_state["ui_mode"] == "play"
 
 
-class TestAcceptanceCriteria:
+# =============================================================================
+# Story 2.5: Session Header & Controls Tests
+# =============================================================================
+
+
+class TestRomanNumerals:
+    """Tests for int_to_roman conversion (Story 2.5, Task 5.1)."""
+
+    def test_int_to_roman_basic_values(self) -> None:
+        """Test basic roman numeral conversion for 1-10."""
+        from app import int_to_roman
+
+        assert int_to_roman(1) == "I"
+        assert int_to_roman(2) == "II"
+        assert int_to_roman(3) == "III"
+        assert int_to_roman(4) == "IV"
+        assert int_to_roman(5) == "V"
+        assert int_to_roman(6) == "VI"
+        assert int_to_roman(7) == "VII"
+        assert int_to_roman(8) == "VIII"
+        assert int_to_roman(9) == "IX"
+        assert int_to_roman(10) == "X"
+
+    def test_int_to_roman_tens(self) -> None:
+        """Test roman numerals for tens values."""
+        from app import int_to_roman
+
+        assert int_to_roman(20) == "XX"
+        assert int_to_roman(30) == "XXX"
+        assert int_to_roman(40) == "XL"
+        assert int_to_roman(50) == "L"
+
+    def test_int_to_roman_complex_values(self) -> None:
+        """Test complex roman numeral conversions."""
+        from app import int_to_roman
+
+        assert int_to_roman(42) == "XLII"
+        assert int_to_roman(99) == "XCIX"
+        assert int_to_roman(100) == "C"
+        assert int_to_roman(500) == "D"
+        assert int_to_roman(1000) == "M"
+        assert int_to_roman(1994) == "MCMXCIV"
+        assert int_to_roman(2024) == "MMXXIV"
+        assert int_to_roman(3999) == "MMMCMXCIX"
+
+    def test_int_to_roman_edge_case_min(self) -> None:
+        """Test minimum valid value (1)."""
+        from app import int_to_roman
+
+        assert int_to_roman(1) == "I"
+
+    def test_int_to_roman_edge_case_max(self) -> None:
+        """Test maximum valid value (3999)."""
+        from app import int_to_roman
+
+        assert int_to_roman(3999) == "MMMCMXCIX"
+
+    def test_int_to_roman_invalid_zero(self) -> None:
+        """Test that zero raises ValueError."""
+        import pytest
+
+        from app import int_to_roman
+
+        with pytest.raises(ValueError, match="out of range"):
+            int_to_roman(0)
+
+    def test_int_to_roman_invalid_negative(self) -> None:
+        """Test that negative numbers raise ValueError."""
+        import pytest
+
+        from app import int_to_roman
+
+        with pytest.raises(ValueError, match="out of range"):
+            int_to_roman(-1)
+
+    def test_int_to_roman_invalid_too_large(self) -> None:
+        """Test that numbers > 3999 raise ValueError."""
+        import pytest
+
+        from app import int_to_roman
+
+        with pytest.raises(ValueError, match="out of range"):
+            int_to_roman(4000)
+
+
+class TestSessionHeader:
+    """Tests for session header rendering (Story 2.5, Task 5.2)."""
+
+    def test_render_session_header_html_structure(self) -> None:
+        """Test session header produces correct HTML structure."""
+        from app import render_session_header_html
+
+        html = render_session_header_html(7, "January 27, 2026")
+        assert 'class="session-header"' in html
+        assert 'class="session-title"' in html
+        assert 'class="session-subtitle"' in html
+        assert "Session VII" in html
+        assert "January 27, 2026" in html
+
+    def test_render_session_header_html_session_one(self) -> None:
+        """Test session header for session 1."""
+        from app import render_session_header_html
+
+        html = render_session_header_html(1, "Test subtitle")
+        assert "Session I" in html
+
+    def test_render_session_header_html_high_session(self) -> None:
+        """Test session header for high session number."""
+        from app import render_session_header_html
+
+        html = render_session_header_html(42, "Test subtitle")
+        assert "Session XLII" in html
+
+    def test_render_session_header_html_escapes_info(self) -> None:
+        """Test session header escapes subtitle text."""
+        from app import render_session_header_html
+
+        html = render_session_header_html(1, "<script>xss</script>")
+        assert "<script>" not in html
+        assert "&lt;script&gt;" in html
+
+    def test_get_session_subtitle_no_turns(self) -> None:
+        """Test session subtitle with no turns shows only date."""
+        from app import get_session_subtitle
+        from models import create_initial_game_state
+
+        state = create_initial_game_state()
+        subtitle = get_session_subtitle(state)
+        # Should contain date but not "Turn"
+        assert "Turn" not in subtitle
+        # Date format check (month name)
+        assert any(
+            month in subtitle
+            for month in [
+                "January",
+                "February",
+                "March",
+                "April",
+                "May",
+                "June",
+                "July",
+                "August",
+                "September",
+                "October",
+                "November",
+                "December",
+            ]
+        )
+
+    def test_get_session_subtitle_with_turns(self) -> None:
+        """Test session subtitle with turns shows date and turn count."""
+        from app import get_session_subtitle
+        from models import create_initial_game_state
+
+        state = create_initial_game_state()
+        state["ground_truth_log"] = [
+            "[dm] Message 1",
+            "[dm] Message 2",
+            "[dm] Message 3",
+        ]
+        subtitle = get_session_subtitle(state)
+        assert "Turn 3" in subtitle
+        assert "•" in subtitle
+
+    def test_session_number_in_game_state(self) -> None:
+        """Test that GameState includes session_number field."""
+        from models import populate_game_state
+
+        state = populate_game_state()
+        assert "session_number" in state
+        assert state["session_number"] == 1
+
+
+class TestModeIndicator:
+    """Tests for mode indicator rendering (Story 2.5, Task 5.3, 5.4)."""
+
+    def test_render_mode_indicator_watch_not_generating(self) -> None:
+        """Test watch mode without generating shows no pulse dot."""
+        from app import render_mode_indicator_html
+
+        html = render_mode_indicator_html("watch", False)
+        assert 'class="mode-indicator watch"' in html
+        assert "Watching" in html
+        assert "pulse-dot" not in html
+
+    def test_render_mode_indicator_watch_generating(self) -> None:
+        """Test watch mode with generating shows pulse dot."""
+        from app import render_mode_indicator_html
+
+        html = render_mode_indicator_html("watch", True)
+        assert 'class="mode-indicator watch"' in html
+        assert "Watching" in html
+        assert 'class="pulse-dot"' in html
+
+    def test_render_mode_indicator_play_mode(self) -> None:
+        """Test play mode shows 'Playing as' with character name."""
+        from app import render_mode_indicator_html
+        from models import CharacterConfig
+
+        characters = {
+            "fighter": CharacterConfig(
+                name="Theron",
+                character_class="Fighter",
+                personality="brave",
+                color="#C45C4A",
+            )
+        }
+        html = render_mode_indicator_html("play", False, "fighter", characters)
+        assert 'class="mode-indicator play fighter"' in html
+        assert "Playing as Theron" in html
+        assert 'class="pulse-dot"' in html
+
+    def test_render_mode_indicator_play_mode_rogue(self) -> None:
+        """Test play mode with rogue character."""
+        from app import render_mode_indicator_html
+        from models import CharacterConfig
+
+        characters = {
+            "rogue": CharacterConfig(
+                name="Shadowmere",
+                character_class="Rogue",
+                personality="sneaky",
+                color="#6B8E6B",
+            )
+        }
+        html = render_mode_indicator_html("play", False, "rogue", characters)
+        assert "play rogue" in html
+        assert "Playing as Shadowmere" in html
+
+    def test_render_mode_indicator_play_mode_wizard(self) -> None:
+        """Test play mode with wizard character."""
+        from app import render_mode_indicator_html
+        from models import CharacterConfig
+
+        characters = {
+            "wizard": CharacterConfig(
+                name="Elara",
+                character_class="Wizard",
+                personality="wise",
+                color="#7B68B8",
+            )
+        }
+        html = render_mode_indicator_html("play", False, "wizard", characters)
+        assert "play wizard" in html
+        assert "Playing as Elara" in html
+
+    def test_render_mode_indicator_play_mode_cleric(self) -> None:
+        """Test play mode with cleric character."""
+        from app import render_mode_indicator_html
+        from models import CharacterConfig
+
+        characters = {
+            "cleric": CharacterConfig(
+                name="Brother Marcus",
+                character_class="Cleric",
+                personality="devout",
+                color="#4A90A4",
+            )
+        }
+        html = render_mode_indicator_html("play", False, "cleric", characters)
+        assert "play cleric" in html
+        assert "Playing as Brother Marcus" in html
+
+    def test_render_mode_indicator_play_mode_unknown_character(self) -> None:
+        """Test play mode with unknown character shows fallback."""
+        from app import render_mode_indicator_html
+
+        html = render_mode_indicator_html("play", False, "unknown_agent", {})
+        assert "Playing as unknown_agent" in html
+
+    def test_render_mode_indicator_escapes_character_name(self) -> None:
+        """Test play mode escapes character name."""
+        from app import render_mode_indicator_html
+        from models import CharacterConfig
+
+        characters = {
+            "test": CharacterConfig(
+                name="<script>xss</script>",
+                character_class="Fighter",
+                personality="test",
+                color="#C45C4A",
+            )
+        }
+        html = render_mode_indicator_html("play", False, "test", characters)
+        assert "<script>" not in html
+        assert "&lt;script&gt;" in html
+
+
+class TestSessionControls:
+    """Tests for session controls UI (Story 2.5, Task 5.5, 5.6)."""
+
+    def test_pause_toggle_false_to_true(self) -> None:
+        """Test pause toggle from false to true."""
+        mock_session_state = {"is_paused": False}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_pause_toggle
+
+            handle_pause_toggle()
+            assert mock_session_state["is_paused"] is True
+
+    def test_pause_toggle_true_to_false(self) -> None:
+        """Test pause toggle from true to false."""
+        mock_session_state = {"is_paused": True}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_pause_toggle
+
+            handle_pause_toggle()
+            assert mock_session_state["is_paused"] is False
+
+    def test_pause_toggle_from_unset(self) -> None:
+        """Test pause toggle when is_paused is not set."""
+        mock_session_state: dict = {}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_pause_toggle
+
+            handle_pause_toggle()
+            assert mock_session_state["is_paused"] is True
+
+    def test_initialize_session_state_sets_is_generating(self) -> None:
+        """Test that initialize_session_state sets is_generating to False."""
+        mock_session_state: dict = {}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import initialize_session_state
+
+            initialize_session_state()
+            assert mock_session_state["is_generating"] is False
+
+    def test_initialize_session_state_sets_is_paused(self) -> None:
+        """Test that initialize_session_state sets is_paused to False."""
+        mock_session_state: dict = {}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import initialize_session_state
+
+            initialize_session_state()
+            assert mock_session_state["is_paused"] is False
+
+    def test_initialize_session_state_sets_playback_speed(self) -> None:
+        """Test that initialize_session_state sets playback_speed to 'normal'."""
+        mock_session_state: dict = {}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import initialize_session_state
+
+            initialize_session_state()
+            assert mock_session_state["playback_speed"] == "normal"
+
+
+class TestSessionControlsCSS:
+    """Tests for session controls CSS styling (Story 2.5, Task 4)."""
+
+    def test_css_has_session_controls_class(self) -> None:
+        """Test CSS includes .session-controls class."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        assert ".session-controls" in css_content
+
+    def test_css_has_control_button_secondary(self) -> None:
+        """Test CSS includes .control-button-secondary class."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        assert ".control-button-secondary" in css_content
+
+    def test_css_has_speed_select(self) -> None:
+        """Test CSS includes .speed-select class."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        assert ".speed-select" in css_content
+
+    def test_css_has_mode_indicator_play_fighter(self) -> None:
+        """Test CSS includes .mode-indicator.play.fighter."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        assert ".mode-indicator.play.fighter" in css_content
+
+    def test_css_has_mode_indicator_play_rogue(self) -> None:
+        """Test CSS includes .mode-indicator.play.rogue."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        assert ".mode-indicator.play.rogue" in css_content
+
+    def test_css_has_mode_indicator_play_wizard(self) -> None:
+        """Test CSS includes .mode-indicator.play.wizard."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        assert ".mode-indicator.play.wizard" in css_content
+
+    def test_css_has_mode_indicator_play_cleric(self) -> None:
+        """Test CSS includes .mode-indicator.play.cleric."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        assert ".mode-indicator.play.cleric" in css_content
+
+
+# =============================================================================
+# Story 2.6: Real-time Narrative Flow Tests
+# =============================================================================
+
+
+class TestThinkingIndicator:
+    """Tests for thinking indicator display (Story 2.6, Task 4)."""
+
+    def test_render_thinking_indicator_html_when_generating(self) -> None:
+        """Test thinking indicator HTML is generated when is_generating=True."""
+        from app import render_thinking_indicator_html
+
+        html = render_thinking_indicator_html(is_generating=True, is_paused=False)
+        assert 'class="thinking-indicator"' in html
+        assert 'class="thinking-dot"' in html
+        assert 'class="thinking-text"' in html
+        assert "The story unfolds..." in html
+
+    def test_render_thinking_indicator_html_not_generating(self) -> None:
+        """Test thinking indicator returns empty string when not generating."""
+        from app import render_thinking_indicator_html
+
+        html = render_thinking_indicator_html(is_generating=False, is_paused=False)
+        assert html == ""
+
+    def test_render_thinking_indicator_html_when_paused(self) -> None:
+        """Test thinking indicator returns empty string when paused."""
+        from app import render_thinking_indicator_html
+
+        html = render_thinking_indicator_html(is_generating=True, is_paused=True)
+        assert html == ""
+
+    def test_render_thinking_indicator_html_structure(self) -> None:
+        """Test thinking indicator has correct div wrapper structure."""
+        from app import render_thinking_indicator_html
+
+        html = render_thinking_indicator_html(is_generating=True, is_paused=False)
+        assert html.startswith('<div class="thinking-indicator">')
+        assert html.endswith("</div>")
+
+
+class TestGameExecution:
+    """Tests for game turn execution (Story 2.6, Task 1)."""
+
+    def test_speed_delays_constants(self) -> None:
+        """Test speed delay constants are defined correctly."""
+        from app import SPEED_DELAYS
+
+        assert SPEED_DELAYS["slow"] == 3.0
+        assert SPEED_DELAYS["normal"] == 1.0
+        assert SPEED_DELAYS["fast"] == 0.2
+
+    def test_get_turn_delay_normal(self) -> None:
+        """Test get_turn_delay returns 1.0 for normal speed."""
+        mock_session_state = {"playback_speed": "normal"}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import get_turn_delay
+
+            delay = get_turn_delay()
+            assert delay == 1.0
+
+    def test_get_turn_delay_slow(self) -> None:
+        """Test get_turn_delay returns 3.0 for slow speed."""
+        mock_session_state = {"playback_speed": "slow"}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import get_turn_delay
+
+            delay = get_turn_delay()
+            assert delay == 3.0
+
+    def test_get_turn_delay_fast(self) -> None:
+        """Test get_turn_delay returns 0.2 for fast speed."""
+        mock_session_state = {"playback_speed": "fast"}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import get_turn_delay
+
+            delay = get_turn_delay()
+            assert delay == 0.2
+
+    def test_get_turn_delay_default(self) -> None:
+        """Test get_turn_delay returns 1.0 when playback_speed not set."""
+        mock_session_state: dict = {}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import get_turn_delay
+
+            delay = get_turn_delay()
+            assert delay == 1.0
+
+    def test_run_game_turn_checks_pause(self) -> None:
+        """Test run_game_turn returns early when paused."""
+        from models import populate_game_state
+
+        game = populate_game_state(include_sample_messages=False)
+        mock_session_state = {
+            "game": game,
+            "is_paused": True,
+            "is_generating": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import run_game_turn
+
+            # Should return False (no turn executed) when paused
+            result = run_game_turn()
+            assert result is False
+
+    def test_run_game_turn_sets_generating_flag(self) -> None:
+        """Test run_game_turn sets is_generating flag during execution."""
+        from models import populate_game_state
+
+        game = populate_game_state(include_sample_messages=False)
+        mock_session_state = {
+            "game": game,
+            "is_paused": False,
+            "is_generating": False,
+        }
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("app.run_single_round") as mock_run,
+        ):
+            mock_run.return_value = game
+            from app import run_game_turn
+
+            run_game_turn()
+            # After execution, is_generating should be False
+            assert mock_session_state["is_generating"] is False
+
+
+class TestAutoScroll:
+    """Tests for auto-scroll behavior (Story 2.6, Task 2)."""
+
+    def test_initialize_session_state_sets_auto_scroll(self) -> None:
+        """Test that initialize_session_state sets auto_scroll_enabled to True."""
+        mock_session_state: dict = {}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import initialize_session_state
+
+            initialize_session_state()
+            assert mock_session_state["auto_scroll_enabled"] is True
+
+    def test_render_auto_scroll_indicator_html_when_disabled(self) -> None:
+        """Test auto-scroll indicator HTML is generated when auto_scroll disabled."""
+        from app import render_auto_scroll_indicator_html
+
+        html = render_auto_scroll_indicator_html(auto_scroll_enabled=False)
+        assert 'class="auto-scroll-indicator visible"' in html
+        assert "Resume auto-scroll" in html
+
+    def test_render_auto_scroll_indicator_html_when_enabled(self) -> None:
+        """Test auto-scroll indicator returns empty string when enabled."""
+        from app import render_auto_scroll_indicator_html
+
+        html = render_auto_scroll_indicator_html(auto_scroll_enabled=True)
+        assert html == ""
+
+    def test_handle_resume_auto_scroll_click(self) -> None:
+        """Test clicking resume re-enables auto-scroll."""
+        mock_session_state = {"auto_scroll_enabled": False}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_resume_auto_scroll_click
+
+            handle_resume_auto_scroll_click()
+            assert mock_session_state["auto_scroll_enabled"] is True
+
+    def test_handle_pause_auto_scroll_click(self) -> None:
+        """Test pausing auto-scroll sets flag to False."""
+        mock_session_state = {"auto_scroll_enabled": True}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_pause_auto_scroll_click
+
+            handle_pause_auto_scroll_click()
+            assert mock_session_state["auto_scroll_enabled"] is False
+
+
+class TestAutoScrollCSS:
+    """Tests for auto-scroll indicator CSS styling (Story 2.6, Task 2.5)."""
+
+    def test_css_has_auto_scroll_indicator_class(self) -> None:
+        """Test CSS includes .auto-scroll-indicator class."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        assert ".auto-scroll-indicator" in css_content
+
+    def test_css_has_auto_scroll_visible_class(self) -> None:
+        """Test CSS includes .auto-scroll-indicator.visible class."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        assert ".auto-scroll-indicator.visible" in css_content
+
+    def test_css_has_narrative_container_scrollable(self) -> None:
+        """Test CSS makes narrative container scrollable."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        # Check for overflow-y: auto or scroll
+        assert "overflow-y:" in css_content
+
+
+class TestAutoScrollScript:
+    """Tests for auto-scroll JavaScript injection (Story 2.6, Task 2.1)."""
+
+    def test_get_auto_scroll_script_contains_javascript(self) -> None:
+        """Test that get_auto_scroll_script returns valid JavaScript."""
+        from app import get_auto_scroll_script
+
+        script = get_auto_scroll_script()
+        assert "<script>" in script
+        assert "</script>" in script
+        assert "narrative-container" in script
+        assert "scrollTop" in script
+        assert "scrollHeight" in script
+
+    def test_get_auto_scroll_script_uses_parent_document(self) -> None:
+        """Test that script accesses parent document for iframe compatibility."""
+        from app import get_auto_scroll_script
+
+        script = get_auto_scroll_script()
+        # st.components.v1.html runs in iframe, so must use parent.document
+        assert "parent.document" in script
+
+
+class TestGameButtons:
+    """Tests for Start Game and Next Turn buttons (Story 2.6, Task 5)."""
+
+    def test_get_start_button_label_no_messages(self) -> None:
+        """Test button shows 'Start Game' when no messages exist."""
+        from app import get_start_button_label
+        from models import create_initial_game_state
+
+        game = create_initial_game_state()
+        label = get_start_button_label(game)
+        assert label == "Start Game"
+
+    def test_get_start_button_label_with_messages(self) -> None:
+        """Test button shows 'Next Turn' when messages exist."""
+        from app import get_start_button_label
+        from models import create_initial_game_state
+
+        game = create_initial_game_state()
+        game["ground_truth_log"] = ["[dm] Some message"]
+        label = get_start_button_label(game)
+        assert label == "Next Turn"
+
+    def test_is_start_button_disabled_when_generating(self) -> None:
+        """Test button is disabled when is_generating=True."""
+        from app import is_start_button_disabled
+
+        mock_session_state = {"is_generating": True}
+        with patch("streamlit.session_state", mock_session_state):
+            result = is_start_button_disabled()
+            assert result is True
+
+    def test_is_start_button_enabled_when_not_generating(self) -> None:
+        """Test button is enabled when is_generating=False."""
+        from app import is_start_button_disabled
+
+        mock_session_state = {"is_generating": False}
+        with patch("streamlit.session_state", mock_session_state):
+            result = is_start_button_disabled()
+            assert result is False
+
+
+class TestCurrentTurnHighlight:
+    """Tests for current turn highlighting (Story 2.6, Task 3)."""
+
+    def test_render_dm_message_html_current_turn(self) -> None:
+        """Test DM message with current-turn class."""
+        from app import render_dm_message_html
+
+        html = render_dm_message_html("The tavern is quiet.", is_current=True)
+        assert 'class="dm-message current-turn"' in html
+
+    def test_render_dm_message_html_not_current(self) -> None:
+        """Test DM message without current-turn class (default)."""
+        from app import render_dm_message_html
+
+        html = render_dm_message_html("The tavern is quiet.")
+        assert 'class="dm-message"' in html
+        assert "current-turn" not in html
+
+    def test_render_pc_message_html_current_turn(self) -> None:
+        """Test PC message with current-turn class."""
+        from app import render_pc_message_html
+
+        html = render_pc_message_html("Theron", "Fighter", "I attack!", is_current=True)
+        assert 'class="pc-message fighter current-turn"' in html
+
+    def test_render_pc_message_html_not_current(self) -> None:
+        """Test PC message without current-turn class (default)."""
+        from app import render_pc_message_html
+
+        html = render_pc_message_html("Theron", "Fighter", "I attack!")
+        assert 'class="pc-message fighter"' in html
+        assert "current-turn" not in html
+
+    def test_narrative_messages_last_message_has_current_turn(self) -> None:
+        """Test that render_narrative_messages applies current-turn to last message."""
+        from app import render_narrative_messages
+        from models import populate_game_state
+
+        state = populate_game_state(include_sample_messages=False)
+        state["ground_truth_log"] = [
+            "[dm] First message",
+            "[dm] Second message",
+            "[dm] Last message",
+        ]
+
+        with patch("streamlit.markdown") as mock_markdown:
+            render_narrative_messages(state)
+            calls = mock_markdown.call_args_list
+
+            # Check that only the last call has current-turn
+            assert len(calls) == 3
+            assert "current-turn" not in str(calls[0])
+            assert "current-turn" not in str(calls[1])
+            assert "current-turn" in str(calls[2])
+
+
+class TestCurrentTurnHighlightCSS:
+    """Tests for current turn highlight CSS styling (Story 2.6, Task 3.2, 3.4)."""
+
+    def test_css_has_current_turn_dm_class(self) -> None:
+        """Test CSS includes .dm-message.current-turn class."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        assert ".dm-message.current-turn" in css_content
+
+    def test_css_has_current_turn_pc_class(self) -> None:
+        """Test CSS includes .pc-message.current-turn class."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        assert ".pc-message.current-turn" in css_content
+
+    def test_css_has_current_turn_highlight_animation(self) -> None:
+        """Test CSS includes @keyframes current-turn-highlight animation."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        assert "@keyframes current-turn-highlight" in css_content
+
+    def test_css_current_turn_animation_duration_3s(self) -> None:
+        """Test current turn highlight animation is ~3s for fade-out."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        # Should have 3s duration for the fade-out effect
+        assert "current-turn-highlight 3s" in css_content
+
+
+class TestThinkingIndicatorCSS:
+    """Tests for thinking indicator CSS styling (Story 2.6, Task 4.2, 4.4)."""
+
+    def test_css_has_thinking_indicator_class(self) -> None:
+        """Test CSS includes .thinking-indicator class."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        assert ".thinking-indicator" in css_content
+
+    def test_css_has_thinking_dot_class(self) -> None:
+        """Test CSS includes .thinking-dot class."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        assert ".thinking-dot" in css_content
+
+    def test_css_has_fade_in_delayed_animation(self) -> None:
+        """Test CSS includes @keyframes fade-in-delayed for 500ms delay."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        assert "@keyframes fade-in-delayed" in css_content
+
+    def test_css_thinking_indicator_has_500ms_delay(self) -> None:
+        """Test CSS thinking indicator has 500ms (0.5s) animation delay."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        # The animation should have a 0.5s delay (fade-in-delayed 0.3s ease-in 0.5s forwards)
+        assert "0.5s forwards" in css_content
+
+
+class TestStory26AcceptanceCriteria:
+    """Integration tests validating acceptance criteria (Story 2.6)."""
+
+    def test_ac1_new_message_appears_immediately(self) -> None:
+        """AC#1: New message appears immediately when generated."""
+        from app import run_game_turn
+        from models import populate_game_state
+
+        game = populate_game_state(include_sample_messages=False)
+        initial_len = len(game["ground_truth_log"])
+
+        mock_session_state = {
+            "game": game,
+            "is_paused": False,
+            "is_generating": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            with patch("app.run_single_round") as mock_run:
+                # Simulate adding a message
+                updated_game = game.copy()
+                updated_game["ground_truth_log"] = game["ground_truth_log"] + [
+                    "[dm] New message"
+                ]
+                mock_run.return_value = updated_game
+
+                result = run_game_turn()
+
+                assert result is True
+                assert (
+                    len(mock_session_state["game"]["ground_truth_log"]) > initial_len
+                )
+
+    def test_ac2_auto_scroll_pause_on_manual_scroll(self) -> None:
+        """AC#2: Auto-scroll pauses when user scrolls up, resume indicator appears."""
+        from app import (
+            handle_pause_auto_scroll_click,
+            render_auto_scroll_indicator_html,
+        )
+
+        mock_session_state = {"auto_scroll_enabled": True}
+
+        with patch("streamlit.session_state", mock_session_state):
+            # User scrolls up
+            handle_pause_auto_scroll_click()
+            assert mock_session_state["auto_scroll_enabled"] is False
+
+        # Indicator should now be visible
+        html = render_auto_scroll_indicator_html(auto_scroll_enabled=False)
+        assert "Resume auto-scroll" in html
+        assert 'class="auto-scroll-indicator visible"' in html
+
+    def test_ac3_current_turn_highlighted(self) -> None:
+        """AC#3: Most recent message has subtle highlight indicator."""
+        from app import render_dm_message_html, render_pc_message_html
+
+        # DM message with current turn
+        dm_html = render_dm_message_html("DM narration", is_current=True)
+        assert "current-turn" in dm_html
+
+        # PC message with current turn
+        pc_html = render_pc_message_html("Theron", "Fighter", "Action", is_current=True)
+        assert "current-turn" in pc_html
+
+    def test_ac4_full_transcript_scrollable(self) -> None:
+        """AC#4: Session history is scrollable for reading full transcript."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        # Narrative container should be scrollable
+        assert ".narrative-container" in css_content
+        assert "overflow-y:" in css_content
+        assert "max-height:" in css_content
+
+    def test_ac5_thinking_indicator_500ms_delay(self) -> None:
+        """AC#5: Thinking indicator appears after 500ms delay when generating."""
+        from app import render_thinking_indicator_html
+
+        # When generating and not paused
+        html = render_thinking_indicator_html(is_generating=True, is_paused=False)
+        assert 'class="thinking-indicator"' in html
+        assert "The story unfolds..." in html
+
+        # CSS should have 500ms delay
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+        assert "0.5s forwards" in css_content  # 0.5s delay
+
+        # When not generating, no indicator
+        html = render_thinking_indicator_html(is_generating=False, is_paused=False)
+        assert html == ""
+
+    def test_pause_prevents_turn_execution(self) -> None:
+        """Test pause state prevents game turn execution (related to AC#2)."""
+        from app import run_game_turn
+        from models import populate_game_state
+
+        game = populate_game_state(include_sample_messages=False)
+        mock_session_state = {
+            "game": game,
+            "is_paused": True,
+            "is_generating": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            result = run_game_turn()
+            assert result is False  # Turn not executed
+
+    def test_speed_control_values(self) -> None:
+        """Test speed control delay values are correctly defined."""
+        from app import SPEED_DELAYS
+
+        assert SPEED_DELAYS["slow"] == 3.0
+        assert SPEED_DELAYS["normal"] == 1.0
+        assert SPEED_DELAYS["fast"] == 0.2
+
+
+class TestStory23AcceptanceCriteria:
     """Integration tests validating all acceptance criteria (Story 2.3)."""
 
     def test_ac1_dm_narration_styling(self) -> None:
