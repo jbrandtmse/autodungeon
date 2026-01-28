@@ -63,13 +63,13 @@ development_status:
   epic-2-retrospective: optional
 
   # Epic 3: Human Participation (6 stories)
-  epic-3: in-progress
+  epic-3: done
   3-1-watch-mode-autopilot: done
   3-2-drop-in-mode: done
   3-3-release-control-character-switching: done
   3-4-nudge-system: done
   3-5-pause-resume-speed-control: done
-  3-6-keyboard-shortcuts: review
+  3-6-keyboard-shortcuts: done
   epic-3-retrospective: optional
 
   # Epic 4: Session Persistence & Recovery (5 stories)
