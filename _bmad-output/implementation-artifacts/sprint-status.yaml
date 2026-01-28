@@ -73,12 +73,12 @@ development_status:
   epic-3-retrospective: optional
 
   # Epic 4: Session Persistence & Recovery (5 stories)
-  epic-4: in-progress
+  epic-4: done
   4-1-auto-checkpoint-system: done
   4-2-checkpoint-browser-restore: done
   4-3-campaign-organization-multi-session-continuity: done
   4-4-transcript-export: done
-  4-5-error-handling-recovery: review
+  4-5-error-handling-recovery: done
   epic-4-retrospective: optional
 
   # Epic 5: Memory & Narrative Continuity (5 stories)
