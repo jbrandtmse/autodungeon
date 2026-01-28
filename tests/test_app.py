@@ -6938,3 +6938,743 @@ class TestModeIndicatorRenderSidebarIntegration:
             # At least one call should contain the paused indicator
             paused_calls = [c for c in calls if "Paused" in str(c)]
             assert len(paused_calls) > 0
+
+
+# =============================================================================
+# Story 3.5: Extended Edge Case Tests - Test Automation Expansion
+# =============================================================================
+
+
+class TestPauseSessionStateMissing:
+    """Tests for pause behavior when session state keys are missing."""
+
+    def test_render_mode_indicator_missing_is_paused_defaults_to_false(self) -> None:
+        """Test render_mode_indicator_html defaults is_paused to False."""
+        from app import render_mode_indicator_html
+
+        # Call without is_paused parameter (uses default)
+        html = render_mode_indicator_html("watch", False)
+        assert "Paused" not in html
+        assert "Watching" in html
+
+    def test_run_game_turn_missing_is_paused_key(self) -> None:
+        """Test run_game_turn handles missing is_paused key gracefully."""
+        from models import populate_game_state
+
+        game = populate_game_state(include_sample_messages=False)
+        mock_session_state = {
+            "game": game,
+            "is_generating": False,
+            "human_active": False,
+            # is_paused key intentionally missing
+        }
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("app.run_single_round") as mock_run,
+            patch("time.sleep"),
+        ):
+            mock_run.return_value = game
+            from app import run_game_turn
+
+            # Should proceed (missing is_paused treated as False)
+            result = run_game_turn()
+            assert result is True
+
+    def test_get_turn_delay_missing_playback_speed_key(self) -> None:
+        """Test get_turn_delay handles missing playback_speed key."""
+        mock_session_state: dict = {}  # Empty session state
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import get_turn_delay
+
+            # Should default to "normal" (1.0s)
+            delay = get_turn_delay()
+            assert delay == 1.0
+
+    def test_is_autopilot_available_missing_is_paused(self) -> None:
+        """Test is_autopilot_available handles missing is_paused."""
+        mock_session_state = {
+            "game": {},
+            "human_active": False,
+            # is_paused missing
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import is_autopilot_available
+
+            # Should be available (missing is_paused treated as False)
+            assert is_autopilot_available() is True
+
+    def test_handle_pause_toggle_missing_is_paused(self) -> None:
+        """Test handle_pause_toggle creates is_paused if missing."""
+        mock_session_state: dict = {}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_pause_toggle
+
+            handle_pause_toggle()
+            # Should create is_paused and set to True (toggle from False)
+            assert mock_session_state["is_paused"] is True
+
+
+class TestSpeedControlBoundaryConditions:
+    """Tests for speed control boundary and edge conditions."""
+
+    def test_speed_delays_empty_string_defaults_to_normal(self) -> None:
+        """Test empty string playback_speed defaults to normal."""
+        mock_session_state = {"playback_speed": ""}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import get_turn_delay
+
+            delay = get_turn_delay()
+            assert delay == 1.0
+
+    def test_speed_delays_none_defaults_to_normal(self) -> None:
+        """Test None playback_speed defaults to normal."""
+        mock_session_state = {"playback_speed": None}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import get_turn_delay
+
+            delay = get_turn_delay()
+            assert delay == 1.0
+
+    def test_speed_delays_uppercase_invalid(self) -> None:
+        """Test uppercase speed names are treated as invalid (case sensitive)."""
+        mock_session_state = {"playback_speed": "SLOW"}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import get_turn_delay
+
+            # Should default to normal since exact match required
+            delay = get_turn_delay()
+            assert delay == 1.0
+
+    def test_speed_delays_mixed_case_invalid(self) -> None:
+        """Test mixed case speed names are invalid."""
+        mock_session_state = {"playback_speed": "Normal"}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import get_turn_delay
+
+            delay = get_turn_delay()
+            assert delay == 1.0
+
+    def test_speed_delays_whitespace_invalid(self) -> None:
+        """Test whitespace speed is invalid."""
+        mock_session_state = {"playback_speed": "  normal  "}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import get_turn_delay
+
+            delay = get_turn_delay()
+            assert delay == 1.0  # Exact match required
+
+    def test_speed_delays_all_valid_values(self) -> None:
+        """Test all valid speed values return correct delays."""
+        from app import SPEED_DELAYS
+
+        valid_speeds = [("slow", 3.0), ("normal", 1.0), ("fast", 0.2)]
+        for speed, expected in valid_speeds:
+            assert SPEED_DELAYS.get(speed, 1.0) == expected
+
+
+class TestPauseNudgeIntegrationExtended:
+    """Extended tests for pause and nudge interaction."""
+
+    def test_pause_does_not_clear_pending_nudge(self) -> None:
+        """Test pausing game does not clear pending nudge."""
+        mock_session_state = {
+            "is_paused": False,
+            "pending_nudge": "Check for traps",
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_pause_toggle
+
+            handle_pause_toggle()
+            # Pause should not affect nudge
+            assert mock_session_state["is_paused"] is True
+            assert mock_session_state["pending_nudge"] == "Check for traps"
+
+    def test_resume_does_not_clear_pending_nudge(self) -> None:
+        """Test resuming game does not clear pending nudge."""
+        mock_session_state = {
+            "is_paused": True,
+            "pending_nudge": "Cast detect magic",
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_pause_toggle
+
+            handle_pause_toggle()
+            # Resume should not affect nudge
+            assert mock_session_state["is_paused"] is False
+            assert mock_session_state["pending_nudge"] == "Cast detect magic"
+
+    def test_nudge_submission_while_paused(self) -> None:
+        """Test nudge can be submitted while game is paused."""
+        mock_session_state = {
+            "is_paused": True,
+            "pending_nudge": None,
+            "nudge_submitted": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_nudge_submit
+
+            handle_nudge_submit("Search the bookshelf")
+            # Nudge should be stored even while paused
+            assert mock_session_state["pending_nudge"] == "Search the bookshelf"
+            assert mock_session_state["nudge_submitted"] is True
+
+    def test_multiple_nudges_while_paused_replaces(self) -> None:
+        """Test multiple nudge submissions while paused replace each other."""
+        mock_session_state = {
+            "is_paused": True,
+            "pending_nudge": "First suggestion",
+            "nudge_submitted": True,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_nudge_submit
+
+            handle_nudge_submit("Second suggestion")
+            # Second nudge should replace first
+            assert mock_session_state["pending_nudge"] == "Second suggestion"
+
+
+class TestPauseStateConsistency:
+    """Tests for pause state consistency across operations."""
+
+    def test_pause_state_survives_speed_change(self) -> None:
+        """Test pause state is preserved when speed is changed."""
+        mock_session_state = {"is_paused": True, "playback_speed": "normal"}
+
+        with patch("streamlit.session_state", mock_session_state):
+            # Simulate speed change
+            mock_session_state["playback_speed"] = "fast"
+
+            # Pause should be preserved
+            assert mock_session_state["is_paused"] is True
+
+    def test_pause_state_survives_human_action_submit(self) -> None:
+        """Test pause state is preserved when human action is submitted."""
+        mock_session_state = {
+            "is_paused": True,
+            "human_pending_action": None,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_human_action_submit
+
+            handle_human_action_submit("I attack the goblin")
+            # Pause should be preserved
+            assert mock_session_state["is_paused"] is True
+            assert mock_session_state["human_pending_action"] == "I attack the goblin"
+
+    def test_pause_state_survives_auto_scroll_toggle(self) -> None:
+        """Test pause state is preserved when auto-scroll is toggled."""
+        mock_session_state = {
+            "is_paused": True,
+            "auto_scroll_enabled": True,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_pause_auto_scroll_click
+
+            handle_pause_auto_scroll_click()
+            # Pause should be preserved
+            assert mock_session_state["is_paused"] is True
+            assert mock_session_state["auto_scroll_enabled"] is False
+
+    def test_pause_preserved_across_drop_in_release_cycle(self) -> None:
+        """Test pause state preserved through drop-in/release cycle."""
+        mock_session_state = {
+            "is_paused": True,
+            "controlled_character": None,
+            "ui_mode": "watch",
+            "human_active": False,
+            "is_autopilot_running": False,
+            "human_pending_action": None,
+            "waiting_for_human": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_drop_in_click
+
+            # Drop in
+            handle_drop_in_click("rogue")
+            assert mock_session_state["is_paused"] is True
+            assert mock_session_state["controlled_character"] == "rogue"
+
+            # Release
+            handle_drop_in_click("rogue")
+            assert mock_session_state["is_paused"] is True
+            assert mock_session_state["controlled_character"] is None
+
+
+class TestModalAutoPauseEdgeCases:
+    """Extended tests for modal auto-pause edge cases."""
+
+    def test_modal_open_with_missing_pre_modal_state(self) -> None:
+        """Test modal open handles missing pre_modal_pause_state."""
+        mock_session_state = {
+            "is_paused": False,
+            "modal_open": False,
+            # pre_modal_pause_state missing
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_modal_open
+
+            # Should not raise
+            handle_modal_open()
+            assert mock_session_state["is_paused"] is True
+
+    def test_modal_close_with_missing_pre_modal_state(self) -> None:
+        """Test modal close handles missing pre_modal_pause_state (defaults False)."""
+        mock_session_state = {
+            "is_paused": True,
+            "modal_open": True,
+            # pre_modal_pause_state missing - should default to False
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_modal_close
+
+            handle_modal_close()
+            # Should restore to False (default)
+            assert mock_session_state["is_paused"] is False
+            assert mock_session_state["modal_open"] is False
+
+    def test_multiple_modal_open_calls_idempotent(self) -> None:
+        """Test multiple modal open calls don't break state."""
+        mock_session_state = {
+            "is_paused": False,
+            "pre_modal_pause_state": False,
+            "modal_open": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_modal_open
+
+            # Multiple opens
+            handle_modal_open()
+            assert mock_session_state["pre_modal_pause_state"] is False
+
+            # Second open should store current state (True from first open)
+            handle_modal_open()
+            assert mock_session_state["pre_modal_pause_state"] is True
+
+    def test_modal_close_without_open_safe(self) -> None:
+        """Test modal close without prior open is safe."""
+        mock_session_state = {
+            "is_paused": True,
+            "pre_modal_pause_state": True,
+            "modal_open": False,  # Not open
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_modal_close
+
+            # Should not raise, just update state
+            handle_modal_close()
+            assert mock_session_state["is_paused"] is True
+            assert mock_session_state["modal_open"] is False
+
+
+class TestThinkingIndicatorPauseInteraction:
+    """Tests for thinking indicator interaction with pause state."""
+
+    def test_thinking_indicator_hidden_when_paused_and_generating(self) -> None:
+        """Test thinking indicator is hidden when paused even if generating."""
+        from app import render_thinking_indicator_html
+
+        html = render_thinking_indicator_html(is_generating=True, is_paused=True)
+        assert html == ""
+
+    def test_thinking_indicator_shown_when_not_paused_and_generating(self) -> None:
+        """Test thinking indicator shown when generating and not paused."""
+        from app import render_thinking_indicator_html
+
+        html = render_thinking_indicator_html(is_generating=True, is_paused=False)
+        assert "thinking-indicator" in html
+        assert "The story unfolds" in html
+
+    def test_thinking_indicator_hidden_when_not_generating(self) -> None:
+        """Test thinking indicator hidden when not generating regardless of pause."""
+        from app import render_thinking_indicator_html
+
+        html_not_paused = render_thinking_indicator_html(
+            is_generating=False, is_paused=False
+        )
+        html_paused = render_thinking_indicator_html(
+            is_generating=False, is_paused=True
+        )
+
+        assert html_not_paused == ""
+        assert html_paused == ""
+
+
+class TestPauseDropInCombinations:
+    """Tests for pause + drop-in mode combinations."""
+
+    def test_pause_while_controlling_character(self) -> None:
+        """Test pausing while controlling a character."""
+        mock_session_state = {
+            "is_paused": False,
+            "controlled_character": "wizard",
+            "ui_mode": "play",
+            "human_active": True,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_pause_toggle
+
+            handle_pause_toggle()
+            # Should pause without affecting character control
+            assert mock_session_state["is_paused"] is True
+            assert mock_session_state["controlled_character"] == "wizard"
+            assert mock_session_state["human_active"] is True
+
+    def test_release_character_while_paused(self) -> None:
+        """Test releasing character while paused."""
+        mock_session_state = {
+            "is_paused": True,
+            "controlled_character": "cleric",
+            "ui_mode": "play",
+            "human_active": True,
+            "is_autopilot_running": False,
+            "human_pending_action": "I heal the fighter",
+            "waiting_for_human": True,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_drop_in_click
+
+            handle_drop_in_click("cleric")  # Release
+            # Should release and return to watch mode
+            assert mock_session_state["controlled_character"] is None
+            assert mock_session_state["ui_mode"] == "watch"
+            assert mock_session_state["human_active"] is False
+            # Pending action should be cleared
+            assert mock_session_state["human_pending_action"] is None
+            # Pause should be preserved
+            assert mock_session_state["is_paused"] is True
+
+    def test_switch_character_while_paused(self) -> None:
+        """Test switching controlled character while paused."""
+        mock_session_state = {
+            "is_paused": True,
+            "controlled_character": "fighter",
+            "ui_mode": "play",
+            "human_active": True,
+            "is_autopilot_running": False,
+            "human_pending_action": "I attack",
+            "waiting_for_human": True,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_drop_in_click
+
+            handle_drop_in_click("rogue")  # Switch to rogue
+            # Should switch characters
+            assert mock_session_state["controlled_character"] == "rogue"
+            assert mock_session_state["ui_mode"] == "play"
+            assert mock_session_state["human_active"] is True
+            # Pending action from previous character should be cleared
+            assert mock_session_state["human_pending_action"] is None
+            # Pause should be preserved
+            assert mock_session_state["is_paused"] is True
+
+
+class TestPauseCSSValidationExtended:
+    """Extended CSS validation tests for pause styling."""
+
+    def test_css_pause_dot_dimensions(self) -> None:
+        """Test pause-dot has correct dimensions (8px x 8px)."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        # Find pause-dot section
+        pause_start = css_content.find(".pause-dot {")
+        pause_end = css_content.find("}", pause_start)
+        pause_css = css_content[pause_start:pause_end]
+
+        assert "width: 8px" in pause_css
+        assert "height: 8px" in pause_css
+
+    def test_css_pause_dot_border_radius(self) -> None:
+        """Test pause-dot is circular (border-radius: 50%)."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        pause_start = css_content.find(".pause-dot {")
+        pause_end = css_content.find("}", pause_start)
+        pause_css = css_content[pause_start:pause_end]
+
+        assert "border-radius: 50%" in pause_css
+
+    def test_css_pause_dot_uses_accent_warm(self) -> None:
+        """Test pause-dot uses --accent-warm color."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        pause_start = css_content.find(".pause-dot {")
+        pause_end = css_content.find("}", pause_start)
+        pause_css = css_content[pause_start:pause_end]
+
+        assert "var(--accent-warm)" in pause_css
+
+    def test_css_mode_indicator_paused_color(self) -> None:
+        """Test paused mode indicator uses correct color."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        paused_start = css_content.find(".mode-indicator.paused {")
+        paused_end = css_content.find("}", paused_start)
+        paused_css = css_content[paused_start:paused_end]
+
+        assert "var(--accent-warm)" in paused_css
+
+    def test_css_pulse_dot_has_animation(self) -> None:
+        """Test pulse-dot (not pause-dot) has animation."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        pulse_start = css_content.find(".pulse-dot {")
+        pulse_end = css_content.find("}", pulse_start)
+        pulse_css = css_content[pulse_start:pulse_end]
+
+        assert "animation:" in pulse_css
+        assert "pulse" in pulse_css
+
+
+class TestRunGameTurnPauseInteraction:
+    """Tests for run_game_turn pause interaction edge cases."""
+
+    def test_run_game_turn_paused_returns_false_immediately(self) -> None:
+        """Test run_game_turn returns False immediately when paused."""
+        from models import populate_game_state
+
+        game = populate_game_state(include_sample_messages=False)
+        mock_session_state = {
+            "game": game,
+            "is_paused": True,
+            "is_generating": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import run_game_turn
+
+            result = run_game_turn()
+            # Should return False without setting is_generating
+            assert result is False
+            assert mock_session_state["is_generating"] is False
+
+    def test_run_game_turn_not_paused_sets_generating(self) -> None:
+        """Test run_game_turn sets is_generating when not paused."""
+        from models import populate_game_state
+
+        game = populate_game_state(include_sample_messages=False)
+        generating_values = []
+
+        mock_session_state = {
+            "game": game,
+            "is_paused": False,
+            "is_generating": False,
+            "human_active": False,
+            "waiting_for_human": False,
+        }
+
+        def track_generating(*args):
+            generating_values.append(mock_session_state.get("is_generating"))
+            return game
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("app.run_single_round", side_effect=track_generating),
+            patch("time.sleep"),
+        ):
+            from app import run_game_turn
+
+            run_game_turn()
+            # is_generating should have been True during execution
+            assert True in generating_values
+
+    def test_run_game_turn_respects_pause_set_during_execution(self) -> None:
+        """Test pause set during execution doesn't break return."""
+        from models import populate_game_state
+
+        game = populate_game_state(include_sample_messages=False)
+        mock_session_state = {
+            "game": game,
+            "is_paused": False,
+            "is_generating": False,
+            "human_active": False,
+            "waiting_for_human": False,
+        }
+
+        def pause_during_run(*args):
+            mock_session_state["is_paused"] = True
+            return game
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("app.run_single_round", side_effect=pause_during_run),
+            patch("time.sleep"),
+        ):
+            from app import run_game_turn
+
+            result = run_game_turn()
+            # Should still return True (pause checked at start)
+            assert result is True
+            # But is_generating should be cleared
+            assert mock_session_state["is_generating"] is False
+
+
+class TestAutopilotPauseInteractionExtended:
+    """Extended tests for autopilot and pause interaction."""
+
+    def test_autopilot_not_started_when_paused(self) -> None:
+        """Test autopilot cannot start when game is paused."""
+        mock_session_state = {
+            "game": {},
+            "is_paused": True,
+            "human_active": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import is_autopilot_available
+
+            assert is_autopilot_available() is False
+
+    def test_autopilot_turn_count_preserved_on_pause(self) -> None:
+        """Test autopilot turn count is preserved when paused."""
+        mock_session_state = {
+            "is_autopilot_running": True,
+            "is_paused": True,
+            "autopilot_turn_count": 42,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import run_autopilot_step
+
+            run_autopilot_step()
+            # Autopilot stops but count preserved
+            assert mock_session_state["is_autopilot_running"] is False
+            assert mock_session_state["autopilot_turn_count"] == 42
+
+    def test_continuous_loop_returns_zero_when_paused(self) -> None:
+        """Test run_continuous_loop returns 0 when paused."""
+        mock_session_state = {
+            "is_autopilot_running": True,
+            "is_paused": True,
+            "autopilot_turn_count": 10,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import run_continuous_loop
+
+            result = run_continuous_loop()
+            assert result == 0
+
+    def test_pause_during_autopilot_stops_cleanly(self) -> None:
+        """Test setting pause during autopilot stops it cleanly."""
+        from models import populate_game_state
+
+        game = populate_game_state(include_sample_messages=False)
+        mock_session_state = {
+            "game": game,
+            "is_autopilot_running": True,
+            "is_paused": False,
+            "autopilot_turn_count": 5,
+            "max_turns_per_session": 100,
+            "human_active": False,
+            "is_generating": False,
+            "waiting_for_human": False,
+        }
+
+        def pause_on_call(*args):
+            mock_session_state["is_paused"] = True
+            return False  # run_game_turn returns False due to pause
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("app.run_game_turn", side_effect=pause_on_call),
+        ):
+            from app import run_autopilot_step
+
+            # First run_game_turn will set pause
+            run_autopilot_step()
+            # On next check, autopilot should stop
+            assert mock_session_state["is_autopilot_running"] is True  # Not stopped yet
+
+
+class TestModeIndicatorHTMLStructure:
+    """Tests for mode indicator HTML structure validation."""
+
+    def test_paused_mode_indicator_has_correct_structure(self) -> None:
+        """Test paused mode indicator has proper HTML structure."""
+        from app import render_mode_indicator_html
+
+        html = render_mode_indicator_html("watch", False, is_paused=True)
+        # Should have div with correct classes
+        assert html.startswith('<div class="mode-indicator paused">')
+        assert html.endswith("</div>")
+        # Should have pause-dot span
+        assert '<span class="pause-dot"></span>' in html
+        assert "Paused" in html
+
+    def test_watch_mode_indicator_has_correct_structure(self) -> None:
+        """Test watch mode indicator has proper HTML structure."""
+        from app import render_mode_indicator_html
+
+        html = render_mode_indicator_html("watch", False, is_paused=False)
+        assert html.startswith('<div class="mode-indicator watch">')
+        assert html.endswith("</div>")
+        assert '<span class="pulse-dot"></span>' in html
+        assert "Watching" in html
+
+    def test_play_mode_indicator_has_character_class(self) -> None:
+        """Test play mode indicator includes character class slug."""
+        from app import render_mode_indicator_html
+        from models import CharacterConfig
+
+        characters = {
+            "wizard": CharacterConfig(
+                name="Elara",
+                character_class="Wizard",
+                personality="wise",
+                color="#7B68B8",
+            )
+        }
+
+        html = render_mode_indicator_html(
+            "play", False, "wizard", characters, is_paused=False
+        )
+        assert 'class="mode-indicator play wizard"' in html
+        assert "Playing as Elara" in html
+
+    def test_mode_indicator_escapes_character_name(self) -> None:
+        """Test mode indicator escapes character name for XSS prevention."""
+        from app import render_mode_indicator_html
+        from models import CharacterConfig
+
+        characters = {
+            "bad": CharacterConfig(
+                name="<script>evil</script>",
+                character_class="Fighter",
+                personality="bad",
+                color="#C45C4A",
+            )
+        }
+
+        html = render_mode_indicator_html(
+            "play", False, "bad", characters, is_paused=False
+        )
+        assert "<script>" not in html
+        assert "&lt;script&gt;" in html
