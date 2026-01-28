@@ -443,6 +443,7 @@ h2, h3, h4 {
   font-family: var(--font-ui);
   font-size: 12px;
   font-weight: 500;
+  transition: background 0.2s ease-in-out, color 0.2s ease-in-out;  /* Story 3.5 */
 }
 
 .mode-indicator.watch {
@@ -497,6 +498,24 @@ h2, h3, h4 {
   background: rgba(74, 144, 164, 0.2);
   color: var(--color-cleric);
 }
+
+/* Paused mode indicator (Story 3.5) */
+.mode-indicator.paused {
+  background: rgba(232, 168, 73, 0.2);
+  color: var(--accent-warm);
+}
+
+/* Static pause dot - no animation (Story 3.5 AC #1) */
+.pause-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-warm);
+  display: inline-block;
+  flex-shrink: 0;
+  /* No animation - static to differentiate from active states */
+}
+
 
 /* ==========================================================================
    Session Controls (Story 2.5)

@@ -409,21 +409,32 @@ def render_mode_indicator_html(
     is_generating: bool,
     controlled_character: str | None = None,
     characters: dict[str, CharacterConfig] | None = None,
+    is_paused: bool = False,
 ) -> str:
     """Generate HTML for mode indicator badge.
 
     In watch mode, the pulse dot is always visible to indicate the game
     is ready and observing (AC #1: pulsing green dot).
 
+    States (in priority order):
+    - Paused: Static amber dot + "Paused" (highest priority, Story 3.5)
+    - Watch: Pulsing green dot + "Watching"
+    - Play: Pulsing character-color dot + "Playing as [Name]"
+
     Args:
         ui_mode: "watch" or "play"
         is_generating: Whether story is actively generating (unused in watch mode)
         controlled_character: Agent key of controlled character, or None
         characters: Dict of agent_key -> CharacterConfig
+        is_paused: Whether game playback is paused (Story 3.5 AC #1)
 
     Returns:
         HTML string for mode indicator.
     """
+    # Paused state takes priority (Story 3.5 AC #1)
+    if is_paused:
+        return '<div class="mode-indicator paused"><span class="pause-dot"></span>Paused</div>'
+
     if ui_mode == "watch":
         # Always show pulse dot in watch mode (AC #1: pulsing green dot)
         pulse_html = '<span class="pulse-dot"></span>'
@@ -761,6 +772,9 @@ def initialize_session_state() -> None:
         # Nudge system state (Story 3.4)
         st.session_state["pending_nudge"] = None
         st.session_state["nudge_submitted"] = False
+        # Config modal auto-pause state (Story 3.5)
+        st.session_state["modal_open"] = False
+        st.session_state["pre_modal_pause_state"] = False
 
 
 def get_api_key_status(config: AppConfig) -> str:
@@ -795,6 +809,30 @@ def get_api_key_status(config: AppConfig) -> str:
 def handle_pause_toggle() -> None:
     """Toggle the pause state for game playback."""
     st.session_state["is_paused"] = not st.session_state.get("is_paused", False)
+
+
+def handle_modal_open() -> None:
+    """Handle config modal opening - auto-pause game.
+
+    Stores current pause state to restore on close (Story 3.5 AC #6).
+    This is a placeholder for future Epic 6 config modal integration.
+    """
+    # Store current pause state before auto-pausing
+    st.session_state["pre_modal_pause_state"] = st.session_state.get("is_paused", False)
+    st.session_state["is_paused"] = True
+    st.session_state["modal_open"] = True
+
+
+def handle_modal_close() -> None:
+    """Handle config modal closing - restore previous pause state.
+
+    Restores the pause state from before modal was opened (Story 3.5 AC #6).
+    This is a placeholder for future Epic 6 config modal integration.
+    """
+    st.session_state["modal_open"] = False
+    # Restore previous pause state
+    prev_state = st.session_state.get("pre_modal_pause_state", False)
+    st.session_state["is_paused"] = prev_state
 
 
 def handle_autopilot_toggle() -> None:
@@ -1070,16 +1108,17 @@ def render_sidebar(config: AppConfig) -> None:
         config: The application configuration.
     """
     with st.sidebar:
-        # Mode indicator with dynamic Watching/Playing states (Story 2.5)
+        # Mode indicator with dynamic Watching/Playing/Paused states (Story 2.5, 3.5)
         ui_mode = st.session_state.get("ui_mode", "watch")
         is_generating = st.session_state.get("is_generating", False)
+        is_paused = st.session_state.get("is_paused", False)
         controlled_character = st.session_state.get("controlled_character")
         game: GameState = st.session_state.get("game", {})
         characters = game.get("characters", {})
 
         st.markdown(
             render_mode_indicator_html(
-                ui_mode, is_generating, controlled_character, characters
+                ui_mode, is_generating, controlled_character, characters, is_paused
             ),
             unsafe_allow_html=True,
         )
