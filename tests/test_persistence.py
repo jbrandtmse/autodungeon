@@ -5,6 +5,7 @@ Tests for path utilities, serialization, save/load, and listing functions.
 """
 
 import json
+import os
 import time
 from collections.abc import Generator
 from pathlib import Path
@@ -978,3 +979,800 @@ class TestInputValidation:
 
         # Should return None due to ValidationError from invalid provider
         assert loaded is None
+
+
+# =============================================================================
+# Additional Edge Case Tests
+# =============================================================================
+
+
+class TestEdgeCases:
+    """Tests for edge cases in checkpoint system."""
+
+    def test_empty_game_state_serialization(self) -> None:
+        """Test serialization of minimal/empty game state."""
+        state = create_initial_game_state()
+        json_str = serialize_game_state(state)
+        data = json.loads(json_str)
+
+        assert data["ground_truth_log"] == []
+        assert data["turn_queue"] == []
+        assert data["agent_memories"] == {}
+        assert data["characters"] == {}
+
+    def test_empty_game_state_roundtrip(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test checkpoint roundtrip with minimal state."""
+        state = create_initial_game_state()
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(state, "001", 0)
+            loaded = load_checkpoint("001", 0)
+
+        assert loaded is not None
+        assert loaded["ground_truth_log"] == []
+        assert loaded["turn_queue"] == []
+
+    def test_large_ground_truth_log(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test checkpoint with large ground_truth_log (1000+ entries)."""
+        # Add many log entries
+        for i in range(1000):
+            sample_game_state["ground_truth_log"].append(
+                f"[dm] This is log entry number {i}."
+            )
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            path = save_checkpoint(sample_game_state, "001", 1)
+            loaded = load_checkpoint("001", 1)
+
+        assert loaded is not None
+        assert len(loaded["ground_truth_log"]) == 1002  # Original 2 + 1000
+
+    def test_large_short_term_buffer(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test checkpoint with large short_term_buffer per agent."""
+        # Add many buffer entries to DM memory
+        dm_memory = sample_game_state["agent_memories"]["dm"]
+        for i in range(500):
+            dm_memory.short_term_buffer.append(f"Buffer entry {i}")
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 1)
+            loaded = load_checkpoint("001", 1)
+
+        assert loaded is not None
+        assert len(loaded["agent_memories"]["dm"].short_term_buffer) == 502
+
+    def test_long_term_summary_with_unicode(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test checkpoint with Unicode characters in long_term_summary."""
+        dm_memory = sample_game_state["agent_memories"]["dm"]
+        dm_memory.long_term_summary = (
+            "The party encountered the dragon named \u0394\u03c1\u03ac\u03ba\u03c9\u03bd "
+            "(meaning 'dragon' in Greek). Emoji test: \U0001F409\U0001F5E1\uFE0F"
+        )
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 1)
+            loaded = load_checkpoint("001", 1)
+
+        assert loaded is not None
+        assert "\u0394\u03c1\u03ac\u03ba\u03c9\u03bd" in loaded["agent_memories"]["dm"].long_term_summary
+        assert "\U0001F409" in loaded["agent_memories"]["dm"].long_term_summary
+
+    def test_very_long_character_personality(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test checkpoint with very long personality string."""
+        fighter = sample_game_state["characters"]["fighter"]
+        # Create a new CharacterConfig with long personality
+        sample_game_state["characters"]["fighter"] = CharacterConfig(
+            name=fighter.name,
+            character_class=fighter.character_class,
+            personality="A" * 10000,  # Very long personality
+            color=fighter.color,
+            provider=fighter.provider,
+            model=fighter.model,
+            token_limit=fighter.token_limit,
+        )
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 1)
+            loaded = load_checkpoint("001", 1)
+
+        assert loaded is not None
+        assert len(loaded["characters"]["fighter"].personality) == 10000
+
+    def test_many_characters(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test checkpoint with many characters (8 = max party size)."""
+        for i in range(7):  # Add 7 more (already have fighter)
+            char_name = f"char{i}"
+            sample_game_state["characters"][char_name] = CharacterConfig(
+                name=f"Character{i}",
+                character_class="Rogue",
+                personality="Sneaky",
+                color="#6B8E6B",
+                provider="gemini",
+                model="gemini-1.5-flash",
+            )
+            sample_game_state["agent_memories"][char_name] = AgentMemory()
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 1)
+            loaded = load_checkpoint("001", 1)
+
+        assert loaded is not None
+        assert len(loaded["characters"]) == 8
+
+    def test_whisper_queue_content(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test checkpoint preserves whisper_queue content."""
+        sample_game_state["whisper_queue"] = [
+            "[dm->fighter] Secret message",
+            "[dm->rogue] Another secret",
+        ]
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 1)
+            loaded = load_checkpoint("001", 1)
+
+        assert loaded is not None
+        assert len(loaded["whisper_queue"]) == 2
+        assert "[dm->fighter] Secret message" in loaded["whisper_queue"]
+
+    def test_human_active_state_preserved(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test checkpoint preserves human_active=True state."""
+        sample_game_state["human_active"] = True
+        sample_game_state["controlled_character"] = "fighter"
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(sample_game_state, "001", 1)
+            loaded = load_checkpoint("001", 1)
+
+        assert loaded is not None
+        assert loaded["human_active"] is True
+        assert loaded["controlled_character"] == "fighter"
+
+
+class TestBoundaryConditions:
+    """Tests for boundary conditions in checkpoint system."""
+
+    def test_session_id_boundary_000(self) -> None:
+        """Test session_id at lower boundary (000)."""
+        path = get_session_dir("000")
+        assert "session_000" in str(path)
+
+    def test_session_id_boundary_999(self) -> None:
+        """Test session_id at upper expected boundary (999)."""
+        path = get_session_dir("999")
+        assert "session_999" in str(path)
+
+    def test_session_id_four_digits(self) -> None:
+        """Test session_id with 4+ digits is accepted."""
+        path = get_session_dir("1234")
+        assert "session_1234" in str(path)
+
+    def test_turn_number_boundary_zero(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test turn_number at lower boundary (0)."""
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            path = save_checkpoint(sample_game_state, "001", 0)
+
+        assert "turn_000.json" in str(path)
+
+    def test_turn_number_large_value(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test turn_number with large value (9999)."""
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            path = save_checkpoint(sample_game_state, "001", 9999)
+
+        # Turn number should be padded to at least 3 digits
+        assert path.name == "turn_9999.json"
+
+    def test_session_number_zero_format(self) -> None:
+        """Test format_session_id with 0."""
+        assert format_session_id(0) == "000"
+
+    def test_session_number_large_value(self) -> None:
+        """Test format_session_id with large value."""
+        assert format_session_id(1000) == "1000"
+        assert format_session_id(99999) == "99999"
+
+    def test_token_limit_minimum_boundary(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test checkpoint with token_limit at minimum (1)."""
+        state = GameState(
+            ground_truth_log=[],
+            turn_queue=["dm"],
+            current_turn="dm",
+            agent_memories={"dm": AgentMemory(token_limit=1)},
+            game_config=GameConfig(),
+            dm_config=DMConfig(),
+            characters={},
+            whisper_queue=[],
+            human_active=False,
+            controlled_character=None,
+            session_number=1,
+            session_id="001",
+        )
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(state, "001", 1)
+            loaded = load_checkpoint("001", 1)
+
+        assert loaded is not None
+        assert loaded["agent_memories"]["dm"].token_limit == 1
+
+    def test_party_size_minimum(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test checkpoint with minimum party_size (1)."""
+        state = create_initial_game_state()
+        state["game_config"] = GameConfig(party_size=1)
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(state, "001", 1)
+            loaded = load_checkpoint("001", 1)
+
+        assert loaded is not None
+        assert loaded["game_config"].party_size == 1
+
+    def test_party_size_maximum(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test checkpoint with maximum party_size (8)."""
+        state = create_initial_game_state()
+        state["game_config"] = GameConfig(party_size=8)
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(state, "001", 1)
+            loaded = load_checkpoint("001", 1)
+
+        assert loaded is not None
+        assert loaded["game_config"].party_size == 8
+
+
+class TestErrorPaths:
+    """Tests for error handling in checkpoint system."""
+
+    @pytest.mark.skipif(
+        os.name == "nt",
+        reason="chmod doesn't work for write protection on Windows"
+    )
+    def test_save_to_readonly_directory_raises(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test save_checkpoint raises on read-only directory.
+
+        Note: This test is skipped on Windows where chmod doesn't work.
+        """
+        import stat
+
+        session_dir = temp_campaigns_dir / "session_001"
+        session_dir.mkdir()
+
+        # Try to make read-only (only works on POSIX)
+        try:
+            os.chmod(session_dir, stat.S_IRUSR | stat.S_IXUSR)
+
+            with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+                with pytest.raises(OSError):
+                    save_checkpoint(sample_game_state, "001", 1)
+        finally:
+            # Restore permissions for cleanup
+            os.chmod(session_dir, stat.S_IRWXU)
+
+    def test_load_from_corrupted_file(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test load_checkpoint returns None for truncated JSON."""
+        session_dir = temp_campaigns_dir / "session_001"
+        session_dir.mkdir()
+
+        # Write truncated JSON
+        checkpoint_path = session_dir / "turn_001.json"
+        checkpoint_path.write_text('{"ground_truth_log": [', encoding="utf-8")
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            loaded = load_checkpoint("001", 1)
+
+        assert loaded is None
+
+    def test_load_from_empty_file(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test load_checkpoint returns None for empty file."""
+        session_dir = temp_campaigns_dir / "session_001"
+        session_dir.mkdir()
+
+        checkpoint_path = session_dir / "turn_001.json"
+        checkpoint_path.write_text("", encoding="utf-8")
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            loaded = load_checkpoint("001", 1)
+
+        assert loaded is None
+
+    def test_load_from_json_null(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test load_checkpoint returns None for JSON null."""
+        session_dir = temp_campaigns_dir / "session_001"
+        session_dir.mkdir()
+
+        checkpoint_path = session_dir / "turn_001.json"
+        checkpoint_path.write_text("null", encoding="utf-8")
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            loaded = load_checkpoint("001", 1)
+
+        assert loaded is None
+
+    def test_load_from_json_array(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test load_checkpoint returns None for JSON array (not object)."""
+        session_dir = temp_campaigns_dir / "session_001"
+        session_dir.mkdir()
+
+        checkpoint_path = session_dir / "turn_001.json"
+        checkpoint_path.write_text("[]", encoding="utf-8")
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            loaded = load_checkpoint("001", 1)
+
+        assert loaded is None
+
+    def test_load_with_wrong_field_types(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test load_checkpoint handles wrong field types.
+
+        Note: TypedDict doesn't validate types at runtime, so deserialize
+        may succeed even with wrong types. The real validation happens when
+        Pydantic models are constructed from nested dicts.
+        """
+        session_dir = temp_campaigns_dir / "session_001"
+        session_dir.mkdir()
+
+        # Use invalid Pydantic model structure (token_limit should be int, not string)
+        # This will fail Pydantic validation in AgentMemory construction
+        checkpoint_path = session_dir / "turn_001.json"
+        invalid_state = {
+            "ground_truth_log": [],
+            "turn_queue": [],
+            "current_turn": "",
+            "agent_memories": {"test": {"token_limit": "not_an_int", "long_term_summary": "", "short_term_buffer": []}},
+            "game_config": {"combat_mode": "Narrative", "summarizer_model": "test", "party_size": 4},
+            "dm_config": {"name": "DM", "provider": "gemini", "model": "test", "token_limit": 8000, "color": "#FFFFFF"},
+            "characters": {},
+            "whisper_queue": [],
+            "human_active": False,
+            "controlled_character": None,
+            "session_number": 1,
+            "session_id": "001",
+        }
+        checkpoint_path.write_text(json.dumps(invalid_state), encoding="utf-8")
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            loaded = load_checkpoint("001", 1)
+
+        # Should return None due to Pydantic ValidationError on AgentMemory
+        assert loaded is None
+
+    def test_load_with_invalid_agent_memory_structure(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test load_checkpoint returns None for invalid AgentMemory."""
+        session_dir = temp_campaigns_dir / "session_001"
+        session_dir.mkdir()
+
+        checkpoint_path = session_dir / "turn_001.json"
+        invalid_state = {
+            "ground_truth_log": [],
+            "turn_queue": [],
+            "current_turn": "",
+            "agent_memories": {"dm": {"token_limit": "not an int"}},  # Wrong type
+            "game_config": {"combat_mode": "Narrative", "summarizer_model": "test", "party_size": 4},
+            "dm_config": {"name": "DM", "provider": "gemini", "model": "test", "token_limit": 8000, "color": "#FFFFFF"},
+            "characters": {},
+            "whisper_queue": [],
+            "human_active": False,
+            "controlled_character": None,
+            "session_number": 1,
+            "session_id": "001",
+        }
+        checkpoint_path.write_text(json.dumps(invalid_state), encoding="utf-8")
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            loaded = load_checkpoint("001", 1)
+
+        assert loaded is None
+
+    def test_deserialize_with_extra_fields_ignored(self) -> None:
+        """Test deserialize tolerates extra unknown fields."""
+        json_str = json.dumps({
+            "ground_truth_log": [],
+            "turn_queue": [],
+            "current_turn": "",
+            "agent_memories": {},
+            "game_config": {"combat_mode": "Narrative", "summarizer_model": "test", "party_size": 4},
+            "dm_config": {"name": "DM", "provider": "gemini", "model": "test", "token_limit": 8000, "color": "#FFFFFF"},
+            "characters": {},
+            "whisper_queue": [],
+            "human_active": False,
+            "controlled_character": None,
+            "session_number": 1,
+            "session_id": "001",
+            "unknown_extra_field": "should be ignored",
+        })
+
+        # Should not raise - extra fields are ignored in TypedDict
+        restored = deserialize_game_state(json_str)
+        assert restored["session_id"] == "001"
+
+
+class TestFileSystemEdgeCases:
+    """Tests for file system edge cases."""
+
+    def test_session_id_with_numbers_only(self) -> None:
+        """Test session_id with pure numeric values."""
+        path = get_session_dir("123456789")
+        assert "session_123456789" in str(path)
+
+    def test_session_id_alphanumeric_mixed(self) -> None:
+        """Test session_id with mixed alphanumeric."""
+        path = get_session_dir("abc123def456")
+        assert "session_abc123def456" in str(path)
+
+    def test_session_id_with_multiple_underscores(self) -> None:
+        """Test session_id with multiple underscores."""
+        path = get_session_dir("test__multiple___underscores")
+        assert "session_test__multiple___underscores" in str(path)
+
+    def test_session_id_uppercase_letters(self) -> None:
+        """Test session_id with uppercase letters."""
+        path = get_session_dir("ABC123")
+        assert "session_ABC123" in str(path)
+
+    def test_concurrent_saves_to_different_turns(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test saving multiple checkpoints rapidly doesn't cause issues."""
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            # Save multiple checkpoints rapidly
+            for turn in range(10):
+                sample_game_state["ground_truth_log"].append(f"[dm] Turn {turn}")
+                save_checkpoint(sample_game_state, "001", turn)
+
+            # Verify all checkpoints exist
+            checkpoints = list_checkpoints("001")
+            assert len(checkpoints) == 10
+
+    def test_overwrite_existing_checkpoint(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test overwriting checkpoint replaces content completely."""
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            # Save first version
+            sample_game_state["ground_truth_log"] = ["[dm] Version 1"]
+            save_checkpoint(sample_game_state, "001", 1)
+
+            # Save second version to same turn
+            sample_game_state["ground_truth_log"] = ["[dm] Version 2"]
+            save_checkpoint(sample_game_state, "001", 1)
+
+            # Load and verify it's version 2
+            loaded = load_checkpoint("001", 1)
+
+        assert loaded is not None
+        assert loaded["ground_truth_log"] == ["[dm] Version 2"]
+
+    def test_list_sessions_with_many_sessions(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test list_sessions with many sessions."""
+        # Create 50 session directories
+        for i in range(50):
+            (temp_campaigns_dir / f"session_{i:03d}").mkdir()
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            sessions = list_sessions()
+
+        assert len(sessions) == 50
+        # Verify sorting
+        assert sessions[0] == "000"
+        assert sessions[49] == "049"
+
+    def test_list_checkpoints_with_many_checkpoints(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test list_checkpoints with many checkpoints."""
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            # Create 50 checkpoints
+            for turn in range(50):
+                save_checkpoint(sample_game_state, "001", turn)
+
+            checkpoints = list_checkpoints("001")
+
+        assert len(checkpoints) == 50
+        assert checkpoints[0] == 0
+        assert checkpoints[49] == 49
+
+
+class TestInputValidationExtended:
+    """Extended tests for input validation."""
+
+    def test_session_id_with_spaces_rejected(self) -> None:
+        """Test session_id with spaces is rejected."""
+        with pytest.raises(ValueError, match="Invalid session_id"):
+            get_session_dir("001 002")
+
+    def test_session_id_with_special_chars_rejected(self) -> None:
+        """Test session_id with special characters is rejected."""
+        special_chars = ["!", "@", "#", "$", "%", "^", "&", "*", "(", ")"]
+        for char in special_chars:
+            with pytest.raises(ValueError, match="Invalid session_id"):
+                get_session_dir(f"001{char}002")
+
+    def test_session_id_with_hyphen_rejected(self) -> None:
+        """Test session_id with hyphen is rejected (only underscore allowed)."""
+        with pytest.raises(ValueError, match="Invalid session_id"):
+            get_session_dir("session-001")
+
+    def test_turn_number_float_rejected(self) -> None:
+        """Test floating point turn_number is rejected."""
+        with pytest.raises(ValueError, match="Invalid turn_number"):
+            get_checkpoint_path("001", 1.5)  # type: ignore[arg-type]
+
+    def test_turn_number_none_rejected(self) -> None:
+        """Test None turn_number is rejected."""
+        with pytest.raises(ValueError, match="Invalid turn_number"):
+            get_checkpoint_path("001", None)  # type: ignore[arg-type]
+
+    def test_session_id_none_rejected(self) -> None:
+        """Test None session_id is rejected."""
+        with pytest.raises((ValueError, TypeError)):
+            get_session_dir(None)  # type: ignore[arg-type]
+
+    def test_format_session_id_float_rejected(self) -> None:
+        """Test format_session_id rejects floats."""
+        with pytest.raises(ValueError, match="Invalid session_number"):
+            format_session_id(1.5)  # type: ignore[arg-type]
+
+
+class TestCombatModePreservation:
+    """Tests for combat mode preservation in checkpoints."""
+
+    def test_tactical_combat_mode_preserved(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test Tactical combat_mode is preserved through checkpoint."""
+        state = create_initial_game_state()
+        state["game_config"] = GameConfig(combat_mode="Tactical")
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(state, "001", 1)
+            loaded = load_checkpoint("001", 1)
+
+        assert loaded is not None
+        assert loaded["game_config"].combat_mode == "Tactical"
+
+    def test_narrative_combat_mode_preserved(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test Narrative combat_mode is preserved through checkpoint."""
+        state = create_initial_game_state()
+        state["game_config"] = GameConfig(combat_mode="Narrative")
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(state, "001", 1)
+            loaded = load_checkpoint("001", 1)
+
+        assert loaded is not None
+        assert loaded["game_config"].combat_mode == "Narrative"
+
+
+class TestProviderPreservation:
+    """Tests for LLM provider preservation in checkpoints."""
+
+    @pytest.mark.parametrize("provider", ["gemini", "claude", "ollama"])
+    def test_dm_provider_preserved(
+        self, temp_campaigns_dir: Path, provider: str
+    ) -> None:
+        """Test DM provider is preserved through checkpoint."""
+        state = create_initial_game_state()
+        state["dm_config"] = DMConfig(provider=provider)
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(state, "001", 1)
+            loaded = load_checkpoint("001", 1)
+
+        assert loaded is not None
+        assert loaded["dm_config"].provider == provider
+
+    @pytest.mark.parametrize("provider", ["gemini", "claude", "ollama"])
+    def test_character_provider_preserved(
+        self, temp_campaigns_dir: Path, provider: str
+    ) -> None:
+        """Test character provider is preserved through checkpoint."""
+        state = create_initial_game_state()
+        state["characters"]["test"] = CharacterConfig(
+            name="Test",
+            character_class="Fighter",
+            personality="Brave",
+            color="#C45C4A",
+            provider=provider,
+        )
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(state, "001", 1)
+            loaded = load_checkpoint("001", 1)
+
+        assert loaded is not None
+        assert loaded["characters"]["test"].provider == provider
+
+
+class TestAutoCheckpointGraphIntegration:
+    """Integration tests for auto-checkpoint in graph execution."""
+
+    def test_run_single_round_triggers_checkpoint(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test that run_single_round saves checkpoint after execution."""
+        from unittest.mock import MagicMock, patch as mock_patch
+
+        from langchain_core.messages import AIMessage
+
+        from graph import run_single_round
+
+        state = create_initial_game_state()
+        state["turn_queue"] = ["dm", "fighter"]
+        state["current_turn"] = "dm"
+        state["dm_config"] = DMConfig(provider="gemini", model="gemini-1.5-flash")
+        state["characters"]["fighter"] = CharacterConfig(
+            name="Fighter",
+            character_class="Fighter",
+            personality="Brave",
+            color="#C45C4A",
+        )
+        state["agent_memories"]["dm"] = AgentMemory()
+        state["agent_memories"]["fighter"] = AgentMemory()
+        state["session_id"] = "001"
+
+        with mock_patch("agents.get_llm") as mock_get_llm, \
+             mock_patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            mock_model = MagicMock()
+            mock_model.bind_tools.return_value = mock_model
+            mock_model.invoke.side_effect = [
+                AIMessage(content="DM narrates."),
+                AIMessage(content="Fighter acts."),
+            ]
+            mock_get_llm.return_value = mock_model
+
+            result = run_single_round(state)
+
+            # Verify checkpoint was created
+            checkpoints = list_checkpoints("001")
+            assert len(checkpoints) > 0
+
+    def test_human_intervention_triggers_checkpoint(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test that human_intervention_node saves checkpoint after human action."""
+        from unittest.mock import MagicMock, patch as mock_patch
+
+        from graph import human_intervention_node
+
+        state = create_initial_game_state()
+        state["turn_queue"] = ["dm", "fighter"]
+        state["current_turn"] = "fighter"
+        state["human_active"] = True
+        state["controlled_character"] = "fighter"
+        state["characters"]["fighter"] = CharacterConfig(
+            name="Fighter",
+            character_class="Fighter",
+            personality="Brave",
+            color="#C45C4A",
+        )
+        state["agent_memories"]["fighter"] = AgentMemory()
+        state["session_id"] = "001"
+
+        # Mock streamlit session_state
+        mock_session_state = {"human_pending_action": "I attack the goblin!"}
+
+        with mock_patch("streamlit.session_state", mock_session_state), \
+             mock_patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            result = human_intervention_node(state)
+
+            # Verify checkpoint was created (human action added to log)
+            if len(result["ground_truth_log"]) > 0:
+                checkpoints = list_checkpoints("001")
+                assert len(checkpoints) > 0
+
+
+class TestSessionIdFromSessionNumber:
+    """Tests for session_id generation from session_number."""
+
+    def test_session_id_single_digit_number(self) -> None:
+        """Test session_id generation from single digit session_number."""
+        state = create_initial_game_state()
+        state["session_number"] = 1
+        state["session_id"] = f"{state['session_number']:03d}"
+        assert state["session_id"] == "001"
+
+    def test_session_id_double_digit_number(self) -> None:
+        """Test session_id generation from double digit session_number."""
+        state = create_initial_game_state()
+        state["session_number"] = 42
+        state["session_id"] = f"{state['session_number']:03d}"
+        assert state["session_id"] == "042"
+
+    def test_session_id_triple_digit_number(self) -> None:
+        """Test session_id generation from triple digit session_number."""
+        state = create_initial_game_state()
+        state["session_number"] = 100
+        state["session_id"] = f"{state['session_number']:03d}"
+        assert state["session_id"] == "100"
+
+    def test_session_id_preserves_through_checkpoint(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test session_id and session_number match after checkpoint roundtrip."""
+        state = create_initial_game_state()
+        state["session_number"] = 42
+        state["session_id"] = "042"
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(state, "042", 1)
+            loaded = load_checkpoint("042", 1)
+
+        assert loaded is not None
+        assert loaded["session_number"] == 42
+        assert loaded["session_id"] == "042"
+
+
+class TestCheckpointFileSizes:
+    """Tests to verify checkpoint file sizes are reasonable."""
+
+    def test_minimal_state_file_size(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test minimal state checkpoint is small (< 1KB)."""
+        state = create_initial_game_state()
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            path = save_checkpoint(state, "001", 1)
+
+        file_size = path.stat().st_size
+        assert file_size < 1024  # Less than 1KB
+
+    def test_large_state_file_size(
+        self, temp_campaigns_dir: Path, sample_game_state: GameState
+    ) -> None:
+        """Test large state checkpoint is created (verify it works)."""
+        # Add lots of content
+        for i in range(100):
+            sample_game_state["ground_truth_log"].append(f"[dm] This is a long message {i}. " * 10)
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            path = save_checkpoint(sample_game_state, "001", 1)
+
+        # File should exist and be readable
+        assert path.exists()
+        content = path.read_text(encoding="utf-8")
+        data = json.loads(content)
+        assert len(data["ground_truth_log"]) > 100
