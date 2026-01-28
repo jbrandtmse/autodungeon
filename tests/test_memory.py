@@ -968,3 +968,862 @@ class TestModuleExports:
 
         assert estimate_tokens is not None
         assert callable(estimate_tokens)
+
+
+# =============================================================================
+# Extended Coverage: Token Estimation Edge Cases
+# =============================================================================
+
+
+class TestEstimateTokensExtended:
+    """Extended tests for token estimation edge cases."""
+
+    def test_estimate_tokens_very_long_string(self) -> None:
+        """Test token estimation with extremely long string (100k+ chars)."""
+        # Create a very long string (100,000 words)
+        long_text = " ".join(["word"] * 100_000)
+        result = estimate_tokens(long_text)
+        # 100,000 words * 1.3 = 130,000 tokens
+        assert result == 130_000
+
+    def test_estimate_tokens_single_very_long_word(self) -> None:
+        """Test token estimation with a single very long word."""
+        # A single word of 50,000 characters
+        long_word = "a" * 50_000
+        result = estimate_tokens(long_word)
+        # 1 word but 50,000 chars -> uses char-based: 50,000 * 0.5 = 25,000
+        assert result == 25_000
+
+    def test_estimate_tokens_mixed_short_long_words(self) -> None:
+        """Test token estimation with mix of short and long words."""
+        text = "a " + "verylongword " * 10
+        result = estimate_tokens(text)
+        # 11 words * 1.3 = 14.3 -> 14
+        assert result == 14
+
+    def test_estimate_tokens_only_whitespace(self) -> None:
+        """Test token estimation for whitespace-only string."""
+        result = estimate_tokens("     \t\n\r   ")
+        # No words, should be 0
+        assert result == 0
+
+    def test_estimate_tokens_newlines_between_words(self) -> None:
+        """Test token estimation with newlines between words."""
+        result = estimate_tokens("line1\nline2\nline3")
+        # 3 words * 1.3 = 3.9 -> 3
+        assert result == 3
+
+    def test_estimate_tokens_tabs_between_words(self) -> None:
+        """Test token estimation with tabs between words."""
+        result = estimate_tokens("word1\tword2\tword3")
+        # 3 words * 1.3 = 3.9 -> 3
+        assert result == 3
+
+    def test_estimate_tokens_special_characters(self) -> None:
+        """Test token estimation with special characters."""
+        result = estimate_tokens("Hello! @#$%^&*() World")
+        # 3 words * 1.3 = 3.9 -> 3
+        assert result == 3
+
+    def test_estimate_tokens_numbers_and_punctuation(self) -> None:
+        """Test token estimation with numbers and punctuation."""
+        result = estimate_tokens("Player 1 rolled 20. Critical hit!")
+        # 6 words * 1.3 = 7.8 -> 7
+        assert result == 7
+
+    def test_estimate_tokens_emoji_in_text(self) -> None:
+        """Test token estimation with emoji characters."""
+        result = estimate_tokens("The dragon attacks! Fire breath incoming")
+        # 6 words * 1.3 = 7.8 -> 7
+        assert result == 7
+
+    def test_estimate_tokens_unicode_special_chars(self) -> None:
+        """Test token estimation with various unicode characters."""
+        result = estimate_tokens("Sword of Righteousness")
+        # 3 words * 1.3 = 3.9 -> 3
+        assert result == 3
+
+    def test_estimate_tokens_cjk_with_spaces(self) -> None:
+        """Test token estimation with CJK mixed with spaces."""
+        result = estimate_tokens("hello world")
+        # Emoji are treated as part of words in str.split()
+        # "hello" "world" = 2 words * 1.3 = 2.6 -> 2
+        assert result == 2
+
+    def test_estimate_tokens_pure_cjk_japanese(self) -> None:
+        """Test token estimation with pure Japanese text (no spaces)."""
+        japanese_text = "dnd"  # Long string without spaces
+        result = estimate_tokens(japanese_text)
+        # Low word count (1) but 30+ chars -> character-based
+        assert result > 0
+
+    def test_estimate_tokens_threshold_for_cjk_detection(self) -> None:
+        """Test the threshold for CJK detection (2 words, 20 chars)."""
+        # Just under threshold: 2 words (not < 2)
+        two_words = "ab cd"  # 2 words, 5 chars
+        result = estimate_tokens(two_words)
+        # Uses word-based: 2 * 1.3 = 2.6 -> 2
+        assert result == 2
+
+        # At threshold: 1 word, 21 chars
+        one_long_word = "a" * 21
+        result = estimate_tokens(one_long_word)
+        # Uses char-based: 21 * 0.5 = 10.5 -> 10
+        assert result == 10
+
+
+# =============================================================================
+# Extended Coverage: Buffer Operations with Special Characters
+# =============================================================================
+
+
+class TestBufferOperationsSpecialCharacters:
+    """Tests for buffer operations with unicode and special characters."""
+
+    def test_buffer_with_emoji_entries(self, empty_game_state: GameState) -> None:
+        """Test buffer operations with emoji in entries."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=[
+                "[DM]: The dragon roars! Flame fills the room!",
+                "[DM]: Victory! The treasure is yours!",
+            ]
+        )
+
+        manager = MemoryManager(state)
+        context = manager.get_context("dm")
+
+        assert "" in context
+        assert "" in context
+
+    def test_buffer_with_multiline_entries(self, empty_game_state: GameState) -> None:
+        """Test buffer with entries containing newlines."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=[
+                "[DM]: The bard sings:\n'O valiant heroes brave and true\nYour quest awaits you'",
+            ]
+        )
+
+        manager = MemoryManager(state)
+        context = manager.get_context("dm")
+
+        assert "bard sings" in context
+        assert "valiant heroes" in context
+
+    def test_buffer_with_special_markdown_chars(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test buffer with markdown special characters."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=[
+                "[DM]: **Bold** and *italic* text with `code` and [links](url)",
+            ]
+        )
+
+        manager = MemoryManager(state)
+        context = manager.get_context("dm")
+
+        assert "**Bold**" in context
+        assert "`code`" in context
+
+    def test_buffer_with_empty_string_entry(self, empty_game_state: GameState) -> None:
+        """Test buffer that contains empty string entries."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=["first", "", "third"]
+        )
+
+        manager = MemoryManager(state)
+        entries = manager.get_buffer_entries("dm")
+
+        assert len(entries) == 3
+        assert entries[1] == ""
+
+    def test_buffer_with_only_whitespace_entry(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test buffer with whitespace-only entries."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=["content", "   ", "more content"]
+        )
+
+        manager = MemoryManager(state)
+        token_count = manager.get_buffer_token_count("dm")
+
+        # Should handle whitespace entries
+        assert token_count > 0
+
+    def test_add_to_buffer_with_unicode_content(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test adding unicode content to buffer."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory()
+
+        manager = MemoryManager(state)
+        manager.add_to_buffer("dm", "[DM]: The wizard casts fireball!")
+
+        entries = manager.get_buffer_entries("dm")
+        assert "" in entries[0]
+
+    def test_add_to_buffer_with_cjk_content(self, empty_game_state: GameState) -> None:
+        """Test adding CJK content to buffer."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory()
+
+        manager = MemoryManager(state)
+        manager.add_to_buffer("dm", "[DM]: dnd")
+
+        entries = manager.get_buffer_entries("dm")
+        assert "dnd" in entries[0]
+
+
+# =============================================================================
+# Extended Coverage: Multiple Agent Interactions
+# =============================================================================
+
+
+class TestMultipleAgentInteractions:
+    """Tests for multiple agents interacting with memory."""
+
+    def test_many_agents_in_state(self, empty_game_state: GameState) -> None:
+        """Test state with many agents (10+)."""
+        state = empty_game_state
+
+        # Create 10 PC agents plus DM
+        for i in range(10):
+            state["agent_memories"][f"agent_{i}"] = AgentMemory(
+                short_term_buffer=[f"Agent {i} action"]
+            )
+        state["agent_memories"]["dm"] = AgentMemory(short_term_buffer=["DM narration"])
+
+        manager = MemoryManager(state)
+        dm_context = manager.get_context("dm")
+
+        # DM should see all agents
+        for i in range(10):
+            assert f"[agent_{i} knows]" in dm_context
+
+    def test_agent_isolation_with_many_agents(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test that isolation holds with many agents."""
+        state = empty_game_state
+
+        for i in range(5):
+            state["agent_memories"][f"pc_{i}"] = AgentMemory(
+                short_term_buffer=[f"Secret action {i}"]
+            )
+
+        manager = MemoryManager(state)
+
+        # Each PC should only see their own
+        for i in range(5):
+            context = manager.get_context(f"pc_{i}")
+            assert f"Secret action {i}" in context
+            for j in range(5):
+                if j != i:
+                    assert f"Secret action {j}" not in context
+
+    def test_sequential_buffer_additions_multiple_agents(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test sequential additions to multiple agent buffers."""
+        state = empty_game_state
+        state["agent_memories"]["rogue"] = AgentMemory()
+        state["agent_memories"]["fighter"] = AgentMemory()
+
+        manager = MemoryManager(state)
+
+        # Add to multiple agents sequentially
+        manager.add_to_buffer("rogue", "Rogue sneaks")
+        manager.add_to_buffer("fighter", "Fighter charges")
+        manager.add_to_buffer("rogue", "Rogue strikes")
+        manager.add_to_buffer("fighter", "Fighter blocks")
+
+        # Verify each agent has correct entries
+        rogue_entries = manager.get_buffer_entries("rogue")
+        fighter_entries = manager.get_buffer_entries("fighter")
+
+        assert len(rogue_entries) == 2
+        assert len(fighter_entries) == 2
+        assert rogue_entries[0] == "Rogue sneaks"
+        assert fighter_entries[1] == "Fighter blocks"
+
+    def test_dm_context_order_consistency(self, empty_game_state: GameState) -> None:
+        """Test that DM context maintains consistent ordering."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=["Event 1", "Event 2"]
+        )
+        state["agent_memories"]["archer"] = AgentMemory(
+            short_term_buffer=["Archer fires"]
+        )
+        state["agent_memories"]["mage"] = AgentMemory(short_term_buffer=["Mage casts"])
+
+        manager = MemoryManager(state)
+        context1 = manager.get_context("dm")
+        context2 = manager.get_context("dm")
+
+        # Same content each time
+        assert context1 == context2
+
+
+# =============================================================================
+# Extended Coverage: Threshold and Limit Edge Cases
+# =============================================================================
+
+
+class TestThresholdEdgeCases:
+    """Tests for edge cases in threshold calculations."""
+
+    def test_is_near_limit_threshold_exactly_zero(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test is_near_limit with threshold=0."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=["content"],
+            token_limit=1000,
+        )
+
+        manager = MemoryManager(state)
+        # With threshold=0, limit = 0, and any tokens >= 0 is True
+        result = manager.is_near_limit("dm", threshold=0.0)
+        assert result is True
+
+    def test_is_near_limit_threshold_one(self, empty_game_state: GameState) -> None:
+        """Test is_near_limit with threshold=1.0 (100%)."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=["small"],
+            token_limit=1000,
+        )
+
+        manager = MemoryManager(state)
+        # With threshold=1.0, needs 1000 tokens to trigger
+        result = manager.is_near_limit("dm", threshold=1.0)
+        assert result is False
+
+    def test_is_near_limit_threshold_above_one(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test is_near_limit with threshold > 1.0."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=[" ".join(["word"] * 100)],  # ~130 tokens
+            token_limit=100,
+        )
+
+        manager = MemoryManager(state)
+        # With threshold=1.5, limit = 150, 130 < 150
+        result = manager.is_near_limit("dm", threshold=1.5)
+        assert result is False
+
+    def test_is_near_limit_very_small_threshold(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test is_near_limit with very small threshold (0.01)."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=["tiny"],  # ~1 token
+            token_limit=1000,
+        )
+
+        manager = MemoryManager(state)
+        # With threshold=0.01, limit = 10, 1 < 10
+        result = manager.is_near_limit("dm", threshold=0.01)
+        assert result is False
+
+    def test_is_near_limit_exact_boundary(self, empty_game_state: GameState) -> None:
+        """Test is_near_limit at exact boundary (tokens == limit)."""
+        state = empty_game_state
+        # Need exactly 80 tokens with token_limit=100 and threshold=0.8
+        # 61 words * 1.3 = 79.3 -> 79 (just under)
+        # 62 words * 1.3 = 80.6 -> 80 (at boundary)
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=[" ".join(["w"] * 62)],  # ~80 tokens
+            token_limit=100,
+        )
+
+        manager = MemoryManager(state)
+        result = manager.is_near_limit("dm", threshold=0.8)
+        # 80 >= 80, should be True
+        assert result is True
+
+    def test_is_near_limit_just_under_boundary(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test is_near_limit just under boundary."""
+        state = empty_game_state
+        # 61 words * 1.3 = 79.3 -> 79 (just under 80)
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=[" ".join(["w"] * 61)],  # ~79 tokens
+            token_limit=100,
+        )
+
+        manager = MemoryManager(state)
+        result = manager.is_near_limit("dm", threshold=0.8)
+        # 79 >= 80 is False
+        assert result is False
+
+    def test_get_buffer_entries_limit_zero(self, empty_game_state: GameState) -> None:
+        """Test get_buffer_entries with limit=0."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(short_term_buffer=["a", "b", "c"])
+
+        manager = MemoryManager(state)
+        entries = manager.get_buffer_entries("dm", limit=0)
+
+        # Python slicing: buffer[-0:] is same as buffer[0:] = all entries
+        # This is documented Python behavior: -0 == 0
+        assert entries == ["a", "b", "c"]
+
+    def test_get_buffer_entries_limit_negative(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test get_buffer_entries with negative limit."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=["a", "b", "c", "d", "e"]
+        )
+
+        manager = MemoryManager(state)
+        entries = manager.get_buffer_entries("dm", limit=-2)
+
+        # Python slicing: buffer[-(-2):] = buffer[2:] = ["c", "d", "e"]
+        assert entries == ["c", "d", "e"]
+
+    def test_get_buffer_entries_limit_larger_than_buffer(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test get_buffer_entries with limit larger than buffer size."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(short_term_buffer=["a", "b"])
+
+        manager = MemoryManager(state)
+        entries = manager.get_buffer_entries("dm", limit=100)
+
+        # Should return all entries, not error
+        assert entries == ["a", "b"]
+
+
+# =============================================================================
+# Extended Coverage: Error Message Verification
+# =============================================================================
+
+
+class TestErrorMessageContent:
+    """Tests verifying error messages are informative."""
+
+    def test_add_to_buffer_none_error_message(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test that None content error has informative message."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory()
+        manager = MemoryManager(state)
+
+        with pytest.raises(TypeError) as exc_info:
+            manager.add_to_buffer("dm", None)  # type: ignore[arg-type]
+
+        assert "content must not be None" in str(exc_info.value)
+
+    def test_add_to_buffer_oversized_error_includes_size(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test that oversized content error includes the actual size."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory()
+        manager = MemoryManager(state)
+
+        oversized = "x" * 100_001
+        with pytest.raises(ValueError) as exc_info:
+            manager.add_to_buffer("dm", oversized)
+
+        error_msg = str(exc_info.value)
+        assert "exceeds maximum size" in error_msg
+        assert "100KB" in error_msg
+        assert "100001" in error_msg  # Includes actual size
+
+
+# =============================================================================
+# Extended Coverage: State Consistency
+# =============================================================================
+
+
+class TestStateConsistency:
+    """Tests for state consistency after operations."""
+
+    def test_state_unchanged_after_get_context(
+        self, game_state_with_memories: GameState
+    ) -> None:
+        """Test that get_context doesn't modify state."""
+        original_dm_buffer = game_state_with_memories["agent_memories"][
+            "dm"
+        ].short_term_buffer.copy()
+        original_rogue_buffer = game_state_with_memories["agent_memories"][
+            "rogue"
+        ].short_term_buffer.copy()
+
+        manager = MemoryManager(game_state_with_memories)
+        manager.get_context("dm")
+        manager.get_context("rogue")
+
+        # State should be unchanged
+        assert (
+            game_state_with_memories["agent_memories"]["dm"].short_term_buffer
+            == original_dm_buffer
+        )
+        assert (
+            game_state_with_memories["agent_memories"]["rogue"].short_term_buffer
+            == original_rogue_buffer
+        )
+
+    def test_state_unchanged_after_get_buffer_token_count(
+        self, game_state_with_memories: GameState
+    ) -> None:
+        """Test that get_buffer_token_count doesn't modify state."""
+        original_buffer = game_state_with_memories["agent_memories"][
+            "dm"
+        ].short_term_buffer.copy()
+
+        manager = MemoryManager(game_state_with_memories)
+        manager.get_buffer_token_count("dm")
+
+        assert (
+            game_state_with_memories["agent_memories"]["dm"].short_term_buffer
+            == original_buffer
+        )
+
+    def test_state_unchanged_after_is_near_limit(
+        self, game_state_with_memories: GameState
+    ) -> None:
+        """Test that is_near_limit doesn't modify state."""
+        original_limit = game_state_with_memories["agent_memories"]["dm"].token_limit
+
+        manager = MemoryManager(game_state_with_memories)
+        manager.is_near_limit("dm")
+
+        assert (
+            game_state_with_memories["agent_memories"]["dm"].token_limit
+            == original_limit
+        )
+
+    def test_add_to_buffer_mutates_state(self, empty_game_state: GameState) -> None:
+        """Test that add_to_buffer does mutate state (as documented)."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(short_term_buffer=["original"])
+
+        manager = MemoryManager(state)
+        original_len = len(state["agent_memories"]["dm"].short_term_buffer)
+
+        manager.add_to_buffer("dm", "new entry")
+
+        # State should be mutated
+        assert len(state["agent_memories"]["dm"].short_term_buffer) == original_len + 1
+        assert state["agent_memories"]["dm"].short_term_buffer[-1] == "new entry"
+
+    def test_get_buffer_entries_returns_copy(self, empty_game_state: GameState) -> None:
+        """Test that modifying returned entries doesn't affect state."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=["entry1", "entry2"]
+        )
+
+        manager = MemoryManager(state)
+        entries = manager.get_buffer_entries("dm")
+
+        # Modify returned list
+        entries.append("modified")
+        entries[0] = "changed"
+
+        # Original state should be affected (list is mutable reference)
+        # This documents the current behavior
+        original = state["agent_memories"]["dm"].short_term_buffer
+        # Note: The implementation returns a slice which is a shallow copy
+        # so modifications to the returned list don't affect state
+        assert "modified" not in original
+
+
+# =============================================================================
+# Extended Coverage: Context Formatting
+# =============================================================================
+
+
+class TestContextFormatting:
+    """Tests for context string formatting details."""
+
+    def test_dm_context_section_order(self, empty_game_state: GameState) -> None:
+        """Test that DM context sections are in correct order."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            long_term_summary="Summary here",
+            short_term_buffer=["Event 1"],
+        )
+        state["agent_memories"]["pc1"] = AgentMemory(short_term_buffer=["PC action"])
+
+        manager = MemoryManager(state)
+        context = manager.get_context("dm")
+
+        # Story So Far should come before Recent Events
+        summary_pos = context.find("## Story So Far")
+        events_pos = context.find("## Recent Events")
+        knowledge_pos = context.find("## Player Knowledge")
+
+        assert summary_pos < events_pos < knowledge_pos
+
+    def test_dm_context_double_newline_between_sections(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test that sections are separated by double newlines."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            long_term_summary="Summary",
+            short_term_buffer=["Event"],
+        )
+
+        manager = MemoryManager(state)
+        context = manager.get_context("dm")
+
+        assert "\n\n" in context
+
+    def test_pc_context_section_headers(self, empty_game_state: GameState) -> None:
+        """Test PC context uses correct section headers."""
+        state = empty_game_state
+        state["agent_memories"]["rogue"] = AgentMemory(
+            long_term_summary="Rogue background",
+            short_term_buffer=["Rogue action"],
+        )
+
+        manager = MemoryManager(state)
+        context = manager.get_context("rogue")
+
+        # PC uses "What You Remember" not "Story So Far"
+        assert "## What You Remember" in context
+        assert "## Story So Far" not in context
+
+    def test_player_knowledge_format(self, empty_game_state: GameState) -> None:
+        """Test player knowledge section format."""
+        state = empty_game_state
+        state["agent_memories"]["archer"] = AgentMemory(
+            short_term_buffer=["Aims bow", "Fires arrow", "Draws another"]
+        )
+
+        manager = MemoryManager(state)
+        context = manager.get_context("dm")
+
+        # Should have [archer knows]: format with semicolon separation
+        assert "[archer knows]:" in context
+        # Last 3 entries joined by semicolons
+        assert ";" in context
+
+
+# =============================================================================
+# Extended Coverage: Performance and Large Data
+# =============================================================================
+
+
+class TestPerformanceEdgeCases:
+    """Tests for performance edge cases with large data."""
+
+    def test_context_with_maximum_buffer_entries(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test context building with many buffer entries."""
+        state = empty_game_state
+        # Create 1000 buffer entries
+        entries = [f"Event {i}: Something happened" for i in range(1000)]
+        state["agent_memories"]["dm"] = AgentMemory(short_term_buffer=entries)
+
+        manager = MemoryManager(state)
+        context = manager.get_context("dm")
+
+        # Should only include last 10 entries (limit)
+        assert "Event 999" in context
+        assert "Event 990" in context
+        assert "Event 0" not in context
+
+    def test_token_count_with_many_entries(self, empty_game_state: GameState) -> None:
+        """Test token count calculation with many entries."""
+        state = empty_game_state
+        entries = [f"Entry number {i} with some words" for i in range(500)]
+        state["agent_memories"]["dm"] = AgentMemory(short_term_buffer=entries)
+
+        manager = MemoryManager(state)
+        count = manager.get_buffer_token_count("dm")
+
+        # Should complete without error and return reasonable count
+        assert count > 0
+        assert count < 100_000  # Sanity check
+
+    def test_context_with_many_agents_performance(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test context building with many agents."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(short_term_buffer=["DM entry"])
+
+        # Add 50 PC agents
+        for i in range(50):
+            state["agent_memories"][f"npc_{i}"] = AgentMemory(
+                short_term_buffer=[f"NPC {i} does something"]
+            )
+
+        manager = MemoryManager(state)
+        context = manager.get_context("dm")
+
+        # Should include all agents
+        for i in range(50):
+            assert f"[npc_{i} knows]" in context
+
+
+# =============================================================================
+# Extended Coverage: Model Attribute Access
+# =============================================================================
+
+
+class TestModelAttributeAccess:
+    """Tests for accessing model attributes through MemoryManager."""
+
+    def test_get_long_term_summary_with_empty_summary(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test get_long_term_summary when summary is empty string."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(long_term_summary="")
+
+        manager = MemoryManager(state)
+        summary = manager.get_long_term_summary("dm")
+
+        assert summary == ""
+
+    def test_get_long_term_summary_with_multiline(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test get_long_term_summary with multiline summary."""
+        state = empty_game_state
+        multiline = "Line 1\nLine 2\nLine 3"
+        state["agent_memories"]["dm"] = AgentMemory(long_term_summary=multiline)
+
+        manager = MemoryManager(state)
+        summary = manager.get_long_term_summary("dm")
+
+        assert summary == multiline
+        assert "\n" in summary
+
+    def test_agent_memory_token_limit_accessible(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test that token_limit is properly used in calculations."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=["content"],
+            token_limit=50,
+        )
+
+        manager = MemoryManager(state)
+
+        # With small token_limit, should be near limit easily
+        result = manager.is_near_limit("dm", threshold=0.01)
+        assert isinstance(result, bool)
+
+
+# =============================================================================
+# Extended Coverage: Boundary and Null Cases
+# =============================================================================
+
+
+class TestBoundaryAndNullCases:
+    """Tests for boundary conditions and null-like cases."""
+
+    def test_empty_agent_name(self, empty_game_state: GameState) -> None:
+        """Test operations with empty string agent name."""
+        state = empty_game_state
+        state["agent_memories"][""] = AgentMemory(short_term_buffer=["content"])
+
+        manager = MemoryManager(state)
+
+        # Should work with empty string as agent name
+        context = manager.get_context("")
+        assert "content" in context
+
+    def test_agent_name_with_special_chars(self, empty_game_state: GameState) -> None:
+        """Test operations with special characters in agent name."""
+        state = empty_game_state
+        state["agent_memories"]["agent-with-dashes"] = AgentMemory(
+            short_term_buffer=["content"]
+        )
+
+        manager = MemoryManager(state)
+        context = manager.get_context("agent-with-dashes")
+
+        assert "content" in context
+
+    def test_agent_name_with_spaces(self, empty_game_state: GameState) -> None:
+        """Test operations with spaces in agent name."""
+        state = empty_game_state
+        state["agent_memories"]["Sir Lancelot"] = AgentMemory(
+            short_term_buffer=["I seek the grail"]
+        )
+
+        manager = MemoryManager(state)
+        context = manager.get_context("Sir Lancelot")
+
+        assert "grail" in context
+
+    def test_buffer_with_exactly_limit_entries(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test buffer with exactly 10 entries (the display limit)."""
+        state = empty_game_state
+        entries = [f"Entry {i}" for i in range(10)]
+        state["agent_memories"]["dm"] = AgentMemory(short_term_buffer=entries)
+
+        manager = MemoryManager(state)
+        context = manager.get_context("dm")
+
+        # All 10 should be included
+        for i in range(10):
+            assert f"Entry {i}" in context
+
+    def test_buffer_with_eleven_entries(self, empty_game_state: GameState) -> None:
+        """Test buffer with 11 entries (one over display limit)."""
+        state = empty_game_state
+        entries = [f"Entry {i}" for i in range(11)]
+        state["agent_memories"]["dm"] = AgentMemory(short_term_buffer=entries)
+
+        manager = MemoryManager(state)
+        context = manager.get_context("dm")
+
+        # Entry 0 should be excluded, 1-10 included
+        assert "Entry 0" not in context
+        assert "Entry 1" in context
+        assert "Entry 10" in context
+
+    def test_add_to_buffer_empty_string(self, empty_game_state: GameState) -> None:
+        """Test adding empty string to buffer."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory()
+
+        manager = MemoryManager(state)
+        manager.add_to_buffer("dm", "")
+
+        entries = manager.get_buffer_entries("dm")
+        assert len(entries) == 1
+        assert entries[0] == ""
+
+    def test_add_to_buffer_whitespace_only(self, empty_game_state: GameState) -> None:
+        """Test adding whitespace-only content to buffer."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory()
+
+        manager = MemoryManager(state)
+        manager.add_to_buffer("dm", "   \t\n   ")
+
+        entries = manager.get_buffer_entries("dm")
+        assert len(entries) == 1
+        assert entries[0] == "   \t\n   "
