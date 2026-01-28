@@ -8840,3 +8840,1014 @@ class TestProcessKeyboardActionIntegration:
             # Pending action should be cleared
             assert mock_session_state["human_pending_action"] is None
             assert "keyboard_action" not in mock_query_params
+
+
+# =============================================================================
+# Story 3.6: Extended Keyboard Shortcuts Test Coverage
+# Edge cases, boundary conditions, error paths, integration scenarios
+# =============================================================================
+
+
+class TestKeyboardShortcutEmptyParty:
+    """Tests for keyboard shortcuts with empty party (0 characters)."""
+
+    def test_keyboard_drop_in_empty_party(self) -> None:
+        """Test keyboard drop-in with no party characters."""
+        game = {"characters": {}}
+        mock_session_state = {
+            "game": game,
+            "controlled_character": None,
+            "human_active": False,
+            "ui_mode": "watch",
+            "is_autopilot_running": False,
+            "human_pending_action": None,
+            "waiting_for_human": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_keyboard_drop_in
+
+            # Should not crash with empty party
+            handle_keyboard_drop_in(0)
+
+            # State should be unchanged
+            assert mock_session_state["controlled_character"] is None
+            assert mock_session_state["human_active"] is False
+
+    def test_keyboard_drop_in_dm_only_party(self) -> None:
+        """Test keyboard drop-in when only DM exists (no PCs)."""
+        from models import CharacterConfig
+
+        game = {
+            "characters": {
+                "dm": CharacterConfig(
+                    name="Dungeon Master",
+                    character_class="DM",
+                    personality="neutral",
+                    color="#D4A574",
+                ),
+            }
+        }
+        mock_session_state = {
+            "game": game,
+            "controlled_character": None,
+            "human_active": False,
+            "ui_mode": "watch",
+            "is_autopilot_running": False,
+            "human_pending_action": None,
+            "waiting_for_human": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_keyboard_drop_in
+
+            # DM is excluded from party keys, so index 0 should be out of bounds
+            handle_keyboard_drop_in(0)
+
+            # State should be unchanged - cannot drop into DM
+            assert mock_session_state["controlled_character"] is None
+            assert mock_session_state["human_active"] is False
+
+    def test_get_party_character_keys_empty_game(self) -> None:
+        """Test get_party_character_keys with empty game state."""
+        mock_session_state = {"game": {}}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import get_party_character_keys
+
+            keys = get_party_character_keys()
+
+            assert keys == []
+
+    def test_get_party_character_keys_no_game(self) -> None:
+        """Test get_party_character_keys when game not in session."""
+        mock_session_state = {}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import get_party_character_keys
+
+            keys = get_party_character_keys()
+
+            assert keys == []
+
+
+class TestKeyboardShortcutSingleCharacter:
+    """Tests for keyboard shortcuts with single character party."""
+
+    def test_single_character_drop_in(self) -> None:
+        """Test drop-in with single PC."""
+        from models import CharacterConfig
+
+        game = {
+            "characters": {
+                "wizard": CharacterConfig(
+                    name="Elara",
+                    character_class="Wizard",
+                    personality="scholarly",
+                    color="#7B68B8",
+                ),
+            }
+        }
+        mock_session_state = {
+            "game": game,
+            "controlled_character": None,
+            "human_active": False,
+            "ui_mode": "watch",
+            "is_autopilot_running": False,
+            "human_pending_action": None,
+            "waiting_for_human": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_keyboard_drop_in
+
+            handle_keyboard_drop_in(0)
+
+            assert mock_session_state["controlled_character"] == "wizard"
+            assert mock_session_state["human_active"] is True
+
+    def test_single_character_keys_2_3_4_out_of_bounds(self) -> None:
+        """Test keys 2, 3, 4 are out of bounds with single character."""
+        from models import CharacterConfig
+
+        game = {
+            "characters": {
+                "fighter": CharacterConfig(
+                    name="Theron",
+                    character_class="Fighter",
+                    personality="brave",
+                    color="#C45C4A",
+                ),
+            }
+        }
+        mock_session_state = {
+            "game": game,
+            "controlled_character": None,
+            "human_active": False,
+            "ui_mode": "watch",
+            "is_autopilot_running": False,
+            "human_pending_action": None,
+            "waiting_for_human": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_keyboard_drop_in
+
+            # Keys 2, 3, 4 (indices 1, 2, 3) should be out of bounds
+            for index in [1, 2, 3]:
+                handle_keyboard_drop_in(index)
+                assert mock_session_state["controlled_character"] is None
+
+
+class TestKeyboardShortcutLargeParty:
+    """Tests for keyboard shortcuts with 5+ characters (exceeds 1-4 keys)."""
+
+    def test_five_character_party_only_first_four_accessible(self) -> None:
+        """Test that only first 4 characters are accessible via keyboard."""
+        from models import CharacterConfig
+
+        game = {
+            "characters": {
+                "fighter": CharacterConfig(
+                    name="Theron",
+                    character_class="Fighter",
+                    personality="brave",
+                    color="#C45C4A",
+                ),
+                "rogue": CharacterConfig(
+                    name="Shadowmere",
+                    character_class="Rogue",
+                    personality="cunning",
+                    color="#6B8E6B",
+                ),
+                "wizard": CharacterConfig(
+                    name="Elara",
+                    character_class="Wizard",
+                    personality="scholarly",
+                    color="#7B68B8",
+                ),
+                "cleric": CharacterConfig(
+                    name="Brother Marcus",
+                    character_class="Cleric",
+                    personality="devout",
+                    color="#4A90A4",
+                ),
+                "bard": CharacterConfig(
+                    name="Lyria",
+                    character_class="Bard",
+                    personality="charismatic",
+                    color="#E8A849",
+                ),
+            }
+        }
+        mock_session_state = {
+            "game": game,
+            "controlled_character": None,
+            "human_active": False,
+            "ui_mode": "watch",
+            "is_autopilot_running": False,
+            "human_pending_action": None,
+            "waiting_for_human": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import get_party_character_keys
+
+            keys = get_party_character_keys()
+
+            # Should have 5 keys (all PCs)
+            assert len(keys) == 5
+            # JavaScript only handles keys 1-4, so index 4 (5th char) not reachable
+            # via keyboard shortcuts, but the function returns all keys
+
+    def test_keyboard_script_only_handles_1_through_4(self) -> None:
+        """Test that JavaScript only handles keys 1-4."""
+        from app import get_keyboard_shortcut_script
+
+        script = get_keyboard_shortcut_script()
+
+        # Script should check e.key >= '1' && e.key <= '4'
+        assert "'1'" in script
+        assert "'4'" in script
+        # Should NOT handle key 5
+        assert "'5'" not in script
+
+
+class TestKeyboardShortcutStateConsistency:
+    """Tests for state consistency across keyboard interactions."""
+
+    def test_rapid_drop_in_release_cycle(self) -> None:
+        """Test rapid drop-in and release maintains consistent state."""
+        from models import CharacterConfig
+
+        game = {
+            "characters": {
+                "fighter": CharacterConfig(
+                    name="Theron",
+                    character_class="Fighter",
+                    personality="brave",
+                    color="#C45C4A",
+                ),
+            }
+        }
+        mock_session_state = {
+            "game": game,
+            "controlled_character": None,
+            "human_active": False,
+            "ui_mode": "watch",
+            "is_autopilot_running": False,
+            "human_pending_action": None,
+            "waiting_for_human": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_keyboard_drop_in, handle_keyboard_release
+
+            # Rapid cycle: drop in -> release -> drop in -> release
+            for _ in range(3):
+                handle_keyboard_drop_in(0)
+                assert mock_session_state["controlled_character"] == "fighter"
+                assert mock_session_state["human_active"] is True
+
+                handle_keyboard_release()
+                assert mock_session_state["controlled_character"] is None
+                assert mock_session_state["human_active"] is False
+
+            # Final state should be clean
+            assert mock_session_state["ui_mode"] == "watch"
+
+    def test_rapid_character_switching(self) -> None:
+        """Test rapid switching between characters maintains state."""
+        from models import CharacterConfig
+
+        game = {
+            "characters": {
+                "fighter": CharacterConfig(
+                    name="Theron",
+                    character_class="Fighter",
+                    personality="brave",
+                    color="#C45C4A",
+                ),
+                "rogue": CharacterConfig(
+                    name="Shadowmere",
+                    character_class="Rogue",
+                    personality="cunning",
+                    color="#6B8E6B",
+                ),
+                "wizard": CharacterConfig(
+                    name="Elara",
+                    character_class="Wizard",
+                    personality="scholarly",
+                    color="#7B68B8",
+                ),
+            }
+        }
+        mock_session_state = {
+            "game": game,
+            "controlled_character": None,
+            "human_active": False,
+            "ui_mode": "watch",
+            "is_autopilot_running": False,
+            "human_pending_action": None,
+            "waiting_for_human": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import get_party_character_keys, handle_keyboard_drop_in
+
+            keys = get_party_character_keys()
+
+            # Switch through all characters rapidly
+            for i, expected_key in enumerate(keys):
+                handle_keyboard_drop_in(i)
+                assert mock_session_state["controlled_character"] == expected_key
+                assert mock_session_state["human_active"] is True
+
+    def test_pending_action_cleared_on_character_switch(self) -> None:
+        """Test pending action is cleared when switching characters."""
+        from models import CharacterConfig
+
+        game = {
+            "characters": {
+                "fighter": CharacterConfig(
+                    name="Theron",
+                    character_class="Fighter",
+                    personality="brave",
+                    color="#C45C4A",
+                ),
+                "rogue": CharacterConfig(
+                    name="Shadowmere",
+                    character_class="Rogue",
+                    personality="cunning",
+                    color="#6B8E6B",
+                ),
+            }
+        }
+        mock_session_state = {
+            "game": game,
+            "controlled_character": "fighter",
+            "human_active": True,
+            "ui_mode": "play",
+            "is_autopilot_running": False,
+            "human_pending_action": "I attack the goblin!",
+            "waiting_for_human": True,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_keyboard_drop_in
+
+            # Switch from fighter to rogue
+            handle_keyboard_drop_in(1)
+
+            # Pending action should be cleared
+            assert mock_session_state["human_pending_action"] is None
+            assert mock_session_state["waiting_for_human"] is False
+            assert mock_session_state["controlled_character"] == "rogue"
+
+
+class TestKeyboardShortcutWithPause:
+    """Tests for keyboard shortcuts interaction with pause state."""
+
+    def test_keyboard_drop_in_while_paused(self) -> None:
+        """Test keyboard drop-in works while game is paused."""
+        from models import CharacterConfig
+
+        game = {
+            "characters": {
+                "fighter": CharacterConfig(
+                    name="Theron",
+                    character_class="Fighter",
+                    personality="brave",
+                    color="#C45C4A",
+                ),
+            }
+        }
+        mock_session_state = {
+            "game": game,
+            "controlled_character": None,
+            "human_active": False,
+            "ui_mode": "watch",
+            "is_paused": True,  # Game is paused
+            "is_autopilot_running": False,
+            "human_pending_action": None,
+            "waiting_for_human": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_keyboard_drop_in
+
+            handle_keyboard_drop_in(0)
+
+            # Drop-in should work even when paused
+            assert mock_session_state["controlled_character"] == "fighter"
+            assert mock_session_state["human_active"] is True
+            # Pause state should remain unchanged
+            assert mock_session_state["is_paused"] is True
+
+    def test_keyboard_release_while_paused(self) -> None:
+        """Test keyboard release works while game is paused."""
+        from models import CharacterConfig
+
+        game = {
+            "characters": {
+                "fighter": CharacterConfig(
+                    name="Theron",
+                    character_class="Fighter",
+                    personality="brave",
+                    color="#C45C4A",
+                ),
+            }
+        }
+        mock_session_state = {
+            "game": game,
+            "controlled_character": "fighter",
+            "human_active": True,
+            "ui_mode": "play",
+            "is_paused": True,
+            "human_pending_action": None,
+            "waiting_for_human": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_keyboard_release
+
+            handle_keyboard_release()
+
+            # Release should work even when paused
+            assert mock_session_state["controlled_character"] is None
+            assert mock_session_state["human_active"] is False
+            assert mock_session_state["is_paused"] is True
+
+
+class TestKeyboardShortcutWithNudge:
+    """Tests for keyboard shortcuts interaction with nudge system."""
+
+    def test_keyboard_drop_in_clears_pending_nudge(self) -> None:
+        """Test that keyboard drop-in does not affect pending nudge."""
+        from models import CharacterConfig
+
+        game = {
+            "characters": {
+                "fighter": CharacterConfig(
+                    name="Theron",
+                    character_class="Fighter",
+                    personality="brave",
+                    color="#C45C4A",
+                ),
+            }
+        }
+        mock_session_state = {
+            "game": game,
+            "controlled_character": None,
+            "human_active": False,
+            "ui_mode": "watch",
+            "is_autopilot_running": False,
+            "human_pending_action": None,
+            "waiting_for_human": False,
+            "pending_nudge": "The rogue should check for traps",
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_keyboard_drop_in
+
+            handle_keyboard_drop_in(0)
+
+            # Nudge should remain (handled separately by DM)
+            assert mock_session_state["pending_nudge"] == "The rogue should check for traps"
+            assert mock_session_state["controlled_character"] == "fighter"
+
+    def test_keyboard_release_preserves_nudge(self) -> None:
+        """Test that keyboard release preserves pending nudge."""
+        from models import CharacterConfig
+
+        game = {
+            "characters": {
+                "fighter": CharacterConfig(
+                    name="Theron",
+                    character_class="Fighter",
+                    personality="brave",
+                    color="#C45C4A",
+                ),
+            }
+        }
+        mock_session_state = {
+            "game": game,
+            "controlled_character": "fighter",
+            "human_active": True,
+            "ui_mode": "play",
+            "human_pending_action": None,
+            "waiting_for_human": False,
+            "pending_nudge": "Have the wizard cast fireball",
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_keyboard_release
+
+            handle_keyboard_release()
+
+            # Nudge should remain
+            assert mock_session_state["pending_nudge"] == "Have the wizard cast fireball"
+
+
+class TestKeyboardShortcutWithModal:
+    """Tests for keyboard shortcuts interaction with modal state."""
+
+    def test_keyboard_drop_in_during_modal(self) -> None:
+        """Test keyboard drop-in behavior during modal (config) open."""
+        from models import CharacterConfig
+
+        game = {
+            "characters": {
+                "fighter": CharacterConfig(
+                    name="Theron",
+                    character_class="Fighter",
+                    personality="brave",
+                    color="#C45C4A",
+                ),
+            }
+        }
+        mock_session_state = {
+            "game": game,
+            "controlled_character": None,
+            "human_active": False,
+            "ui_mode": "watch",
+            "is_autopilot_running": False,
+            "human_pending_action": None,
+            "waiting_for_human": False,
+            "modal_open": True,
+            "is_paused": True,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_keyboard_drop_in
+
+            # Drop-in should still work even with modal open
+            # (JavaScript prevents keys in input fields, but modal state
+            # doesn't prevent the handler)
+            handle_keyboard_drop_in(0)
+
+            assert mock_session_state["controlled_character"] == "fighter"
+
+
+class TestKeyboardShortcutWithGenerating:
+    """Tests for keyboard shortcuts during LLM generation."""
+
+    def test_keyboard_drop_in_during_generation(self) -> None:
+        """Test keyboard drop-in works during generation."""
+        from models import CharacterConfig
+
+        game = {
+            "characters": {
+                "fighter": CharacterConfig(
+                    name="Theron",
+                    character_class="Fighter",
+                    personality="brave",
+                    color="#C45C4A",
+                ),
+            }
+        }
+        mock_session_state = {
+            "game": game,
+            "controlled_character": None,
+            "human_active": False,
+            "ui_mode": "watch",
+            "is_generating": True,  # LLM is generating
+            "is_autopilot_running": True,
+            "human_pending_action": None,
+            "waiting_for_human": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_keyboard_drop_in
+
+            handle_keyboard_drop_in(0)
+
+            # Drop-in should work and stop autopilot
+            assert mock_session_state["controlled_character"] == "fighter"
+            assert mock_session_state["is_autopilot_running"] is False
+            # Note: is_generating stays True as it's managed by run_game_turn
+
+
+class TestProcessKeyboardActionEdgeCases:
+    """Edge cases for process_keyboard_action parsing."""
+
+    def test_process_keyboard_action_empty_string(self) -> None:
+        """Test empty action string is handled."""
+
+        class MockQueryParams(dict):
+            def get(self, key, default=None):
+                return super().get(key, default)
+
+        mock_query_params = MockQueryParams({"keyboard_action": ""})
+        mock_session_state = {}
+
+        with (
+            patch("streamlit.query_params", mock_query_params),
+            patch("streamlit.session_state", mock_session_state),
+        ):
+            from app import process_keyboard_action
+
+            result = process_keyboard_action()
+
+            # Empty string should return False (no action taken)
+            assert result is False
+
+    def test_process_keyboard_action_malformed_drop_in(self) -> None:
+        """Test malformed drop_in action (e.g., 'drop_in_')."""
+
+        class MockQueryParams(dict):
+            def get(self, key, default=None):
+                return super().get(key, default)
+
+        mock_query_params = MockQueryParams({"keyboard_action": "drop_in_"})
+
+        with patch("streamlit.query_params", mock_query_params):
+            from app import process_keyboard_action
+
+            result = process_keyboard_action()
+
+            # Malformed should return False
+            assert result is False
+
+    def test_process_keyboard_action_negative_index(self) -> None:
+        """Test negative index in drop_in action."""
+
+        class MockQueryParams(dict):
+            def get(self, key, default=None):
+                return super().get(key, default)
+
+        mock_query_params = MockQueryParams({"keyboard_action": "drop_in_-1"})
+        mock_session_state = {"game": {"characters": {}}}
+
+        with (
+            patch("streamlit.query_params", mock_query_params),
+            patch("streamlit.session_state", mock_session_state),
+        ):
+            from app import process_keyboard_action
+
+            result = process_keyboard_action()
+
+            # Negative index: int conversion works, but out of bounds
+            assert result is True  # Action was processed (even if no effect)
+
+    def test_process_keyboard_action_large_index(self) -> None:
+        """Test very large index in drop_in action."""
+        from models import CharacterConfig
+
+        class MockQueryParams(dict):
+            def get(self, key, default=None):
+                return super().get(key, default)
+
+        mock_query_params = MockQueryParams({"keyboard_action": "drop_in_999"})
+        game = {
+            "characters": {
+                "fighter": CharacterConfig(
+                    name="Theron",
+                    character_class="Fighter",
+                    personality="brave",
+                    color="#C45C4A",
+                ),
+            }
+        }
+        mock_session_state = {
+            "game": game,
+            "controlled_character": None,
+        }
+
+        with (
+            patch("streamlit.query_params", mock_query_params),
+            patch("streamlit.session_state", mock_session_state),
+        ):
+            from app import process_keyboard_action
+
+            result = process_keyboard_action()
+
+            # Out of bounds - action processed but no state change
+            assert result is True
+            assert mock_session_state["controlled_character"] is None
+
+    def test_process_keyboard_action_special_characters(self) -> None:
+        """Test action with special characters is rejected."""
+
+        class MockQueryParams(dict):
+            def get(self, key, default=None):
+                return super().get(key, default)
+
+        mock_query_params = MockQueryParams({"keyboard_action": "drop_in_<script>"})
+
+        with patch("streamlit.query_params", mock_query_params):
+            from app import process_keyboard_action
+
+            result = process_keyboard_action()
+
+            # Should fail int conversion and return False
+            assert result is False
+
+
+class TestKeyboardShortcutScriptSecurity:
+    """Security tests for keyboard shortcut script."""
+
+    def test_script_has_input_protection(self) -> None:
+        """Test script protects against input in text fields."""
+        from app import get_keyboard_shortcut_script
+
+        script = get_keyboard_shortcut_script()
+
+        # Must check for input fields
+        assert "input" in script
+        assert "textarea" in script
+        assert "select" in script
+
+    def test_script_has_contenteditable_protection(self) -> None:
+        """Test script protects against contenteditable elements."""
+        from app import get_keyboard_shortcut_script
+
+        script = get_keyboard_shortcut_script()
+
+        assert "contenteditable" in script
+
+    def test_script_prevents_event_default(self) -> None:
+        """Test script prevents default event behavior."""
+        from app import get_keyboard_shortcut_script
+
+        script = get_keyboard_shortcut_script()
+
+        assert "preventDefault" in script
+
+    def test_script_uses_url_api(self) -> None:
+        """Test script uses URL API for safe param handling."""
+        from app import get_keyboard_shortcut_script
+
+        script = get_keyboard_shortcut_script()
+
+        assert "new URL" in script
+        assert "searchParams" in script
+
+
+class TestKeyboardShortcutsCSSExtended:
+    """Extended CSS tests for keyboard shortcuts help styling."""
+
+    def test_kbd_element_has_border_radius(self) -> None:
+        """Test kbd elements have rounded corners."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        # Find the kbd styling block
+        assert ".keyboard-shortcuts-help kbd" in css_content
+        assert "border-radius" in css_content
+
+    def test_kbd_element_has_background(self) -> None:
+        """Test kbd elements have background color."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        # Should use message background for kbd
+        assert "var(--bg-message)" in css_content
+
+    def test_kbd_element_has_mono_font(self) -> None:
+        """Test kbd elements use monospace font."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        assert "var(--font-mono)" in css_content
+
+    def test_keyboard_shortcuts_help_centered(self) -> None:
+        """Test keyboard shortcuts help is centered."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        # Find the keyboard-shortcuts-help block
+        assert "text-align: center" in css_content
+
+    def test_keyboard_shortcuts_has_proper_spacing(self) -> None:
+        """Test keyboard shortcuts help has margin spacing."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        assert "margin-top:" in css_content
+        assert "margin-bottom:" in css_content
+
+
+class TestKeyboardShortcutsHelpContent:
+    """Tests for keyboard shortcuts help content."""
+
+    def test_help_shows_all_number_keys(self) -> None:
+        """Test help shows keys 1, 2, 3, 4."""
+        from app import render_keyboard_shortcuts_help_html
+
+        html = render_keyboard_shortcuts_help_html()
+
+        assert "<kbd>1</kbd>" in html
+        assert "<kbd>2</kbd>" in html
+        assert "<kbd>3</kbd>" in html
+        assert "<kbd>4</kbd>" in html
+
+    def test_help_shows_escape_key(self) -> None:
+        """Test help shows Esc key."""
+        from app import render_keyboard_shortcuts_help_html
+
+        html = render_keyboard_shortcuts_help_html()
+
+        assert "<kbd>Esc</kbd>" in html
+
+    def test_help_is_accessible_structure(self) -> None:
+        """Test help has accessible text structure."""
+        from app import render_keyboard_shortcuts_help_html
+
+        html = render_keyboard_shortcuts_help_html()
+
+        # Should have help-text spans for screen readers
+        assert 'class="help-text"' in html
+        # Should explain what keys do
+        assert "drop in" in html.lower()
+        assert "release" in html.lower()
+
+
+class TestKeyboardShortcutToggleBehavior:
+    """Tests for keyboard shortcut toggle (press same key to release)."""
+
+    def test_press_same_key_releases_character(self) -> None:
+        """Test pressing same number key releases character."""
+        from models import CharacterConfig
+
+        game = {
+            "characters": {
+                "fighter": CharacterConfig(
+                    name="Theron",
+                    character_class="Fighter",
+                    personality="brave",
+                    color="#C45C4A",
+                ),
+                "rogue": CharacterConfig(
+                    name="Shadowmere",
+                    character_class="Rogue",
+                    personality="cunning",
+                    color="#6B8E6B",
+                ),
+            }
+        }
+        mock_session_state = {
+            "game": game,
+            "controlled_character": "fighter",
+            "human_active": True,
+            "ui_mode": "play",
+            "is_autopilot_running": False,
+            "human_pending_action": None,
+            "waiting_for_human": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_keyboard_drop_in
+
+            # Press '1' again (same character)
+            handle_keyboard_drop_in(0)
+
+            # Should toggle off (release)
+            assert mock_session_state["controlled_character"] is None
+            assert mock_session_state["human_active"] is False
+            assert mock_session_state["ui_mode"] == "watch"
+
+    def test_press_different_key_switches_character(self) -> None:
+        """Test pressing different number key switches character."""
+        from models import CharacterConfig
+
+        game = {
+            "characters": {
+                "fighter": CharacterConfig(
+                    name="Theron",
+                    character_class="Fighter",
+                    personality="brave",
+                    color="#C45C4A",
+                ),
+                "rogue": CharacterConfig(
+                    name="Shadowmere",
+                    character_class="Rogue",
+                    personality="cunning",
+                    color="#6B8E6B",
+                ),
+            }
+        }
+        mock_session_state = {
+            "game": game,
+            "controlled_character": "fighter",
+            "human_active": True,
+            "ui_mode": "play",
+            "is_autopilot_running": False,
+            "human_pending_action": None,
+            "waiting_for_human": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_keyboard_drop_in
+
+            # Press '2' (different character)
+            handle_keyboard_drop_in(1)
+
+            # Should switch to rogue
+            assert mock_session_state["controlled_character"] == "rogue"
+            assert mock_session_state["human_active"] is True
+            assert mock_session_state["ui_mode"] == "play"
+
+
+class TestInjectKeyboardShortcutScriptVariations:
+    """Tests for inject_keyboard_shortcut_script variations."""
+
+    def test_inject_script_always_called(self) -> None:
+        """Test inject script is called regardless of session state."""
+        mock_session_state = {}
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("streamlit.components.v1.html") as mock_html,
+        ):
+            from app import inject_keyboard_shortcut_script
+
+            inject_keyboard_shortcut_script()
+
+            # Should always inject the script
+            mock_html.assert_called_once()
+            call_args = mock_html.call_args
+            assert "height=0" in str(call_args) or call_args.kwargs.get("height") == 0
+
+    def test_inject_script_height_zero(self) -> None:
+        """Test injected script has height 0 to be invisible."""
+        with patch("streamlit.components.v1.html") as mock_html:
+            from app import inject_keyboard_shortcut_script
+
+            inject_keyboard_shortcut_script()
+
+            _, kwargs = mock_html.call_args
+            assert kwargs.get("height") == 0
+
+
+class TestGetPartyCharacterKeysOrdering:
+    """Tests for get_party_character_keys ordering consistency."""
+
+    def test_party_keys_excludes_dm(self) -> None:
+        """Test DM is always excluded from party keys."""
+        from models import CharacterConfig
+
+        game = {
+            "characters": {
+                "dm": CharacterConfig(
+                    name="Dungeon Master",
+                    character_class="DM",
+                    personality="neutral",
+                    color="#D4A574",
+                ),
+                "fighter": CharacterConfig(
+                    name="Theron",
+                    character_class="Fighter",
+                    personality="brave",
+                    color="#C45C4A",
+                ),
+            }
+        }
+        mock_session_state = {"game": game}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import get_party_character_keys
+
+            keys = get_party_character_keys()
+
+            assert "dm" not in keys
+            assert "fighter" in keys
+            assert len(keys) == 1
+
+    def test_party_keys_consistent_order(self) -> None:
+        """Test party keys maintain consistent order across calls."""
+        from models import CharacterConfig
+
+        game = {
+            "characters": {
+                "wizard": CharacterConfig(
+                    name="Elara",
+                    character_class="Wizard",
+                    personality="scholarly",
+                    color="#7B68B8",
+                ),
+                "fighter": CharacterConfig(
+                    name="Theron",
+                    character_class="Fighter",
+                    personality="brave",
+                    color="#C45C4A",
+                ),
+                "rogue": CharacterConfig(
+                    name="Shadowmere",
+                    character_class="Rogue",
+                    personality="cunning",
+                    color="#6B8E6B",
+                ),
+            }
+        }
+        mock_session_state = {"game": game}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import get_party_character_keys
+
+            # Multiple calls should return same order
+            keys1 = get_party_character_keys()
+            keys2 = get_party_character_keys()
+            keys3 = get_party_character_keys()
+
+            assert keys1 == keys2 == keys3
