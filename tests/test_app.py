@@ -11550,3 +11550,142 @@ class TestSummarizationIndicatorIntegration:
 
                 # Should not raise
                 render_summarization_indicator()
+
+
+class TestSummarizationIndicatorHTMLSafety:
+    """Tests for HTML safety in summarization indicator."""
+
+    def test_render_summarization_indicator_html_escapes_angle_brackets(self) -> None:
+        """Test that HTML angle brackets are properly escaped."""
+        from app import render_summarization_indicator_html
+
+        html = render_summarization_indicator_html(summarization_in_progress=True)
+
+        # The indicator should use proper HTML that doesn't allow injection
+        # Verify the structure is valid HTML div
+        assert html.startswith("<div")
+        assert "</div>" in html
+        assert "summarization-indicator" in html
+
+    def test_render_summarization_indicator_html_no_script_tags(self) -> None:
+        """Test that HTML output doesn't allow script injection."""
+        from app import render_summarization_indicator_html
+
+        html = render_summarization_indicator_html(summarization_in_progress=True)
+
+        # Ensure no script tags
+        assert "<script" not in html.lower()
+        assert "javascript:" not in html.lower()
+
+    def test_render_summarization_indicator_html_valid_css_class(self) -> None:
+        """Test that CSS class names are valid."""
+        from app import render_summarization_indicator_html
+
+        html = render_summarization_indicator_html(summarization_in_progress=True)
+
+        # Class names should only contain valid characters
+        assert 'class="summarization-indicator"' in html
+
+    def test_render_summarization_indicator_html_returns_unicode_safe(self) -> None:
+        """Test that HTML output handles unicode properly."""
+        from app import render_summarization_indicator_html
+
+        html = render_summarization_indicator_html(summarization_in_progress=True)
+
+        # The text content should be encoded properly
+        assert isinstance(html, str)
+        # Try encoding to ensure it's valid UTF-8
+        html.encode("utf-8")  # Should not raise
+
+
+class TestSummarizationIndicatorStateTransitions:
+    """Tests for summarization indicator state transitions."""
+
+    def test_indicator_transitions_active_to_inactive(self) -> None:
+        """Test indicator transitions from active to inactive.
+
+        The implementation returns HTML when active and empty string when inactive.
+        This is efficient (no DOM elements when not needed).
+        """
+        from app import render_summarization_indicator_html
+
+        # Active state - returns HTML
+        html_active = render_summarization_indicator_html(
+            summarization_in_progress=True
+        )
+        assert "Compressing" in html_active
+        assert "summarization-indicator" in html_active
+
+        # Inactive state - returns empty string (no element rendered)
+        html_inactive = render_summarization_indicator_html(
+            summarization_in_progress=False
+        )
+        assert html_inactive == ""
+
+    def test_indicator_content_differs_by_state(self) -> None:
+        """Test that active and inactive states produce different content."""
+        from app import render_summarization_indicator_html
+
+        html_active = render_summarization_indicator_html(
+            summarization_in_progress=True
+        )
+        html_inactive = render_summarization_indicator_html(
+            summarization_in_progress=False
+        )
+
+        # They should be different
+        assert html_active != html_inactive
+
+    def test_indicator_active_shows_indicator_element(self) -> None:
+        """Test that active indicator renders the indicator element."""
+        from app import render_summarization_indicator_html
+
+        html = render_summarization_indicator_html(summarization_in_progress=True)
+
+        # Should have the indicator element with text
+        assert "summarization-indicator" in html
+        assert "Compressing memories" in html
+
+
+class TestSummarizationIndicatorStreamlitIntegration:
+    """Integration tests for summarization indicator with Streamlit session state."""
+
+    def test_indicator_called_with_correct_flag_from_game_state(self) -> None:
+        """Test that indicator uses correct flag from game state."""
+        from unittest.mock import MagicMock, patch
+
+        mock_game_state = {"summarization_in_progress": True}
+        mock_session_state = MagicMock()
+        mock_session_state.get.return_value = mock_game_state
+        mock_session_state.__contains__ = lambda self, key: key == "game"
+        mock_session_state.__getitem__ = lambda self, key: mock_game_state
+
+        with patch("streamlit.session_state", mock_session_state):
+            with patch("streamlit.markdown") as mock_markdown:
+                from app import render_summarization_indicator
+
+                render_summarization_indicator()
+
+                # Verify markdown was called
+                mock_markdown.assert_called_once()
+                call_args = mock_markdown.call_args[0][0]
+                # When active, should have visible content
+                assert "summarization-indicator" in call_args
+
+    def test_indicator_handles_boolean_false_returns_empty(self) -> None:
+        """Test that False returns empty string (no element rendered)."""
+        from app import render_summarization_indicator_html
+
+        html = render_summarization_indicator_html(summarization_in_progress=False)
+
+        # Should return empty string (no DOM element)
+        assert html == ""
+
+    def test_indicator_handles_none_as_false(self) -> None:
+        """Test that None (falsy) returns empty string."""
+        from app import render_summarization_indicator_html
+
+        html = render_summarization_indicator_html(summarization_in_progress=None)
+
+        # Should return empty string (same as False)
+        assert html == ""

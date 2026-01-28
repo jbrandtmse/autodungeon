@@ -1241,3 +1241,307 @@ class TestContextManagerWorkflowIntegration:
 
         # Workflow should complete successfully
         assert len(result["ground_truth_log"]) >= 1
+
+
+# =============================================================================
+# Story 5.2: Extended Context Manager Tests (testarch-automate)
+# =============================================================================
+
+
+class TestContextManagerFlagBehavior:
+    """Tests for summarization_in_progress flag lifecycle."""
+
+    def test_flag_true_in_updated_state_during_compression(self) -> None:
+        """Test flag is set to True in updated_state during compression.
+
+        The context_manager creates a new updated_state dict with the flag
+        set to True, then passes it to MemoryManager. We verify by checking
+        that MemoryManager receives a state with the flag already set.
+        """
+        from graph import context_manager
+
+        state = create_test_state()
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=["Event " + str(i) for i in range(50)],
+            token_limit=100,
+        )
+
+        captured_state_flag: bool | None = None
+
+        def capture_state_on_init(updated_state: GameState) -> MagicMock:
+            nonlocal captured_state_flag
+            # Capture the flag from the state passed to MemoryManager
+            captured_state_flag = updated_state.get("summarization_in_progress")
+            mock_instance = MagicMock()
+            mock_instance.is_near_limit.return_value = True
+            mock_instance.compress_buffer.return_value = "Summary"
+            return mock_instance
+
+        with patch("graph.MemoryManager", side_effect=capture_state_on_init):
+            context_manager(state)
+
+        # Flag should have been True when MemoryManager was initialized
+        assert captured_state_flag is True
+
+    def test_flag_false_after_no_compression_needed(self) -> None:
+        """Test flag is False when no compression was needed."""
+        from graph import context_manager
+
+        state = create_test_state()
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=["Short event"],
+            token_limit=8000,
+        )
+
+        with patch("graph.MemoryManager") as MockManager:
+            mock_instance = MagicMock()
+            mock_instance.is_near_limit.return_value = False
+            MockManager.return_value = mock_instance
+
+            result = context_manager(state)
+
+        assert result["summarization_in_progress"] is False
+
+    def test_flag_false_after_compression_completes(self) -> None:
+        """Test flag is False after compression successfully completes."""
+        from graph import context_manager
+
+        state = create_test_state()
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=["Event " + str(i) for i in range(50)],
+            token_limit=100,
+        )
+
+        with patch("graph.MemoryManager") as MockManager:
+            mock_instance = MagicMock()
+            mock_instance.is_near_limit.return_value = True
+            mock_instance.compress_buffer.return_value = "Summary"
+            MockManager.return_value = mock_instance
+
+            result = context_manager(state)
+
+        assert result["summarization_in_progress"] is False
+
+
+class TestContextManagerErrorHandling:
+    """Tests for context_manager error propagation.
+
+    Note: context_manager does NOT catch exceptions internally - they propagate
+    up to the caller. This is intentional to allow the graph framework to
+    handle errors appropriately. The underlying MemoryManager.compress_buffer
+    does have error handling and returns "" on failure without modifying state.
+    """
+
+    def test_context_manager_propagates_memory_manager_exception(self) -> None:
+        """Test context_manager propagates MemoryManager exceptions to caller."""
+        import pytest
+
+        from graph import context_manager
+
+        state = create_test_state()
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=["Event"],
+            token_limit=100,
+        )
+
+        with patch("graph.MemoryManager") as MockManager:
+            mock_instance = MagicMock()
+            mock_instance.is_near_limit.side_effect = Exception("Memory error")
+            MockManager.return_value = mock_instance
+
+            # Exception should propagate
+            with pytest.raises(Exception, match="Memory error"):
+                context_manager(state)
+
+    def test_context_manager_propagates_compress_buffer_exception(self) -> None:
+        """Test context_manager propagates compress_buffer exceptions to caller."""
+        import pytest
+
+        from graph import context_manager
+
+        state = create_test_state()
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=["Event " + str(i) for i in range(10)],
+            token_limit=100,
+        )
+
+        with patch("graph.MemoryManager") as MockManager:
+            mock_instance = MagicMock()
+            mock_instance.is_near_limit.return_value = True
+            mock_instance.compress_buffer.side_effect = Exception("Compression failed")
+            MockManager.return_value = mock_instance
+
+            # Exception should propagate
+            with pytest.raises(Exception, match="Compression failed"):
+                context_manager(state)
+
+    def test_compress_buffer_internal_error_returns_empty(self) -> None:
+        """Test that internal LLM errors in compress_buffer return empty string.
+
+        The MemoryManager.compress_buffer method catches LLM errors internally
+        and returns "" without modifying state. This is the graceful degradation.
+        """
+        from unittest.mock import MagicMock, patch
+
+        import memory
+
+        # Clear the summarizer cache to ensure our mock is used
+        memory._summarizer_cache.clear()
+
+        state = create_test_state()
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=["Event 1", "Event 2", "Event 3", "Event 4", "Event 5"],
+            token_limit=100,
+        )
+
+        with patch("memory.Summarizer") as MockSummarizer:
+            mock_instance = MagicMock()
+            # Summarizer returns "" on internal error
+            mock_instance.generate_summary.return_value = ""
+            MockSummarizer.return_value = mock_instance
+
+            from memory import MemoryManager
+
+            manager = MemoryManager(state)
+            result = manager.compress_buffer("dm")
+
+        # Should return empty string (graceful degradation)
+        assert result == ""
+        # Buffer should be unchanged
+        assert len(state["agent_memories"]["dm"].short_term_buffer) == 5
+
+        # Clean up
+        memory._summarizer_cache.clear()
+
+
+class TestContextManagerStateIntegrity:
+    """Tests for state integrity through context_manager."""
+
+    def test_context_manager_preserves_ground_truth_log(self) -> None:
+        """Test that ground_truth_log is not modified by context_manager."""
+        from graph import context_manager
+
+        state = create_test_state()
+        original_log = ["Entry 1", "Entry 2", "Entry 3"]
+        state["ground_truth_log"] = original_log.copy()
+
+        with patch("graph.MemoryManager") as MockManager:
+            mock_instance = MagicMock()
+            mock_instance.is_near_limit.return_value = False
+            MockManager.return_value = mock_instance
+
+            result = context_manager(state)
+
+        assert result["ground_truth_log"] == original_log
+
+    def test_context_manager_preserves_turn_queue(self) -> None:
+        """Test that turn_queue is preserved through context_manager."""
+        from graph import context_manager
+
+        state = create_test_state()
+        original_queue = ["dm", "fighter", "rogue"]
+        state["turn_queue"] = original_queue.copy()
+
+        with patch("graph.MemoryManager") as MockManager:
+            mock_instance = MagicMock()
+            mock_instance.is_near_limit.return_value = False
+            MockManager.return_value = mock_instance
+
+            result = context_manager(state)
+
+        assert result["turn_queue"] == original_queue
+
+    def test_context_manager_preserves_current_turn(self) -> None:
+        """Test that current_turn is preserved."""
+        from graph import context_manager
+
+        state = create_test_state()
+        state["current_turn"] = "fighter"
+
+        with patch("graph.MemoryManager") as MockManager:
+            mock_instance = MagicMock()
+            mock_instance.is_near_limit.return_value = False
+            MockManager.return_value = mock_instance
+
+            result = context_manager(state)
+
+        assert result["current_turn"] == "fighter"
+
+    def test_context_manager_preserves_session_id(self) -> None:
+        """Test that session_id is preserved."""
+        from graph import context_manager
+
+        state = create_test_state()
+        state["session_id"] = "test_session_123"
+
+        with patch("graph.MemoryManager") as MockManager:
+            mock_instance = MagicMock()
+            mock_instance.is_near_limit.return_value = False
+            MockManager.return_value = mock_instance
+
+            result = context_manager(state)
+
+        assert result["session_id"] == "test_session_123"
+
+
+class TestContextManagerCompressionOrder:
+    """Tests for compression ordering in context_manager."""
+
+    def test_agents_checked_in_dict_iteration_order(self) -> None:
+        """Test that agents are checked in dict iteration order.
+
+        Python dicts maintain insertion order since 3.7, so agents
+        are checked in the order they were added to agent_memories.
+        """
+        from graph import context_manager
+
+        state = create_test_state()
+        # Clear and rebuild to control insertion order
+        state["agent_memories"].clear()
+        state["agent_memories"]["dm"] = AgentMemory(short_term_buffer=["Event"])
+        state["agent_memories"]["archer"] = AgentMemory(short_term_buffer=["Event"])
+        state["agent_memories"]["mage"] = AgentMemory(short_term_buffer=["Event"])
+
+        check_order: list[str] = []
+
+        with patch("graph.MemoryManager") as MockManager:
+            mock_instance = MagicMock()
+
+            def track_check(agent_name: str) -> bool:
+                check_order.append(agent_name)
+                return False
+
+            mock_instance.is_near_limit.side_effect = track_check
+            MockManager.return_value = mock_instance
+
+            context_manager(state)
+
+        # Order should match dict insertion order
+        assert check_order == ["dm", "archer", "mage"]
+
+    def test_all_agents_in_agent_memories_checked(self) -> None:
+        """Test that all agents in agent_memories are checked."""
+        from graph import context_manager
+
+        state = create_test_state()
+        agents = ["dm", "fighter", "rogue", "wizard", "cleric"]
+        for agent in agents:
+            state["agent_memories"][agent] = AgentMemory(short_term_buffer=["Event"])
+
+        checked_agents: set[str] = set()
+
+        with patch("graph.MemoryManager") as MockManager:
+            mock_instance = MagicMock()
+
+            def track_check(agent_name: str) -> bool:
+                checked_agents.add(agent_name)
+                return False
+
+            mock_instance.is_near_limit.side_effect = track_check
+            MockManager.return_value = mock_instance
+
+            context_manager(state)
+
+        # All agents should have been checked
+        for agent in agents:
+            assert agent in checked_agents
