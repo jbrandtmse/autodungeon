@@ -82,8 +82,8 @@ development_status:
   epic-4-retrospective: optional
 
   # Epic 5: Memory & Narrative Continuity (5 stories)
-  epic-5: backlog
-  5-1-short-term-context-buffer: backlog
+  epic-5: in-progress
+  5-1-short-term-context-buffer: review
   5-2-session-summary-generation: backlog
   5-3-in-session-memory-references: backlog
   5-4-cross-session-memory-character-facts: backlog

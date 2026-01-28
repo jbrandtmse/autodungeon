@@ -330,3 +330,27 @@
 
 ---
 
+# Epic 5 - Memory & Narrative Continuity
+
+**Project:** autodungeon
+**Epic:** 5 - Memory & Narrative Continuity
+**Started:** 2026-01-28
+
+**Goal:** Characters remember past events and reference them, creating ongoing story threads.
+
+**User Outcome:** "The rogue mentions something that happened three sessions ago. The DM weaves old plot threads into new encounters. They actually remember!"
+
+**FRs Covered:** FR11-FR16 (6 FRs)
+
+## Cycle Overview
+
+| Story | Status | Phase |
+|-------|--------|-------|
+| 5-1-short-term-context-buffer | 🔄 in-progress | Create Story |
+| 5-2-session-summary-generation | ⏳ backlog | Queued |
+| 5-3-in-session-memory-references | ⏳ backlog | Queued |
+| 5-4-cross-session-memory-character-facts | ⏳ backlog | Queued |
+| 5-5-memory-compression-system | ⏳ backlog | Queued |
+
+---
+
