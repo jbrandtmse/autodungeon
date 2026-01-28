@@ -5183,3 +5183,448 @@ class TestDropInButtonDisabledDuringGeneration:
             call_kwargs = mock_button.call_args[1]
             assert call_args[0] == "Release"
             assert call_kwargs.get("disabled") is True
+
+
+# =============================================================================
+# Story 3.4: Nudge System Tests
+# =============================================================================
+
+
+class TestNudgeSessionState:
+    """Tests for nudge session state initialization (Story 3.4, Task 1)."""
+
+    def test_nudge_state_initializes_as_none(self) -> None:
+        """Test that pending_nudge initializes as None."""
+        mock_session_state: dict = {}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import initialize_session_state
+
+            initialize_session_state()
+
+            assert mock_session_state.get("pending_nudge") is None
+
+    def test_nudge_submitted_initializes_as_false(self) -> None:
+        """Test that nudge_submitted initializes as False."""
+        mock_session_state: dict = {}
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import initialize_session_state
+
+            initialize_session_state()
+
+            assert mock_session_state.get("nudge_submitted") is False
+
+
+class TestHandleNudgeSubmit:
+    """Tests for handle_nudge_submit() function (Story 3.4, Task 2)."""
+
+    def test_handle_nudge_stores_sanitized_input(self) -> None:
+        """Test that nudge handler stores sanitized input."""
+        mock_session_state: dict = {
+            "pending_nudge": None,
+            "nudge_submitted": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_nudge_submit
+
+            handle_nudge_submit("  The rogue should check for traps  ")
+
+            assert mock_session_state["pending_nudge"] == "The rogue should check for traps"
+            assert mock_session_state["nudge_submitted"] is True
+
+    def test_handle_nudge_truncates_long_input(self) -> None:
+        """Test that nudge is truncated to 1000 chars."""
+        mock_session_state: dict = {
+            "pending_nudge": None,
+            "nudge_submitted": False,
+        }
+
+        long_nudge = "x" * 1500
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_nudge_submit
+
+            handle_nudge_submit(long_nudge)
+
+            assert len(mock_session_state["pending_nudge"]) == 1000
+
+    def test_empty_nudge_not_stored(self) -> None:
+        """Test that empty/whitespace nudge is not stored."""
+        mock_session_state: dict = {
+            "pending_nudge": None,
+            "nudge_submitted": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_nudge_submit
+
+            handle_nudge_submit("   ")
+
+            assert mock_session_state["pending_nudge"] is None
+            assert mock_session_state["nudge_submitted"] is False
+
+    def test_nudge_overwrite_behavior(self) -> None:
+        """Test that new nudge overwrites previous."""
+        mock_session_state: dict = {
+            "pending_nudge": None,
+            "nudge_submitted": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_nudge_submit
+
+            handle_nudge_submit("First suggestion")
+            assert mock_session_state["pending_nudge"] == "First suggestion"
+
+            handle_nudge_submit("Second suggestion")
+            assert mock_session_state["pending_nudge"] == "Second suggestion"
+
+
+class TestNudgeInputHtml:
+    """Tests for render_nudge_input_html() function (Story 3.4, Task 3)."""
+
+    def test_render_nudge_input_html_structure(self) -> None:
+        """Test that nudge input HTML contains required structure."""
+        from app import render_nudge_input_html
+
+        html = render_nudge_input_html()
+
+        assert 'class="nudge-input-container"' in html
+        assert 'class="nudge-label"' in html
+        assert 'class="nudge-hint"' in html
+        assert "Suggest Something" in html
+        assert "Whisper a suggestion to the DM" in html
+
+
+class TestNudgeInputRendering:
+    """Tests for render_nudge_input() rendering conditions (Story 3.4, Task 3)."""
+
+    def test_nudge_hidden_when_controlling_character(self) -> None:
+        """Test that nudge input is hidden in Play Mode."""
+        mock_session_state: dict = {
+            "human_active": True,
+            "pending_nudge": None,
+            "nudge_submitted": False,
+        }
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("app.st.markdown") as mock_markdown,
+            patch("app.st.text_area"),
+            patch("app.st.button"),
+        ):
+            from app import render_nudge_input
+
+            render_nudge_input()
+
+            # Should NOT render any markdown (early return)
+            mock_markdown.assert_not_called()
+
+    def test_nudge_visible_in_watch_mode(self) -> None:
+        """Test that nudge input appears in Watch Mode."""
+        mock_session_state: dict = {
+            "human_active": False,
+            "pending_nudge": None,
+            "nudge_submitted": False,
+        }
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("app.st.markdown") as mock_markdown,
+            patch("app.st.text_area"),
+            patch("app.st.button", return_value=False),
+        ):
+            from app import render_nudge_input
+
+            render_nudge_input()
+
+            # Should render nudge container
+            mock_markdown.assert_called()
+            call_args = mock_markdown.call_args_list[0][0][0]
+            assert "nudge-input-container" in call_args
+
+
+class TestNudgeDoesNotChangeMode:
+    """Tests for nudge not affecting ui_mode or human_active (Story 3.4, AC #2)."""
+
+    def test_nudge_does_not_change_ui_mode(self) -> None:
+        """Test that submitting nudge keeps user in Watch Mode."""
+        mock_session_state: dict = {
+            "ui_mode": "watch",
+            "human_active": False,
+            "pending_nudge": None,
+            "nudge_submitted": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_nudge_submit
+
+            handle_nudge_submit("Check for traps")
+
+            assert mock_session_state.get("ui_mode") == "watch"
+            assert mock_session_state.get("human_active") is False
+
+    def test_nudge_preserves_existing_mode_state(self) -> None:
+        """Test that nudge preserves all existing mode state."""
+        mock_session_state: dict = {
+            "ui_mode": "watch",
+            "human_active": False,
+            "controlled_character": None,
+            "pending_nudge": None,
+            "nudge_submitted": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_nudge_submit
+
+            handle_nudge_submit("Investigate the noise")
+
+            # All mode-related state should be unchanged
+            assert mock_session_state["ui_mode"] == "watch"
+            assert mock_session_state["human_active"] is False
+            assert mock_session_state["controlled_character"] is None
+            # Only nudge state should change
+            assert mock_session_state["pending_nudge"] == "Investigate the noise"
+
+
+class TestNudgeCSSStyles:
+    """Tests for nudge CSS styling (Story 3.4, Task 4)."""
+
+    def test_css_has_nudge_container_styles(self) -> None:
+        """Test CSS includes nudge input container class."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        assert ".nudge-input-container" in css_content
+
+    def test_css_has_nudge_label_styles(self) -> None:
+        """Test CSS includes nudge label class."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        assert ".nudge-label" in css_content
+
+    def test_css_has_nudge_hint_styles(self) -> None:
+        """Test CSS includes nudge hint class."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        assert ".nudge-hint" in css_content
+
+    def test_css_uses_green_accent_for_nudge(self) -> None:
+        """Test CSS uses green (rogue) color for nudge focus."""
+        css_path = Path(__file__).parent.parent / "styles" / "theme.css"
+        css_content = css_path.read_text(encoding="utf-8")
+
+        # Should use --color-rogue for the green suggestion theme
+        assert "var(--color-rogue)" in css_content
+
+
+class TestNudgeToastNotification:
+    """Tests for nudge toast notification (Story 3.4, Task 8)."""
+
+    def test_toast_shown_after_nudge_submission(self) -> None:
+        """Test that success toast is shown when nudge_submitted is True."""
+        mock_session_state: dict = {
+            "human_active": False,
+            "pending_nudge": "Test nudge",
+            "nudge_submitted": True,
+        }
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("app.st.markdown"),
+            patch("app.st.text_area"),
+            patch("app.st.button", return_value=False),
+            patch("app.st.success") as mock_success,
+        ):
+            from app import render_nudge_input
+
+            render_nudge_input()
+
+            # Should show success toast
+            mock_success.assert_called_once()
+            call_args = mock_success.call_args
+            assert "Nudge sent" in call_args[0][0]
+            assert call_args[1].get("icon") == "✨"
+
+    def test_toast_clears_submitted_flag(self) -> None:
+        """Test that nudge_submitted flag is cleared after showing toast."""
+        mock_session_state: dict = {
+            "human_active": False,
+            "pending_nudge": "Test nudge",
+            "nudge_submitted": True,
+        }
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("app.st.markdown"),
+            patch("app.st.text_area"),
+            patch("app.st.button", return_value=False),
+            patch("app.st.success"),
+        ):
+            from app import render_nudge_input
+
+            render_nudge_input()
+
+            # Should clear the flag after showing toast
+            assert mock_session_state["nudge_submitted"] is False
+
+
+class TestNudgeInputValidation:
+    """Tests for nudge input validation (Story 3.4, Task 9)."""
+
+    def test_nudge_strips_leading_trailing_whitespace(self) -> None:
+        """Test nudge strips whitespace before storage."""
+        mock_session_state: dict = {
+            "pending_nudge": None,
+            "nudge_submitted": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_nudge_submit
+
+            handle_nudge_submit("\n  Check for traps  \t")
+
+            assert mock_session_state["pending_nudge"] == "Check for traps"
+
+    def test_nudge_exactly_1000_chars_accepted(self) -> None:
+        """Test nudge exactly at 1000 char limit is accepted."""
+        mock_session_state: dict = {
+            "pending_nudge": None,
+            "nudge_submitted": False,
+        }
+
+        nudge_1000 = "a" * 1000
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_nudge_submit
+
+            handle_nudge_submit(nudge_1000)
+
+            assert len(mock_session_state["pending_nudge"]) == 1000
+            assert mock_session_state["nudge_submitted"] is True
+
+
+class TestNudgeInputClearing:
+    """Tests for nudge input clearing after submission (Story 3.4, AC #4)."""
+
+    def test_nudge_input_key_deleted_after_submission(self) -> None:
+        """Test that nudge_input key is deleted from session_state after submit."""
+        mock_session_state: dict = {
+            "human_active": False,
+            "pending_nudge": None,
+            "nudge_submitted": False,
+            "nudge_input": "My suggestion",  # Pre-existing input value
+        }
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("app.st.markdown"),
+            patch("app.st.text_area", return_value="My suggestion"),
+            patch("app.st.button", return_value=True),  # Simulate button click
+            patch("app.st.rerun"),  # Mock rerun to prevent actual rerun
+            patch("app.st.success"),
+        ):
+            from app import render_nudge_input
+
+            render_nudge_input()
+
+            # The nudge_input key should be deleted to clear the text area
+            assert "nudge_input" not in mock_session_state
+
+
+class TestStory34AcceptanceCriteria:
+    """Integration tests for full Story 3.4 acceptance criteria."""
+
+    def test_ac1_nudge_input_accessible_in_watch_mode(self) -> None:
+        """AC#1: Nudge feature appears when in Watch Mode."""
+        mock_session_state: dict = {
+            "human_active": False,
+            "ui_mode": "watch",
+            "pending_nudge": None,
+            "nudge_submitted": False,
+        }
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("app.st.markdown") as mock_markdown,
+            patch("app.st.text_area"),
+            patch("app.st.button", return_value=False),
+        ):
+            from app import render_nudge_input
+
+            render_nudge_input()
+
+            # Verify nudge container is rendered
+            mock_markdown.assert_called()
+            call_args = mock_markdown.call_args_list[0][0][0]
+            assert "nudge-input-container" in call_args
+
+    def test_ac2_nudge_stored_for_dm_context(self) -> None:
+        """AC#2: Nudge stored for DM context, user remains in Watch Mode."""
+        mock_session_state: dict = {
+            "ui_mode": "watch",
+            "human_active": False,
+            "pending_nudge": None,
+            "nudge_submitted": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_nudge_submit
+
+            handle_nudge_submit("The rogue should check for traps")
+
+            # Nudge should be stored
+            assert mock_session_state["pending_nudge"] == "The rogue should check for traps"
+            # User should remain in watch mode
+            assert mock_session_state["ui_mode"] == "watch"
+            assert mock_session_state["human_active"] is False
+
+    def test_ac4_toast_confirms_nudge_sent(self) -> None:
+        """AC#4: Toast confirms 'Nudge sent' and input clears."""
+        mock_session_state: dict = {
+            "human_active": False,
+            "pending_nudge": "Test",
+            "nudge_submitted": True,
+        }
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("app.st.markdown"),
+            patch("app.st.text_area"),
+            patch("app.st.button", return_value=False),
+            patch("app.st.success") as mock_success,
+        ):
+            from app import render_nudge_input
+
+            render_nudge_input()
+
+            mock_success.assert_called_once()
+            assert "Nudge sent" in mock_success.call_args[0][0]
+
+    def test_ac5_nudge_less_intrusive_than_drop_in(self) -> None:
+        """AC#5: Nudge is less intrusive - no character control."""
+        mock_session_state: dict = {
+            "ui_mode": "watch",
+            "human_active": False,
+            "controlled_character": None,
+            "pending_nudge": None,
+            "nudge_submitted": False,
+        }
+
+        with patch("streamlit.session_state", mock_session_state):
+            from app import handle_nudge_submit
+
+            handle_nudge_submit("Suggestion text")
+
+            # Unlike Drop-In, nudge should NOT:
+            # - Change ui_mode to "play"
+            # - Set human_active to True
+            # - Set controlled_character
+            assert mock_session_state["ui_mode"] == "watch"
+            assert mock_session_state["human_active"] is False
+            assert mock_session_state["controlled_character"] is None
+

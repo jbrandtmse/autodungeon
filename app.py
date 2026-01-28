@@ -446,6 +446,53 @@ def render_mode_indicator_html(
         )
 
 
+def render_nudge_input_html() -> str:
+    """Generate HTML for nudge input label and hint.
+
+    Returns:
+        HTML string for nudge input container.
+    """
+    return (
+        '<div class="nudge-input-container">'
+        '<div class="nudge-label">Suggest Something</div>'
+        '<p class="nudge-hint">Whisper a suggestion to the DM...</p>'
+        "</div>"
+    )
+
+
+def render_nudge_input() -> None:
+    """Render nudge input in the sidebar.
+
+    Only visible in Watch Mode (when not controlling a character).
+    Shows a text area for suggestions and a submit button.
+    """
+    if st.session_state.get("human_active"):
+        return  # Don't show nudge if already controlling a character
+
+    st.markdown(render_nudge_input_html(), unsafe_allow_html=True)
+
+    nudge = st.text_area(
+        "Nudge input",
+        key="nudge_input",
+        placeholder="e.g., 'The rogue should check for traps'",
+        label_visibility="collapsed",
+        height=60,
+    )
+
+    if st.button("Send Nudge", key="nudge_submit_btn", use_container_width=True):
+        handle_nudge_submit(nudge)
+        # Clear the input field by deleting its key from session_state
+        # This ensures the text area is empty on the next render (AC #4)
+        if "nudge_input" in st.session_state:
+            del st.session_state["nudge_input"]
+        st.rerun()
+
+    # Show confirmation toast
+    if st.session_state.get("nudge_submitted"):
+        st.success("Nudge sent - the DM will consider your suggestion", icon="✨")
+        st.session_state["nudge_submitted"] = False
+
+
 def render_input_context_bar_html(name: str, char_class: str) -> str:
     """Generate HTML for input context bar.
 
@@ -711,6 +758,9 @@ def initialize_session_state() -> None:
         # Human intervention state (Story 3.2)
         st.session_state["human_pending_action"] = None
         st.session_state["waiting_for_human"] = False
+        # Nudge system state (Story 3.4)
+        st.session_state["pending_nudge"] = None
+        st.session_state["nudge_submitted"] = False
 
 
 def get_api_key_status(config: AppConfig) -> str:
@@ -870,6 +920,25 @@ def handle_drop_in_click(agent_key: str) -> None:
 
 # Maximum action text length for safety
 MAX_ACTION_LENGTH = 2000
+
+# Maximum nudge text length (Story 3.4)
+MAX_NUDGE_LENGTH = 1000
+
+
+def handle_nudge_submit(nudge: str) -> None:
+    """Handle submission of nudge suggestion.
+
+    Stores the nudge in session state for the DM's next turn context.
+    Shows confirmation toast and clears input.
+
+    Args:
+        nudge: The user's suggestion text.
+    """
+    sanitized = nudge.strip()[:MAX_NUDGE_LENGTH]
+
+    if sanitized:
+        st.session_state["pending_nudge"] = sanitized
+        st.session_state["nudge_submitted"] = True
 
 
 def handle_human_action_submit(action: str) -> None:
@@ -1033,6 +1102,11 @@ def render_sidebar(config: AppConfig) -> None:
 
         # Session controls (Story 2.5)
         render_session_controls()
+
+        st.markdown("---")
+
+        # Nudge System (Story 3.4)
+        render_nudge_input()
 
         st.markdown("---")
 

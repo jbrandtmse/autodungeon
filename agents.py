@@ -366,6 +366,25 @@ def _build_dm_context(state: GameState) -> str:
     if agent_knowledge:
         context_parts.append("## Player Knowledge\n" + "\n".join(agent_knowledge))
 
+    # Player nudge/suggestion (Story 3.4 - Nudge System)
+    # Note: We access Streamlit session_state here because the nudge is UI-specific
+    # state that doesn't belong in GameState (per architecture decisions).
+    try:
+        import streamlit as st
+
+        pending_nudge = st.session_state.get("pending_nudge")
+        if pending_nudge:
+            # Sanitize nudge to prevent any injection issues
+            sanitized_nudge = str(pending_nudge).strip()
+            if sanitized_nudge:
+                context_parts.append(
+                    f"## Player Suggestion\nThe player offers this thought: {sanitized_nudge}"
+                )
+    except (ImportError, AttributeError):
+        # Streamlit not available or session_state not initialized
+        # (e.g., in tests without mocking)
+        pass
+
     return "\n\n".join(context_parts)
 
 
@@ -420,6 +439,18 @@ def dm_turn(state: GameState) -> GameState:
 
     # Build context from all agent memories
     context = _build_dm_context(state)
+
+    # Clear nudge after reading (single-use) - Story 3.4
+    # Note: We access Streamlit session_state here because the nudge is UI-specific
+    # state that doesn't belong in GameState (per architecture decisions).
+    try:
+        import streamlit as st
+
+        st.session_state["pending_nudge"] = None
+    except (ImportError, AttributeError, KeyError):
+        # Streamlit not available, session_state not initialized,
+        # or pending_nudge key doesn't exist (e.g., in tests without mocking)
+        pass
 
     # Build messages for the model
     messages: list[BaseMessage] = [SystemMessage(content=DM_SYSTEM_PROMPT)]

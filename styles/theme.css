@@ -913,3 +913,51 @@ hr {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* ==========================================================================
+   Nudge Input Widget (Story 3.4)
+   ========================================================================== */
+
+.nudge-input-container {
+  margin-top: var(--space-md);
+  padding-top: var(--space-md);
+}
+
+.nudge-label {
+  display: block;
+  font-family: var(--font-ui);
+  font-size: var(--text-system);
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: var(--space-xs);
+}
+
+.nudge-hint {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: var(--space-xs) 0 var(--space-sm) 0;
+  font-style: italic;
+}
+
+/* Nudge text area styling */
+[data-testid="stSidebar"] .nudge-input-container + div textarea {
+  background: var(--bg-message) !important;
+  border: 1px solid var(--bg-message) !important;
+}
+
+[data-testid="stSidebar"] .nudge-input-container + div textarea:focus {
+  border-color: var(--color-rogue) !important;  /* Green for suggestions */
+}
+
+/* Nudge submit button - uses green accent to differentiate from Drop-In */
+[data-testid="stSidebar"] .nudge-input-container ~ div .stButton > button {
+  background: transparent;
+  border: 1px solid var(--color-rogue);
+  color: var(--color-rogue);
+}
+
+[data-testid="stSidebar"] .nudge-input-container ~ div .stButton > button:hover {
+  background: var(--color-rogue);
+  color: var(--bg-primary);
+}

@@ -2,6 +2,7 @@
 
 import os
 from collections.abc import Generator
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -1123,3 +1124,100 @@ class TestPCTurn:
 
         with pytest.raises(KeyError):
             pc_turn(state, "unknown_character")
+
+
+# =============================================================================
+# Story 3.4: Nudge System Tests for DM Context
+# =============================================================================
+
+
+class TestNudgeDMContextIntegration:
+    """Tests for nudge integration in DM context (Story 3.4, Tasks 6, 7)."""
+
+    def test_dm_context_includes_nudge_when_present(self) -> None:
+        """Test that DM context includes pending nudge."""
+        mock_session_state: dict[str, Any] = {
+            "pending_nudge": "The wizard should cast detect magic",
+        }
+
+        state = create_initial_game_state()
+
+        with patch("streamlit.session_state", mock_session_state):
+            context = _build_dm_context(state)
+
+            assert "Player Suggestion" in context
+            assert "detect magic" in context
+            assert "The player offers this thought" in context
+
+    def test_dm_context_excludes_nudge_when_none(self) -> None:
+        """Test that DM context doesn't include nudge section when None."""
+        mock_session_state: dict[str, Any] = {
+            "pending_nudge": None,
+        }
+
+        state = create_initial_game_state()
+
+        with patch("streamlit.session_state", mock_session_state):
+            context = _build_dm_context(state)
+
+            assert "Player Suggestion" not in context
+
+    def test_dm_context_excludes_nudge_when_missing(self) -> None:
+        """Test that DM context handles missing pending_nudge gracefully."""
+        mock_session_state: dict[str, Any] = {}
+
+        state = create_initial_game_state()
+
+        with patch("streamlit.session_state", mock_session_state):
+            context = _build_dm_context(state)
+
+            assert "Player Suggestion" not in context
+
+
+class TestNudgeClearingAfterDMTurn:
+    """Tests for nudge clearing after DM processes it (Story 3.4, Task 7)."""
+
+    @patch("agents.create_dm_agent")
+    def test_dm_turn_clears_nudge(self, mock_create_dm_agent: MagicMock) -> None:
+        """Test that dm_turn clears pending_nudge after processing."""
+        mock_model = MagicMock()
+        mock_model.invoke.return_value = MagicMock(
+            content="The DM narrates the scene..."
+        )
+        mock_create_dm_agent.return_value = mock_model
+
+        mock_session_state: dict[str, Any] = {
+            "pending_nudge": "Check for traps",
+        }
+
+        state = create_initial_game_state()
+
+        with patch("streamlit.session_state", mock_session_state):
+            dm_turn(state)
+
+            # Nudge should be cleared after DM turn
+            assert mock_session_state["pending_nudge"] is None
+
+    @patch("agents.create_dm_agent")
+    def test_dm_turn_clears_nudge_only_once(
+        self, mock_create_dm_agent: MagicMock
+    ) -> None:
+        """Test that nudge is single-use (consumed after one DM turn)."""
+        mock_model = MagicMock()
+        mock_model.invoke.return_value = MagicMock(content="Response")
+        mock_create_dm_agent.return_value = mock_model
+
+        mock_session_state: dict[str, Any] = {
+            "pending_nudge": "Investigate the noise",
+        }
+
+        state = create_initial_game_state()
+
+        with patch("streamlit.session_state", mock_session_state):
+            # First DM turn - nudge is consumed
+            new_state = dm_turn(state)
+            assert mock_session_state["pending_nudge"] is None
+
+            # Second DM turn - no nudge to consume
+            dm_turn(new_state)
+            assert mock_session_state["pending_nudge"] is None
