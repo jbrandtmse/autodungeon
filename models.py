@@ -25,6 +25,7 @@ __all__ = [
     "NarrativeMessage",
     "MessageSegment",
     "SessionMetadata",
+    "TranscriptEntry",
     "create_agent_memory",
     "create_initial_game_state",
     "populate_game_state",
@@ -227,6 +228,40 @@ class SessionMetadata(BaseModel):
         default_factory=list, description="List of PC character names for display"
     )
     turn_count: int = Field(default=0, ge=0, description="Number of turns in session")
+
+
+class TranscriptEntry(BaseModel):
+    """A single entry in the session transcript for research export.
+
+    Captures everything needed for research analysis (Story 4.4):
+    - Turn number for sequence ordering
+    - ISO timestamp for timing analysis
+    - Agent name for character differentiation
+    - Full content for coherence scoring
+    - Tool calls for mechanic analysis
+
+    Transcript Schema Documentation for Researchers:
+    - turn: Turn number (1-indexed), used for sequencing entries
+    - timestamp: ISO 8601 format (e.g., "2026-01-25T14:35:22Z")
+    - agent: Agent key who generated this content (e.g., "dm", "rogue", "fighter")
+    - content: Full message content (never truncated, supports coherence analysis)
+    - tool_calls: List of tool call records with name, args, and result fields
+
+    Attributes:
+        turn: Turn number (1-indexed).
+        timestamp: ISO format timestamp (e.g., "2026-01-25T14:35:22Z").
+        agent: Agent key who generated this content (e.g., "dm", "rogue").
+        content: Full message content (not truncated).
+        tool_calls: List of tool call records, or None if no tools used.
+    """
+
+    turn: int = Field(..., ge=1, description="Turn number (1-indexed)")
+    timestamp: str = Field(..., description="ISO format timestamp")
+    agent: str = Field(..., min_length=1, description="Agent key")
+    content: str = Field(..., description="Full message content")
+    tool_calls: list[dict[str, object]] | None = Field(
+        default=None, description="Tool calls made during this turn"
+    )
 
 
 class GameState(TypedDict):

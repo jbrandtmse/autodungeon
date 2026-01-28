@@ -27,11 +27,13 @@ from models import (
     GameConfig,
     GameState,
     SessionMetadata,
+    TranscriptEntry,
 )
 
 __all__ = [
     "CAMPAIGNS_DIR",
     "CheckpointInfo",
+    "append_transcript_entry",
     "create_new_session",
     "deserialize_game_state",
     "ensure_session_dir",
@@ -43,12 +45,15 @@ __all__ = [
     "get_latest_checkpoint",
     "get_next_session_number",
     "get_session_dir",
+    "get_transcript_download_data",
+    "get_transcript_path",
     "list_checkpoint_info",
     "list_checkpoints",
     "list_sessions",
     "list_sessions_with_metadata",
     "load_checkpoint",
     "load_session_metadata",
+    "load_transcript",
     "save_checkpoint",
     "save_session_metadata",
     "serialize_game_state",
@@ -733,3 +738,142 @@ def generate_recap_summary(session_id: str, num_turns: int = 5) -> str | None:
         summary_lines.append(content)
 
     return "\n".join(summary_lines)
+
+
+# =============================================================================
+# Transcript Export (Story 4.4)
+# =============================================================================
+
+
+def get_transcript_path(session_id: str) -> Path:
+    """Get path to session transcript.json file.
+
+    Args:
+        session_id: Session ID string.
+
+    Returns:
+        Path to transcript.json file in session directory.
+
+    Raises:
+        ValueError: If session_id contains invalid characters.
+    """
+    _validate_session_id(session_id)
+    return get_session_dir(session_id) / "transcript.json"
+
+
+def append_transcript_entry(session_id: str, entry: TranscriptEntry) -> None:
+    """Append entry to transcript.json using atomic write pattern.
+
+    The transcript is an append-only JSON array. We:
+    1. Load existing entries (or empty list if new)
+    2. Append the new entry
+    3. Write atomically via temp file + rename
+
+    This is simpler than true append (which would require JSONL format)
+    while maintaining JSON array structure for easy parsing.
+
+    Args:
+        session_id: Session ID string.
+        entry: TranscriptEntry to append.
+
+    Raises:
+        OSError: If write fails (permissions, disk full, etc.).
+    """
+    # Ensure session directory exists
+    ensure_session_dir(session_id)
+    transcript_path = get_transcript_path(session_id)
+
+    # Load existing entries
+    entries: list[dict[str, object]] = []
+    if transcript_path.exists():
+        try:
+            content = transcript_path.read_text(encoding="utf-8")
+            loaded = json.loads(content)
+            if isinstance(loaded, list):
+                entries = loaded
+            # else: corrupted file (not a list), start fresh
+        except (json.JSONDecodeError, OSError):
+            # Corrupted file - start fresh but log warning (handled gracefully)
+            entries = []
+
+    # Append new entry
+    entries.append(entry.model_dump())
+
+    # Atomic write via temp file + rename
+    temp_path = transcript_path.with_suffix(".json.tmp")
+    try:
+        temp_path.write_text(
+            json.dumps(entries, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        temp_path.replace(transcript_path)
+    except Exception:
+        temp_path.unlink(missing_ok=True)
+        raise
+
+
+def load_transcript(session_id: str) -> list[TranscriptEntry] | None:
+    """Load transcript entries from transcript.json.
+
+    Args:
+        session_id: Session ID string.
+
+    Returns:
+        List of TranscriptEntry objects, or None if transcript doesn't exist.
+        Returns empty list if transcript file exists but is empty or corrupted.
+    """
+    transcript_path = get_transcript_path(session_id)
+
+    if not transcript_path.exists():
+        return None
+
+    try:
+        content = transcript_path.read_text(encoding="utf-8")
+        data = json.loads(content)
+
+        if not isinstance(data, list):
+            # Corrupted: not a list - return empty list
+            return []
+
+        entries: list[TranscriptEntry] = []
+        for item in data:
+            try:
+                entries.append(TranscriptEntry(**item))
+            except (TypeError, ValidationError):
+                # Skip invalid entries (graceful handling of corrupted data)
+                continue
+
+        return entries
+    except (json.JSONDecodeError, OSError):
+        # File exists but unreadable/corrupted - return empty list
+        return []
+
+
+def get_transcript_download_data(session_id: str) -> str | None:
+    """Generate formatted JSON string for transcript download.
+
+    Args:
+        session_id: Session ID string.
+
+    Returns:
+        Pretty-printed JSON string for download, or None if no transcript exists.
+    """
+    transcript_path = get_transcript_path(session_id)
+
+    if not transcript_path.exists():
+        return None
+
+    try:
+        content = transcript_path.read_text(encoding="utf-8")
+        data = json.loads(content)
+
+        if not isinstance(data, list):
+            return None
+
+        if not data:
+            # Empty transcript - return empty array
+            return "[]"
+
+        # Pretty-print for readability
+        return json.dumps(data, indent=2, ensure_ascii=False)
+    except (json.JSONDecodeError, OSError):
+        return None

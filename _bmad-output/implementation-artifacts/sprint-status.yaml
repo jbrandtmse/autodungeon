@@ -76,8 +76,8 @@ development_status:
   epic-4: in-progress
   4-1-auto-checkpoint-system: done
   4-2-checkpoint-browser-restore: done
-  4-3-campaign-organization-multi-session-continuity: review
-  4-4-transcript-export: backlog
+  4-3-campaign-organization-multi-session-continuity: done
+  4-4-transcript-export: review
   4-5-error-handling-recovery: backlog
   epic-4-retrospective: optional
 

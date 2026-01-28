@@ -19,6 +19,8 @@ from persistence import (
     create_new_session,
     generate_recap_summary,
     get_latest_checkpoint,
+    get_transcript_download_data,
+    get_transcript_path,
     list_sessions,
     list_sessions_with_metadata,
     load_checkpoint,
@@ -1494,6 +1496,65 @@ def render_checkpoint_browser() -> None:
         st.markdown("</div>", unsafe_allow_html=True)
 
 
+# =============================================================================
+# Export Transcript Button (Story 4.4)
+# =============================================================================
+
+
+def render_export_transcript_button() -> None:
+    """Render transcript export download button in sidebar.
+
+    Shows a download button for the session transcript JSON file.
+    Button is disabled if no transcript exists.
+    Uses st.download_button for direct file download.
+    """
+    from datetime import datetime
+
+    game: GameState = st.session_state.get("game", {})
+    session_id = game.get("session_id", "001")
+
+    # Check if transcript exists
+    transcript_path = get_transcript_path(session_id)
+    has_transcript = transcript_path.exists()
+
+    if not has_transcript:
+        # No transcript - show disabled button with help text
+        st.button(
+            "Export Transcript",
+            key="export_transcript_btn",
+            disabled=True,
+            help="No transcript available - play some turns first",
+        )
+        return
+
+    # Get transcript data for download
+    transcript_data = get_transcript_download_data(session_id)
+
+    if transcript_data is None:
+        # Transcript file exists but couldn't be read
+        st.button(
+            "Export Transcript",
+            key="export_transcript_btn",
+            disabled=True,
+            help="Transcript file could not be read",
+        )
+        return
+
+    # Generate filename with timestamp
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"transcript_session_{session_id}_{ts}.json"
+
+    # Render download button
+    st.download_button(
+        label="Export Transcript",
+        data=transcript_data,
+        file_name=filename,
+        mime="application/json",
+        key="export_transcript_btn",
+        help="Download session transcript as JSON",
+    )
+
+
 def render_sidebar(config: AppConfig) -> None:
     """Render the sidebar with mode indicator, party panel, and config status.
 
@@ -1542,6 +1603,11 @@ def render_sidebar(config: AppConfig) -> None:
 
         # Checkpoint Browser (Story 4.2)
         render_checkpoint_browser()
+
+        st.markdown("---")
+
+        # Export Transcript (Story 4.4)
+        render_export_transcript_button()
 
         st.markdown("---")
 

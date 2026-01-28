@@ -1359,3 +1359,35 @@ hr {
   border-color: var(--text-primary);
   color: var(--text-primary);
 }
+
+/* ==========================================================================
+   Export Transcript Button (Story 4.4)
+   ========================================================================== */
+
+/* Export Transcript button - secondary button styling */
+[data-testid="stSidebar"] .stDownloadButton > button,
+[data-testid="stSidebar"] .stButton > button[data-testid="export_transcript_btn"] {
+  background: transparent;
+  border: 1px solid var(--color-rogue);  /* Green accent for export/research */
+  color: var(--color-rogue);
+  width: 100%;
+  font-family: var(--font-ui);
+  font-size: var(--text-system);
+  transition: all 0.15s ease;
+}
+
+[data-testid="stSidebar"] .stDownloadButton > button:hover,
+[data-testid="stSidebar"] .stButton > button[data-testid="export_transcript_btn"]:hover {
+  background: var(--color-rogue);
+  color: var(--bg-primary);
+}
+
+/* Disabled state for export button */
+[data-testid="stSidebar"] .stDownloadButton > button:disabled,
+[data-testid="stSidebar"] .stButton > button[data-testid="export_transcript_btn"]:disabled {
+  background: transparent;
+  border-color: var(--text-secondary);
+  color: var(--text-secondary);
+  opacity: 0.5;
+  cursor: not-allowed;
+}

@@ -79,7 +79,8 @@ def human_intervention_node(state: GameState) -> GameState:
     to ground_truth_log. Also updates the character's agent memory
     for consistency with PC turn behavior.
 
-    Includes auto-checkpoint save after human action is processed (FR33).
+    Includes auto-checkpoint save after human action is processed (FR33)
+    and transcript logging (FR39, Story 4.4).
 
     Args:
         state: Current game state.
@@ -87,10 +88,12 @@ def human_intervention_node(state: GameState) -> GameState:
     Returns:
         Updated game state with human action added to log and memory.
     """
+    from datetime import UTC, datetime
+
     import streamlit as st
 
-    from models import AgentMemory
-    from persistence import save_checkpoint
+    from models import AgentMemory, TranscriptEntry
+    from persistence import append_transcript_entry, save_checkpoint
 
     # Get pending action from session state
     pending_action = st.session_state.get("human_pending_action")
@@ -137,10 +140,27 @@ def human_intervention_node(state: GameState) -> GameState:
         "agent_memories": new_memories,
     }
 
-    # Auto-checkpoint: save after human action (FR33)
+    # Get session_id and turn_number for persistence
     session_id = updated_state.get("session_id", "001")
     turn_number = len(new_log)
+
+    # Append transcript entry for human action (FR39, Story 4.4)
     if turn_number > 0:
+        timestamp = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+        transcript_entry = TranscriptEntry(
+            turn=turn_number,
+            timestamp=timestamp,
+            agent=controlled,
+            content=pending_action,
+            tool_calls=None,
+        )
+        try:
+            append_transcript_entry(session_id, transcript_entry)
+        except OSError:
+            # Log error but don't fail (graceful degradation)
+            pass
+
+        # Auto-checkpoint: save after human action (FR33)
         save_checkpoint(updated_state, session_id, turn_number)
 
     return updated_state
@@ -214,12 +234,72 @@ def create_game_workflow(  # type: ignore[return-value]
     return workflow.compile()
 
 
+def _append_transcript_for_new_entries(
+    state: GameState, result: GameState, session_id: str
+) -> None:
+    """Append transcript entries for new log entries added during round.
+
+    Compares state before and after round execution to identify new entries,
+    then appends a TranscriptEntry for each. Tool calls are not captured
+    at this level (would require agent-level integration).
+
+    Args:
+        state: GameState before round execution.
+        result: GameState after round execution.
+        session_id: Session ID for transcript file.
+    """
+    from datetime import UTC, datetime
+
+    from models import TranscriptEntry
+    from persistence import append_transcript_entry
+
+    old_log = state.get("ground_truth_log", [])
+    new_log = result.get("ground_truth_log", [])
+
+    # Find new entries added during this round
+    old_count = len(old_log)
+    new_entries = new_log[old_count:]
+
+    for i, entry in enumerate(new_entries):
+        turn_number = old_count + i + 1  # 1-indexed
+
+        # Parse agent from log entry format "[agent]: content"
+        agent = "dm"  # default
+        content = entry
+
+        if entry.startswith("["):
+            bracket_end = entry.find("]")
+            if bracket_end > 0:
+                agent = entry[1:bracket_end]
+                # Content is everything after "]: " or just after "]"
+                rest = entry[bracket_end + 1 :]
+                content = rest.lstrip(": ").strip()
+
+        # Generate ISO timestamp
+        timestamp = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+        # Create and append transcript entry
+        transcript_entry = TranscriptEntry(
+            turn=turn_number,
+            timestamp=timestamp,
+            agent=agent,
+            content=content,
+            tool_calls=None,  # Tool calls not captured at graph level
+        )
+
+        try:
+            append_transcript_entry(session_id, transcript_entry)
+        except OSError:
+            # Log error but don't fail game execution (graceful degradation)
+            pass
+
+
 def run_single_round(state: GameState) -> GameState:
     """Execute one complete round (DM + all PCs).
 
     Convenience function that runs the workflow until the DM's next turn,
     completing one full cycle of the turn queue. Now includes auto-checkpoint
-    save after round completion (FR33, NFR11).
+    save after round completion (FR33, NFR11) and transcript logging (FR39).
 
     Note: This function creates a new workflow each time. For repeated
     execution, consider caching the compiled workflow.
@@ -241,9 +321,14 @@ def run_single_round(state: GameState) -> GameState:
         config={"recursion_limit": len(state["turn_queue"]) + 2},
     )  # type: ignore[assignment]
 
-    # Auto-checkpoint: save after each round (FR33, NFR11)
+    # Get session_id for persistence operations
     session_id = result.get("session_id", "001")
     turn_number = len(result["ground_truth_log"])
+
+    # Append transcript entries for new log entries (FR39, Story 4.4)
+    _append_transcript_for_new_entries(state, result, session_id)
+
+    # Auto-checkpoint: save after each round (FR33, NFR11)
     if turn_number > 0:  # Only save if there's content
         save_checkpoint(result, session_id, turn_number)
 
