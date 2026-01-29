@@ -12,13 +12,85 @@ Expanded test coverage for the autodungeon project by analyzing existing gaps an
 
 | Metric | Before | After | Change |
 |--------|--------|-------|--------|
-| Total Tests | 2017 | 2059 | +42 |
-| Story 6-1 Tests | 35 | 77 | +42 |
-| Story 6-1 Coverage | Basic | Comprehensive | +42 tests |
+| Total Tests | 2239 | 2288 | +49 |
+| Story 6-3 Tests | 42 | 91 | +49 |
+| Story 6-3 Coverage | Basic | Comprehensive | +116% growth |
 
 ---
 
-## Story 6-1: Configuration Modal Structure (Latest Session)
+## Story 6-3: Per-Agent Model Selection (Latest Session)
+
+**Date:** 2026-01-28
+**Story Key:** 6-3-per-agent-model-selection
+
+### Implementation Summary
+
+Story 6.3 implements Per-Agent Model Selection for LLM Configuration UI (Epic 6):
+- `app.py` - Model selection functions (render_agent_model_row, render_models_tab, handle_provider_change, handle_model_change, handle_copy_dm_to_pcs, handle_reset_model_defaults, apply_model_config_changes, get_agent_status, get_current_agent_model, render_status_badge, PROVIDER_OPTIONS, PROVIDER_KEYS, PROVIDER_DISPLAY)
+- `config.py` - get_available_models(), GEMINI_MODELS, CLAUDE_MODELS, OLLAMA_FALLBACK_MODELS
+- `models.py` - summarizer_provider field in GameConfig
+- `styles/theme.css` - Agent Model Selection CSS classes
+
+### Tests Added (49 new tests in 15 test classes)
+
+| Test Class | Tests | Focus Area |
+|------------|-------|------------|
+| TestGetClassFromCharacterKey | 3 | Character class retrieval |
+| TestGetClassCssName | 3 | CSS class name conversion |
+| TestRenderStatusBadge | 4 | Status badge HTML generation |
+| TestProviderConstants | 4 | Provider constant consistency |
+| TestModelConstants | 3 | Model list validity |
+| TestProviderChangeHandlerExtended | 4 | Cross-provider switching |
+| TestModelChangeHandlerExtended | 3 | Model change edge cases |
+| TestApplyModelConfigExtended | 4 | Config application edge cases |
+| TestGetCurrentAgentModelExtended | 4 | Agent model retrieval |
+| TestQuickActionsExtended | 3 | Quick action edge cases |
+| TestAgentStatusExtended | 3 | Status priority/case handling |
+| TestSnapshotConfigValuesExtended | 2 | Snapshot completeness |
+| TestCrossProviderSwitching | 2 | Full provider cycle tests |
+| TestErrorHandling | 4 | Malformed state handling |
+| TestOllamaDynamicModels | 3 | Dynamic model loading |
+
+### Key Test Scenarios Added
+
+1. **Helper Function Coverage:**
+   - get_class_from_character_key() - Known/unknown characters, no game state
+   - get_class_css_name() - Case conversion, empty string handling
+   - render_status_badge() - Active/AI/You badges, HTML escaping
+
+2. **Provider Constants:**
+   - PROVIDER_OPTIONS completeness
+   - PROVIDER_KEYS/PROVIDER_DISPLAY bidirectional consistency
+
+3. **Cross-Provider Switching:**
+   - Gemini to Claude switch
+   - Claude to Ollama switch
+   - Ollama to Gemini switch
+   - Full provider cycle (Gemini -> Claude -> Ollama -> Gemini)
+   - Mixed providers across agents (DM, PCs, Summarizer all different)
+
+4. **Error Handling:**
+   - Malformed game state (missing keys)
+   - Invalid provider types (None, integer)
+   - Missing session state keys
+
+5. **Edge Cases:**
+   - Partial overrides (only model, not provider)
+   - Empty overrides handling
+   - No game state handling
+   - Case-insensitive agent key matching
+   - Controlled status precedence over Active
+
+### Quality Checks
+
+```bash
+pytest tests/test_story_6_3_model_selection.py - 91 passed
+pytest (full suite) - 2288 passed, 1 skipped
+```
+
+---
+
+## Story 6-1: Configuration Modal Structure
 
 **Date:** 2026-01-28
 **Story Key:** 6-1-configuration-modal-structure
