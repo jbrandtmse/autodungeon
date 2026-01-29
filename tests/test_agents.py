@@ -289,6 +289,8 @@ class TestModuleExports:
             # Error handling exports (Story 4.5)
             "categorize_error",
             "detect_network_error",
+            # Story 5.4: Cross-Session Memory
+            "format_character_facts",
         }
 
         assert set(agents.__all__) == expected_exports
@@ -1560,3 +1562,179 @@ class TestNudgeLongContentHandling:
 
             # Nudge should still be present
             assert "A nudge" in context
+
+
+# =============================================================================
+# Story 5.4: CharacterFacts in Context Building Tests
+# =============================================================================
+
+
+class TestCharacterFactsInContext:
+    """Tests for CharacterFacts inclusion in agent context (Story 5.4, Task 5)."""
+
+    def test_pc_context_includes_character_facts(self) -> None:
+        """Test _build_pc_context includes character_facts when present."""
+        from models import CharacterFacts
+
+        state = create_initial_game_state()
+        facts = CharacterFacts(
+            name="Shadowmere",
+            character_class="Rogue",
+            key_traits=["Sardonic wit", "Trust issues"],
+            relationships={"Theros": "Trusted ally", "Lord Blackwood": "Enemy"},
+            notable_events=["Stole enchanted dagger", "Discovered secret passage"],
+        )
+        state["agent_memories"]["rogue"] = AgentMemory(
+            long_term_summary="My journey through the dungeon",
+            short_term_buffer=["Recent event"],
+            character_facts=facts,
+        )
+
+        context = _build_pc_context(state, "rogue")
+
+        # Character identity section should be present
+        assert "Character Identity" in context or "Shadowmere" in context
+        assert "Rogue" in context
+
+    def test_pc_context_includes_key_traits(self) -> None:
+        """Test _build_pc_context includes key_traits from character_facts."""
+        from models import CharacterFacts
+
+        state = create_initial_game_state()
+        facts = CharacterFacts(
+            name="Shadowmere",
+            character_class="Rogue",
+            key_traits=["Sardonic wit", "Trust issues", "Observant"],
+        )
+        state["agent_memories"]["rogue"] = AgentMemory(character_facts=facts)
+
+        context = _build_pc_context(state, "rogue")
+
+        assert "Sardonic wit" in context
+        assert "Trust issues" in context
+        assert "Observant" in context
+
+    def test_pc_context_includes_relationships(self) -> None:
+        """Test _build_pc_context includes relationships from character_facts."""
+        from models import CharacterFacts
+
+        state = create_initial_game_state()
+        facts = CharacterFacts(
+            name="Shadowmere",
+            character_class="Rogue",
+            relationships={
+                "Theros": "Trusted party member, saved my life",
+                "Lord Blackwood": "Enemy - stole from him",
+            },
+        )
+        state["agent_memories"]["rogue"] = AgentMemory(character_facts=facts)
+
+        context = _build_pc_context(state, "rogue")
+
+        assert "Theros" in context
+        assert "Trusted party member" in context or "saved my life" in context
+        assert "Lord Blackwood" in context
+        assert "Enemy" in context or "stole from him" in context
+
+    def test_pc_context_includes_notable_events(self) -> None:
+        """Test _build_pc_context includes notable_events from character_facts."""
+        from models import CharacterFacts
+
+        state = create_initial_game_state()
+        facts = CharacterFacts(
+            name="Shadowmere",
+            character_class="Rogue",
+            notable_events=[
+                "Discovered the hidden passage in Thornwood Tower",
+                "Stole the enchanted dagger from Lord Blackwood",
+            ],
+        )
+        state["agent_memories"]["rogue"] = AgentMemory(character_facts=facts)
+
+        context = _build_pc_context(state, "rogue")
+
+        assert "Thornwood Tower" in context or "hidden passage" in context
+        assert "enchanted dagger" in context or "Lord Blackwood" in context
+
+    def test_pc_context_without_character_facts_works(self) -> None:
+        """Test _build_pc_context works when character_facts is None."""
+        state = create_initial_game_state()
+        state["agent_memories"]["rogue"] = AgentMemory(
+            long_term_summary="My journey",
+            short_term_buffer=["Recent event"],
+        )
+
+        context = _build_pc_context(state, "rogue")
+
+        # Should work without character_facts
+        assert "My journey" in context
+        assert "Recent event" in context
+
+    def test_dm_context_includes_character_facts_for_all_pcs(self) -> None:
+        """Test _build_dm_context includes character_facts for all PC agents."""
+        from models import CharacterFacts
+
+        state = create_initial_game_state()
+        facts_rogue = CharacterFacts(
+            name="Shadowmere",
+            character_class="Rogue",
+            relationships={"Theros": "Ally"},
+        )
+        facts_fighter = CharacterFacts(
+            name="Theros",
+            character_class="Fighter",
+            relationships={"Shadowmere": "Fellow adventurer"},
+        )
+        state["agent_memories"]["dm"] = AgentMemory()
+        state["agent_memories"]["rogue"] = AgentMemory(character_facts=facts_rogue)
+        state["agent_memories"]["fighter"] = AgentMemory(character_facts=facts_fighter)
+
+        with patch("streamlit.session_state", {}):
+            context = _build_dm_context(state)
+
+        # DM should see both characters' facts
+        assert "Shadowmere" in context
+        assert "Theros" in context
+
+    def test_format_character_facts_helper(self) -> None:
+        """Test format_character_facts helper function."""
+        from agents import format_character_facts
+        from models import CharacterFacts
+
+        facts = CharacterFacts(
+            name="Shadowmere",
+            character_class="Rogue",
+            key_traits=["Sardonic wit", "Trust issues"],
+            relationships={"Theros": "Trusted ally"},
+            notable_events=["Stole the dagger"],
+        )
+
+        formatted = format_character_facts(facts)
+
+        assert "Shadowmere" in formatted
+        assert "Rogue" in formatted
+        assert "Sardonic wit" in formatted
+        assert "Trust issues" in formatted
+        assert "Theros" in formatted
+        assert "Trusted ally" in formatted
+        assert "Stole the dagger" in formatted
+
+    def test_format_character_facts_empty_fields(self) -> None:
+        """Test format_character_facts handles empty optional fields."""
+        from agents import format_character_facts
+        from models import CharacterFacts
+
+        facts = CharacterFacts(
+            name="BasicCharacter",
+            character_class="Fighter",
+        )
+
+        formatted = format_character_facts(facts)
+
+        assert "BasicCharacter" in formatted
+        assert "Fighter" in formatted
+        # Should not crash with empty lists/dicts
+
+    def test_format_character_facts_in_exports(self) -> None:
+        """Test format_character_facts is in module __all__."""
+        assert "format_character_facts" in agents.__all__

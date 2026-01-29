@@ -47,6 +47,7 @@ __all__ = [
     "get_session_dir",
     "get_transcript_download_data",
     "get_transcript_path",
+    "initialize_session_with_previous_memories",
     "list_checkpoint_info",
     "list_checkpoints",
     "list_sessions",
@@ -91,8 +92,7 @@ def _validate_turn_number(turn_number: int) -> None:
     # Runtime check needed since Python doesn't enforce type hints
     if not isinstance(turn_number, int) or turn_number < 0:  # type: ignore[redundant-expr]
         raise ValueError(
-            f"Invalid turn_number: {turn_number!r}. "
-            "Must be a non-negative integer."
+            f"Invalid turn_number: {turn_number!r}. Must be a non-negative integer."
         )
 
 
@@ -193,6 +193,7 @@ def serialize_game_state(state: GameState) -> str:
         "controlled_character": state["controlled_character"],
         "session_number": state["session_number"],
         "session_id": state.get("session_id", "001"),
+        "summarization_in_progress": state.get("summarization_in_progress", False),
     }
     return json.dumps(serializable, indent=2)
 
@@ -220,9 +221,7 @@ def deserialize_game_state(json_str: str) -> GameState:
         ground_truth_log=data["ground_truth_log"],
         turn_queue=data["turn_queue"],
         current_turn=data["current_turn"],
-        agent_memories={
-            k: AgentMemory(**v) for k, v in data["agent_memories"].items()
-        },
+        agent_memories={k: AgentMemory(**v) for k, v in data["agent_memories"].items()},
         game_config=GameConfig(**data["game_config"]),
         dm_config=DMConfig(**data["dm_config"]),
         characters={k: CharacterConfig(**v) for k, v in data["characters"].items()},
@@ -231,6 +230,7 @@ def deserialize_game_state(json_str: str) -> GameState:
         controlled_character=data["controlled_character"],
         session_number=data["session_number"],
         session_id=data.get("session_id", "001"),
+        summarization_in_progress=data.get("summarization_in_progress", False),
     )
 
 
@@ -693,12 +693,19 @@ def update_session_metadata_on_checkpoint(
     save_session_metadata(session_id, metadata)
 
 
-def generate_recap_summary(session_id: str, num_turns: int = 5) -> str | None:
+def generate_recap_summary(
+    session_id: str, num_turns: int = 5, include_cross_session: bool = False
+) -> str | None:
     """Generate a "While you were away" summary from recent turns.
+
+    Story 5.4: Cross-Session Memory & Character Facts - Enhanced to include
+    cross-session context when continuing a previous session.
 
     Args:
         session_id: Session ID string.
         num_turns: Number of recent turns to summarize.
+        include_cross_session: If True, include long_term_summary and
+            character relationships from agent memories.
 
     Returns:
         Recap summary string, or None if no checkpoints exist.
@@ -711,33 +718,124 @@ def generate_recap_summary(session_id: str, num_turns: int = 5) -> str | None:
     if state is None:
         return None
 
+    recap_sections: list[str] = []
+
+    # Include cross-session context if requested (Story 5.4)
+    if include_cross_session:
+        agent_memories = state.get("agent_memories", {})
+
+        # Add DM's story summary if available
+        dm_memory = agent_memories.get("dm")
+        if dm_memory and dm_memory.long_term_summary:
+            recap_sections.append(
+                f"**Story So Far:**\n{dm_memory.long_term_summary[:300]}"
+            )
+
+        # Add key relationships from character facts
+        relationships_parts: list[str] = []
+        for agent_name, memory in agent_memories.items():
+            if agent_name == "dm":
+                continue
+            if memory.character_facts and memory.character_facts.relationships:
+                for name, desc in memory.character_facts.relationships.items():
+                    relationships_parts.append(f"- {name}: {desc}")
+
+        if relationships_parts:
+            recap_sections.append(
+                "**Key Relationships:**\n" + "\n".join(relationships_parts[:5])
+            )
+
     log = state.get("ground_truth_log", [])
-    if not log:
+    if not log and not recap_sections:
         return None
 
-    # Get last N entries
-    recent_entries = log[-num_turns:] if len(log) >= num_turns else log
+    # Get last N entries from ground truth log
+    if log:
+        recent_entries = log[-num_turns:] if len(log) >= num_turns else log
 
-    # Format recap entries (CSS provides bullet styling via .recap-item)
-    summary_lines: list[str] = []
-    for entry in recent_entries:
-        # Strip agent prefix for cleaner display
-        if entry.startswith("["):
-            bracket_end = entry.find("]")
-            if bracket_end > 0:
-                content = entry[bracket_end + 1 :].strip()
+        # Format recap entries (CSS provides bullet styling via .recap-item)
+        summary_lines: list[str] = []
+        for entry in recent_entries:
+            # Strip agent prefix for cleaner display
+            if entry.startswith("["):
+                bracket_end = entry.find("]")
+                if bracket_end > 0:
+                    content = entry[bracket_end + 1 :].strip()
+                else:
+                    content = entry
             else:
                 content = entry
-        else:
-            content = entry
 
-        # Truncate long entries
-        if len(content) > 150:
-            content = content[:147] + "..."
+            # Truncate long entries
+            if len(content) > 150:
+                content = content[:147] + "..."
 
-        summary_lines.append(content)
+            summary_lines.append(content)
 
-    return "\n".join(summary_lines)
+        if summary_lines:
+            recap_sections.append("**Recent Events:**\n" + "\n".join(summary_lines))
+
+    return "\n\n".join(recap_sections) if recap_sections else None
+
+
+# =============================================================================
+# Cross-Session Memory Initialization (Story 5.4)
+# =============================================================================
+
+
+def initialize_session_with_previous_memories(
+    previous_session_id: str,
+    new_session_id: str,
+    new_state: GameState,
+) -> GameState:
+    """Initialize a new session carrying over memories from a previous session.
+
+    This function copies long_term_summary and character_facts from the previous
+    session's agent memories to the new session, while keeping short_term_buffer
+    empty for a fresh start.
+
+    Story 5.4: Cross-Session Memory & Character Facts.
+
+    Args:
+        previous_session_id: Session ID to load memories from.
+        new_session_id: New session ID (for logging/context).
+        new_state: The new GameState to initialize.
+
+    Returns:
+        The new_state with memories carried over from previous session.
+        If previous session doesn't exist, returns new_state unchanged.
+    """
+    # Try to load the latest checkpoint from previous session
+    latest_turn = get_latest_checkpoint(previous_session_id)
+    if latest_turn is None:
+        return new_state
+
+    prev_state = load_checkpoint(previous_session_id, latest_turn)
+    if prev_state is None:
+        return new_state
+
+    prev_memories = prev_state.get("agent_memories", {})
+    new_memories = new_state.get("agent_memories", {})
+
+    # Copy long_term_summary and character_facts from previous session
+    # while preserving token_limit from new state
+    for agent_name, new_memory in new_memories.items():
+        if agent_name in prev_memories:
+            prev_memory = prev_memories[agent_name]
+
+            # Build new memory with:
+            # - long_term_summary from previous session
+            # - character_facts from previous session
+            # - token_limit from new session (may have changed)
+            # - empty short_term_buffer (fresh start)
+            new_memories[agent_name] = AgentMemory(
+                long_term_summary=prev_memory.long_term_summary,
+                short_term_buffer=[],  # Fresh start for new session
+                token_limit=new_memory.token_limit,
+                character_facts=prev_memory.character_facts,
+            )
+
+    return new_state
 
 
 # =============================================================================

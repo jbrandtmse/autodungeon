@@ -146,8 +146,9 @@ class TestPathUtilities:
     def test_checkpoint_path_ends_with_json(self) -> None:
         """Test checkpoint path format follows session_xxx/turn_xxx.json."""
         path = get_checkpoint_path("001", 42)
-        assert str(path).endswith("campaigns/session_001/turn_042.json") or \
-               str(path).endswith("campaigns\\session_001\\turn_042.json")
+        assert str(path).endswith("campaigns/session_001/turn_042.json") or str(
+            path
+        ).endswith("campaigns\\session_001\\turn_042.json")
 
     def test_ensure_session_dir_creates_directory(
         self, temp_campaigns_dir: Path
@@ -179,9 +180,7 @@ class TestPathUtilities:
 class TestGameStateSerialization:
     """Tests for GameState serialize/deserialize."""
 
-    def test_serialize_returns_json_string(
-        self, sample_game_state: GameState
-    ) -> None:
+    def test_serialize_returns_json_string(self, sample_game_state: GameState) -> None:
         """Test serialize_game_state returns valid JSON."""
         json_str = serialize_game_state(sample_game_state)
         assert isinstance(json_str, str)
@@ -190,9 +189,7 @@ class TestGameStateSerialization:
         data = json.loads(json_str)
         assert isinstance(data, dict)
 
-    def test_serialize_includes_all_fields(
-        self, sample_game_state: GameState
-    ) -> None:
+    def test_serialize_includes_all_fields(self, sample_game_state: GameState) -> None:
         """Test serialized JSON includes all GameState fields."""
         json_str = serialize_game_state(sample_game_state)
         data = json.loads(json_str)
@@ -210,6 +207,7 @@ class TestGameStateSerialization:
             "controlled_character",
             "session_number",
             "session_id",
+            "summarization_in_progress",
         }
         assert set(data.keys()) == expected_keys
 
@@ -230,10 +228,14 @@ class TestGameStateSerialization:
         data = json.loads(json_str)
 
         assert "dm" in data["agent_memories"]
-        assert data["agent_memories"]["dm"]["long_term_summary"] == \
-               "The party entered a dungeon."
-        assert data["agent_memories"]["dm"]["short_term_buffer"] == \
-               ["Recent event 1", "Recent event 2"]
+        assert (
+            data["agent_memories"]["dm"]["long_term_summary"]
+            == "The party entered a dungeon."
+        )
+        assert data["agent_memories"]["dm"]["short_term_buffer"] == [
+            "Recent event 1",
+            "Recent event 2",
+        ]
 
     def test_serialize_deserialize_roundtrip(
         self, sample_game_state: GameState
@@ -257,8 +259,9 @@ class TestGameStateSerialization:
         json_str = serialize_game_state(sample_game_state)
         restored = deserialize_game_state(json_str)
 
-        assert len(restored["agent_memories"]) == \
-               len(sample_game_state["agent_memories"])
+        assert len(restored["agent_memories"]) == len(
+            sample_game_state["agent_memories"]
+        )
 
         dm_memory = restored["agent_memories"]["dm"]
         assert dm_memory.long_term_summary == "The party entered a dungeon."
@@ -467,8 +470,7 @@ class TestLoadCheckpoint:
             loaded = load_checkpoint("001", 1)
 
         assert loaded is not None
-        assert len(loaded["agent_memories"]) == \
-               len(sample_game_state["agent_memories"])
+        assert len(loaded["agent_memories"]) == len(sample_game_state["agent_memories"])
 
         dm_memory = loaded["agent_memories"]["dm"]
         assert dm_memory.long_term_summary == "The party entered a dungeon."
@@ -483,8 +485,7 @@ class TestLoadCheckpoint:
         # Write incomplete JSON
         checkpoint_path = session_dir / "turn_001.json"
         checkpoint_path.write_text(
-            '{"ground_truth_log": [], "turn_queue": []}',
-            encoding="utf-8"
+            '{"ground_truth_log": [], "turn_queue": []}', encoding="utf-8"
         )
 
         with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
@@ -504,9 +505,7 @@ class TestListingFunctions:
 
         assert sessions == []
 
-    def test_list_sessions_returns_sorted(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_list_sessions_returns_sorted(self, temp_campaigns_dir: Path) -> None:
         """Test list_sessions returns sorted session IDs."""
         (temp_campaigns_dir / "session_003").mkdir()
         (temp_campaigns_dir / "session_001").mkdir()
@@ -530,9 +529,7 @@ class TestListingFunctions:
 
         assert sessions == ["001"]
 
-    def test_list_sessions_missing_dir_returns_empty(
-        self, tmp_path: Path
-    ) -> None:
+    def test_list_sessions_missing_dir_returns_empty(self, tmp_path: Path) -> None:
         """Test list_sessions returns empty list if campaigns dir missing."""
         missing_dir = tmp_path / "nonexistent"
 
@@ -541,9 +538,7 @@ class TestListingFunctions:
 
         assert sessions == []
 
-    def test_list_checkpoints_empty_session(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_list_checkpoints_empty_session(self, temp_campaigns_dir: Path) -> None:
         """Test list_checkpoints returns empty list for empty session."""
         session_dir = temp_campaigns_dir / "session_001"
         session_dir.mkdir()
@@ -648,9 +643,7 @@ class TestAutoCheckpointIntegration:
         assert len(loaded["ground_truth_log"]) == len(state["ground_truth_log"])
         assert len(loaded["agent_memories"]) == len(state["agent_memories"])
 
-    def test_checkpoint_contains_session_id(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_checkpoint_contains_session_id(self, temp_campaigns_dir: Path) -> None:
         """Test checkpoint contains session_id field."""
         state = populate_game_state(include_sample_messages=False)
 
@@ -678,9 +671,7 @@ class TestStory41AcceptanceCriteria:
         with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
             turn_number = len(sample_game_state["ground_truth_log"])
             path = save_checkpoint(
-                sample_game_state,
-                sample_game_state["session_id"],
-                turn_number
+                sample_game_state, sample_game_state["session_id"], turn_number
             )
 
         assert path.exists()
@@ -709,10 +700,18 @@ class TestStory41AcceptanceCriteria:
 
         # Verify all required fields present
         required_fields = [
-            "ground_truth_log", "turn_queue", "current_turn",
-            "agent_memories", "game_config", "dm_config",
-            "characters", "whisper_queue", "human_active",
-            "controlled_character", "session_number", "session_id"
+            "ground_truth_log",
+            "turn_queue",
+            "current_turn",
+            "agent_memories",
+            "game_config",
+            "dm_config",
+            "characters",
+            "whisper_queue",
+            "human_active",
+            "controlled_character",
+            "session_number",
+            "session_id",
         ]
         for field in required_fields:
             assert field in loaded
@@ -867,9 +866,7 @@ class TestSessionIdHandling:
         assert "session_id" in data
         assert data["session_id"] == state["session_id"]
 
-    def test_session_id_preserved_on_load(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_session_id_preserved_on_load(self, temp_campaigns_dir: Path) -> None:
         """Test session_id is preserved when loading checkpoint."""
         state = populate_game_state(include_sample_messages=False)
         state["session_id"] = "042"
@@ -963,8 +960,18 @@ class TestInputValidation:
             "turn_queue": [],
             "current_turn": "",
             "agent_memories": {},
-            "game_config": {"combat_mode": "Narrative", "summarizer_model": "test", "party_size": 4},
-            "dm_config": {"name": "DM", "provider": "invalid_provider", "model": "test", "token_limit": 8000, "color": "#FFFFFF"},
+            "game_config": {
+                "combat_mode": "Narrative",
+                "summarizer_model": "test",
+                "party_size": 4,
+            },
+            "dm_config": {
+                "name": "DM",
+                "provider": "invalid_provider",
+                "model": "test",
+                "token_limit": 8000,
+                "color": "#FFFFFF",
+            },
             "characters": {},
             "whisper_queue": [],
             "human_active": False,
@@ -1000,9 +1007,7 @@ class TestEdgeCases:
         assert data["agent_memories"] == {}
         assert data["characters"] == {}
 
-    def test_empty_game_state_roundtrip(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_empty_game_state_roundtrip(self, temp_campaigns_dir: Path) -> None:
         """Test checkpoint roundtrip with minimal state."""
         state = create_initial_game_state()
 
@@ -1054,7 +1059,7 @@ class TestEdgeCases:
         dm_memory = sample_game_state["agent_memories"]["dm"]
         dm_memory.long_term_summary = (
             "The party encountered the dragon named \u0394\u03c1\u03ac\u03ba\u03c9\u03bd "
-            "(meaning 'dragon' in Greek). Emoji test: \U0001F409\U0001F5E1\uFE0F"
+            "(meaning 'dragon' in Greek). Emoji test: \U0001f409\U0001f5e1\ufe0f"
         )
 
         with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
@@ -1062,8 +1067,11 @@ class TestEdgeCases:
             loaded = load_checkpoint("001", 1)
 
         assert loaded is not None
-        assert "\u0394\u03c1\u03ac\u03ba\u03c9\u03bd" in loaded["agent_memories"]["dm"].long_term_summary
-        assert "\U0001F409" in loaded["agent_memories"]["dm"].long_term_summary
+        assert (
+            "\u0394\u03c1\u03ac\u03ba\u03c9\u03bd"
+            in loaded["agent_memories"]["dm"].long_term_summary
+        )
+        assert "\U0001f409" in loaded["agent_memories"]["dm"].long_term_summary
 
     def test_very_long_character_personality(
         self, temp_campaigns_dir: Path, sample_game_state: GameState
@@ -1190,9 +1198,7 @@ class TestBoundaryConditions:
         assert format_session_id(1000) == "1000"
         assert format_session_id(99999) == "99999"
 
-    def test_token_limit_minimum_boundary(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_token_limit_minimum_boundary(self, temp_campaigns_dir: Path) -> None:
         """Test checkpoint with token_limit at minimum (1)."""
         state = GameState(
             ground_truth_log=[],
@@ -1216,9 +1222,7 @@ class TestBoundaryConditions:
         assert loaded is not None
         assert loaded["agent_memories"]["dm"].token_limit == 1
 
-    def test_party_size_minimum(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_party_size_minimum(self, temp_campaigns_dir: Path) -> None:
         """Test checkpoint with minimum party_size (1)."""
         state = create_initial_game_state()
         state["game_config"] = GameConfig(party_size=1)
@@ -1230,9 +1234,7 @@ class TestBoundaryConditions:
         assert loaded is not None
         assert loaded["game_config"].party_size == 1
 
-    def test_party_size_maximum(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_party_size_maximum(self, temp_campaigns_dir: Path) -> None:
         """Test checkpoint with maximum party_size (8)."""
         state = create_initial_game_state()
         state["game_config"] = GameConfig(party_size=8)
@@ -1249,8 +1251,7 @@ class TestErrorPaths:
     """Tests for error handling in checkpoint system."""
 
     @pytest.mark.skipif(
-        os.name == "nt",
-        reason="chmod doesn't work for write protection on Windows"
+        os.name == "nt", reason="chmod doesn't work for write protection on Windows"
     )
     def test_save_to_readonly_directory_raises(
         self, temp_campaigns_dir: Path, sample_game_state: GameState
@@ -1275,9 +1276,7 @@ class TestErrorPaths:
             # Restore permissions for cleanup
             os.chmod(session_dir, stat.S_IRWXU)
 
-    def test_load_from_corrupted_file(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_load_from_corrupted_file(self, temp_campaigns_dir: Path) -> None:
         """Test load_checkpoint returns None for truncated JSON."""
         session_dir = temp_campaigns_dir / "session_001"
         session_dir.mkdir()
@@ -1291,9 +1290,7 @@ class TestErrorPaths:
 
         assert loaded is None
 
-    def test_load_from_empty_file(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_load_from_empty_file(self, temp_campaigns_dir: Path) -> None:
         """Test load_checkpoint returns None for empty file."""
         session_dir = temp_campaigns_dir / "session_001"
         session_dir.mkdir()
@@ -1306,9 +1303,7 @@ class TestErrorPaths:
 
         assert loaded is None
 
-    def test_load_from_json_null(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_load_from_json_null(self, temp_campaigns_dir: Path) -> None:
         """Test load_checkpoint returns None for JSON null."""
         session_dir = temp_campaigns_dir / "session_001"
         session_dir.mkdir()
@@ -1321,9 +1316,7 @@ class TestErrorPaths:
 
         assert loaded is None
 
-    def test_load_from_json_array(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_load_from_json_array(self, temp_campaigns_dir: Path) -> None:
         """Test load_checkpoint returns None for JSON array (not object)."""
         session_dir = temp_campaigns_dir / "session_001"
         session_dir.mkdir()
@@ -1336,9 +1329,7 @@ class TestErrorPaths:
 
         assert loaded is None
 
-    def test_load_with_wrong_field_types(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_load_with_wrong_field_types(self, temp_campaigns_dir: Path) -> None:
         """Test load_checkpoint handles wrong field types.
 
         Note: TypedDict doesn't validate types at runtime, so deserialize
@@ -1355,9 +1346,25 @@ class TestErrorPaths:
             "ground_truth_log": [],
             "turn_queue": [],
             "current_turn": "",
-            "agent_memories": {"test": {"token_limit": "not_an_int", "long_term_summary": "", "short_term_buffer": []}},
-            "game_config": {"combat_mode": "Narrative", "summarizer_model": "test", "party_size": 4},
-            "dm_config": {"name": "DM", "provider": "gemini", "model": "test", "token_limit": 8000, "color": "#FFFFFF"},
+            "agent_memories": {
+                "test": {
+                    "token_limit": "not_an_int",
+                    "long_term_summary": "",
+                    "short_term_buffer": [],
+                }
+            },
+            "game_config": {
+                "combat_mode": "Narrative",
+                "summarizer_model": "test",
+                "party_size": 4,
+            },
+            "dm_config": {
+                "name": "DM",
+                "provider": "gemini",
+                "model": "test",
+                "token_limit": 8000,
+                "color": "#FFFFFF",
+            },
             "characters": {},
             "whisper_queue": [],
             "human_active": False,
@@ -1386,8 +1393,18 @@ class TestErrorPaths:
             "turn_queue": [],
             "current_turn": "",
             "agent_memories": {"dm": {"token_limit": "not an int"}},  # Wrong type
-            "game_config": {"combat_mode": "Narrative", "summarizer_model": "test", "party_size": 4},
-            "dm_config": {"name": "DM", "provider": "gemini", "model": "test", "token_limit": 8000, "color": "#FFFFFF"},
+            "game_config": {
+                "combat_mode": "Narrative",
+                "summarizer_model": "test",
+                "party_size": 4,
+            },
+            "dm_config": {
+                "name": "DM",
+                "provider": "gemini",
+                "model": "test",
+                "token_limit": 8000,
+                "color": "#FFFFFF",
+            },
             "characters": {},
             "whisper_queue": [],
             "human_active": False,
@@ -1404,21 +1421,33 @@ class TestErrorPaths:
 
     def test_deserialize_with_extra_fields_ignored(self) -> None:
         """Test deserialize tolerates extra unknown fields."""
-        json_str = json.dumps({
-            "ground_truth_log": [],
-            "turn_queue": [],
-            "current_turn": "",
-            "agent_memories": {},
-            "game_config": {"combat_mode": "Narrative", "summarizer_model": "test", "party_size": 4},
-            "dm_config": {"name": "DM", "provider": "gemini", "model": "test", "token_limit": 8000, "color": "#FFFFFF"},
-            "characters": {},
-            "whisper_queue": [],
-            "human_active": False,
-            "controlled_character": None,
-            "session_number": 1,
-            "session_id": "001",
-            "unknown_extra_field": "should be ignored",
-        })
+        json_str = json.dumps(
+            {
+                "ground_truth_log": [],
+                "turn_queue": [],
+                "current_turn": "",
+                "agent_memories": {},
+                "game_config": {
+                    "combat_mode": "Narrative",
+                    "summarizer_model": "test",
+                    "party_size": 4,
+                },
+                "dm_config": {
+                    "name": "DM",
+                    "provider": "gemini",
+                    "model": "test",
+                    "token_limit": 8000,
+                    "color": "#FFFFFF",
+                },
+                "characters": {},
+                "whisper_queue": [],
+                "human_active": False,
+                "controlled_character": None,
+                "session_number": 1,
+                "session_id": "001",
+                "unknown_extra_field": "should be ignored",
+            }
+        )
 
         # Should not raise - extra fields are ignored in TypedDict
         restored = deserialize_game_state(json_str)
@@ -1481,9 +1510,7 @@ class TestFileSystemEdgeCases:
         assert loaded is not None
         assert loaded["ground_truth_log"] == ["[dm] Version 2"]
 
-    def test_list_sessions_with_many_sessions(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_list_sessions_with_many_sessions(self, temp_campaigns_dir: Path) -> None:
         """Test list_sessions with many sessions."""
         # Create 50 session directories
         for i in range(50):
@@ -1557,9 +1584,7 @@ class TestInputValidationExtended:
 class TestCombatModePreservation:
     """Tests for combat mode preservation in checkpoints."""
 
-    def test_tactical_combat_mode_preserved(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_tactical_combat_mode_preserved(self, temp_campaigns_dir: Path) -> None:
         """Test Tactical combat_mode is preserved through checkpoint."""
         state = create_initial_game_state()
         state["game_config"] = GameConfig(combat_mode="Tactical")
@@ -1571,9 +1596,7 @@ class TestCombatModePreservation:
         assert loaded is not None
         assert loaded["game_config"].combat_mode == "Tactical"
 
-    def test_narrative_combat_mode_preserved(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_narrative_combat_mode_preserved(self, temp_campaigns_dir: Path) -> None:
         """Test Narrative combat_mode is preserved through checkpoint."""
         state = create_initial_game_state()
         state["game_config"] = GameConfig(combat_mode="Narrative")
@@ -1654,8 +1677,10 @@ class TestAutoCheckpointGraphIntegration:
         state["agent_memories"]["fighter"] = AgentMemory()
         state["session_id"] = "001"
 
-        with mock_patch("agents.get_llm") as mock_get_llm, \
-             mock_patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+        with (
+            mock_patch("agents.get_llm") as mock_get_llm,
+            mock_patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir),
+        ):
             mock_model = MagicMock()
             mock_model.bind_tools.return_value = mock_model
             mock_model.invoke.side_effect = [
@@ -1695,8 +1720,10 @@ class TestAutoCheckpointGraphIntegration:
         # Mock streamlit session_state
         mock_session_state = {"human_pending_action": "I attack the goblin!"}
 
-        with mock_patch("streamlit.session_state", mock_session_state), \
-             mock_patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+        with (
+            mock_patch("streamlit.session_state", mock_session_state),
+            mock_patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir),
+        ):
             result = human_intervention_node(state)
 
             # Verify checkpoint was created (human action added to log)
@@ -1749,9 +1776,7 @@ class TestSessionIdFromSessionNumber:
 class TestCheckpointFileSizes:
     """Tests to verify checkpoint file sizes are reasonable."""
 
-    def test_minimal_state_file_size(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_minimal_state_file_size(self, temp_campaigns_dir: Path) -> None:
         """Test minimal state checkpoint is small (< 1KB)."""
         state = create_initial_game_state()
 
@@ -1767,7 +1792,9 @@ class TestCheckpointFileSizes:
         """Test large state checkpoint is created (verify it works)."""
         # Add lots of content
         for i in range(100):
-            sample_game_state["ground_truth_log"].append(f"[dm] This is a long message {i}. " * 10)
+            sample_game_state["ground_truth_log"].append(
+                f"[dm] This is a long message {i}. " * 10
+            )
 
         with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
             path = save_checkpoint(sample_game_state, "001", 1)
@@ -1928,9 +1955,7 @@ class TestListCheckpointInfo:
         assert infos[1].turn_number == 2
         assert infos[2].turn_number == 1
 
-    def test_list_checkpoint_info_empty_session(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_list_checkpoint_info_empty_session(self, temp_campaigns_dir: Path) -> None:
         """Test list_checkpoint_info returns empty list for empty session."""
         from persistence import list_checkpoint_info
 
@@ -1973,9 +1998,7 @@ class TestCheckpointPreview:
         """Test get_checkpoint_preview returns last N messages."""
         from persistence import get_checkpoint_preview
 
-        sample_game_state["ground_truth_log"] = [
-            f"[dm] Message {i}" for i in range(10)
-        ]
+        sample_game_state["ground_truth_log"] = [f"[dm] Message {i}" for i in range(10)]
 
         with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
             save_checkpoint(sample_game_state, "001", 10)
@@ -1991,9 +2014,7 @@ class TestCheckpointPreview:
         """Test get_checkpoint_preview uses default of 5 messages."""
         from persistence import get_checkpoint_preview
 
-        sample_game_state["ground_truth_log"] = [
-            f"[dm] Message {i}" for i in range(10)
-        ]
+        sample_game_state["ground_truth_log"] = [f"[dm] Message {i}" for i in range(10)]
 
         with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
             save_checkpoint(sample_game_state, "001", 10)
@@ -2108,9 +2129,7 @@ class TestStory42AcceptanceCriteria:
         """AC #3: Restored state includes agent memories (FR36, NFR13)."""
         # Modify agent memory before saving
         sample_game_state["agent_memories"]["dm"].long_term_summary = "Important memory"
-        sample_game_state["agent_memories"]["dm"].short_term_buffer = [
-            "Recent event"
-        ]
+        sample_game_state["agent_memories"]["dm"].short_term_buffer = ["Recent event"]
 
         with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
             save_checkpoint(sample_game_state, "001", 1)
@@ -2166,9 +2185,7 @@ class TestStory42AcceptanceCriteria:
         """Test message_count reflects actual log length."""
         from persistence import get_checkpoint_info
 
-        sample_game_state["ground_truth_log"] = [
-            f"[dm] Message {i}" for i in range(7)
-        ]
+        sample_game_state["ground_truth_log"] = [f"[dm] Message {i}" for i in range(7)]
 
         with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
             save_checkpoint(sample_game_state, "001", 7)
@@ -2230,7 +2247,9 @@ class TestCheckpointInfoEdgeCases:
         from persistence import CheckpointInfo
 
         info = CheckpointInfo(
-            turn_number=1, timestamp="2026-01-28", brief_context="Dragon says: \u201cFire!\u201d \U0001f525"
+            turn_number=1,
+            timestamp="2026-01-28",
+            brief_context="Dragon says: \u201cFire!\u201d \U0001f525",
         )
         assert "\u201c" in info.brief_context
 
@@ -2346,7 +2365,9 @@ class TestGetCheckpointInfoEdgeCases:
             # Checkpoint created at: temp_campaigns_dir / "session_001" / "turn_001.json"
 
             # Mock file read to raise OSError
-            with patch.object(Path, "read_text", side_effect=OSError("Permission denied")):
+            with patch.object(
+                Path, "read_text", side_effect=OSError("Permission denied")
+            ):
                 info = get_checkpoint_info("001", 1)
 
         assert info is None
@@ -2460,9 +2481,7 @@ class TestCheckpointPreviewEdgeCases:
         """Test preview preserves chronological order."""
         from persistence import get_checkpoint_preview
 
-        sample_game_state["ground_truth_log"] = [
-            f"[dm] Message {i}" for i in range(10)
-        ]
+        sample_game_state["ground_truth_log"] = [f"[dm] Message {i}" for i in range(10)]
 
         with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
             save_checkpoint(sample_game_state, "001", 10)
@@ -2470,9 +2489,7 @@ class TestCheckpointPreviewEdgeCases:
 
         assert preview == ["[dm] Message 7", "[dm] Message 8", "[dm] Message 9"]
 
-    def test_preview_corrupted_checkpoint(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_preview_corrupted_checkpoint(self, temp_campaigns_dir: Path) -> None:
         """Test preview returns None for corrupted checkpoint."""
         from persistence import get_checkpoint_preview
 
@@ -2502,9 +2519,7 @@ class TestCheckpointInfoIntegration:
 
         # Create multiple checkpoints with distinct content
         for i in range(1, 4):
-            sample_game_state["ground_truth_log"] = [
-                f"[dm] Turn {i} narration."
-            ]
+            sample_game_state["ground_truth_log"] = [f"[dm] Turn {i} narration."]
             with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
                 save_checkpoint(sample_game_state, "001", i)
 
@@ -2735,9 +2750,7 @@ class TestSessionMetadataPersistence:
         assert path.name == "config.yaml"
         assert path.parent.name == "session_001"
 
-    def test_save_session_metadata_yaml_content(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_save_session_metadata_yaml_content(self, temp_campaigns_dir: Path) -> None:
         """Test save_session_metadata writes correct YAML content."""
         from models import SessionMetadata
         from persistence import save_session_metadata
@@ -2756,16 +2769,18 @@ class TestSessionMetadataPersistence:
             path = save_session_metadata("001", metadata)
 
         content = path.read_text(encoding="utf-8")
-        assert "session_id: '001'" in content or "session_id: \"001\"" in content or "session_id: 001" in content
+        assert (
+            "session_id: '001'" in content
+            or 'session_id: "001"' in content
+            or "session_id: 001" in content
+        )
         assert "session_number: 1" in content
         assert "name: Test Session" in content
         assert "Theron" in content
         assert "Lyra" in content
         assert "turn_count: 10" in content
 
-    def test_load_session_metadata_roundtrip(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_load_session_metadata_roundtrip(self, temp_campaigns_dir: Path) -> None:
         """Test save and load session metadata roundtrip."""
         from models import SessionMetadata
         from persistence import load_session_metadata, save_session_metadata
@@ -2793,9 +2808,7 @@ class TestSessionMetadataPersistence:
         assert loaded.character_names == original.character_names
         assert loaded.turn_count == original.turn_count
 
-    def test_load_session_metadata_missing_file(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_load_session_metadata_missing_file(self, temp_campaigns_dir: Path) -> None:
         """Test load_session_metadata returns None for missing config."""
         from persistence import load_session_metadata
 
@@ -2804,9 +2817,7 @@ class TestSessionMetadataPersistence:
 
         assert loaded is None
 
-    def test_load_session_metadata_invalid_yaml(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_load_session_metadata_invalid_yaml(self, temp_campaigns_dir: Path) -> None:
         """Test load_session_metadata returns None for invalid YAML."""
         from persistence import load_session_metadata
 
@@ -2824,9 +2835,7 @@ class TestSessionMetadataPersistence:
 class TestListSessionsWithMetadata:
     """Tests for list_sessions_with_metadata function (Story 4.3)."""
 
-    def test_list_sessions_with_metadata_empty(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_list_sessions_with_metadata_empty(self, temp_campaigns_dir: Path) -> None:
         """Test list_sessions_with_metadata with no sessions."""
         from persistence import list_sessions_with_metadata
 
@@ -2921,9 +2930,7 @@ class TestListSessionsWithMetadata:
 class TestGetNextSessionNumber:
     """Tests for get_next_session_number function (Story 4.3)."""
 
-    def test_get_next_session_number_empty(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_get_next_session_number_empty(self, temp_campaigns_dir: Path) -> None:
         """Test get_next_session_number returns 1 when no sessions exist."""
         from persistence import get_next_session_number
 
@@ -2932,9 +2939,7 @@ class TestGetNextSessionNumber:
 
         assert next_num == 1
 
-    def test_get_next_session_number_increments(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_get_next_session_number_increments(self, temp_campaigns_dir: Path) -> None:
         """Test get_next_session_number increments from existing sessions."""
         from persistence import get_next_session_number
 
@@ -3010,9 +3015,7 @@ class TestCreateNewSession:
         assert metadata.character_names == ["Theron", "Lyra"]
         assert metadata.turn_count == 0
 
-    def test_create_new_session_auto_increments(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_create_new_session_auto_increments(self, temp_campaigns_dir: Path) -> None:
         """Test create_new_session auto-increments session number."""
         from persistence import create_new_session
 
@@ -3109,11 +3112,11 @@ class TestGenerateRecapSummary:
             recap = generate_recap_summary("001", num_turns=5)
 
         assert recap is not None
-        # Recap lines are separated by newlines (CSS provides bullet styling)
-        assert recap.count("\n") == 2  # 3 lines = 2 newlines
+        # Recap includes "**Recent Events:**" header followed by entries
         assert "adventure begins" in recap
         assert "order an ale" in recap
         assert "check my pockets" in recap
+        assert "**Recent Events:**" in recap
 
     def test_generate_recap_summary_truncates_long_entries(
         self, temp_campaigns_dir: Path, sample_game_state: GameState
@@ -3174,11 +3177,11 @@ class TestStory43AcceptanceCriteria:
 
         # Create multiple sessions
         for i in range(3):
-            session_id = f"{i+1:03d}"
+            session_id = f"{i + 1:03d}"
             metadata = SessionMetadata(
                 session_id=session_id,
                 session_number=i + 1,
-                name=f"Session {i+1}",
+                name=f"Session {i + 1}",
                 created_at="2026-01-28T10:00:00Z",
                 updated_at="2026-01-28T10:00:00Z",
                 character_names=["Theron"],
@@ -3193,9 +3196,7 @@ class TestStory43AcceptanceCriteria:
         # All sessions should be retrievable
         assert len(sessions) == 3
 
-    def test_ac2_session_card_shows_metadata(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_ac2_session_card_shows_metadata(self, temp_campaigns_dir: Path) -> None:
         """AC #2: Session card shows name, date, turn count, characters."""
         from models import SessionMetadata
         from persistence import load_session_metadata, save_session_metadata
@@ -3290,9 +3291,7 @@ class TestStory43AcceptanceCriteria:
         assert "goblin" in recap
         assert "spell" in recap
 
-    def test_ac6_sessions_sorted_by_recency(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_ac6_sessions_sorted_by_recency(self, temp_campaigns_dir: Path) -> None:
         """AC #6: Sessions are sorted by most recently played first."""
         from models import SessionMetadata
         from persistence import list_sessions_with_metadata, save_session_metadata
@@ -3352,12 +3351,12 @@ class TestSessionMetadataEdgeCases:
         metadata = SessionMetadata(
             session_id="001",
             session_number=1,
-            name="\U0001F409 Dragon Hunt \U0001F5E1\uFE0F",
+            name="\U0001f409 Dragon Hunt \U0001f5e1\ufe0f",
             created_at="2026-01-28T10:00:00Z",
             updated_at="2026-01-28T10:00:00Z",
         )
 
-        assert "\U0001F409" in metadata.name
+        assert "\U0001f409" in metadata.name
 
     def test_session_metadata_very_long_name(self) -> None:
         """Test SessionMetadata handles very long name."""
@@ -3490,9 +3489,7 @@ class TestSessionMetadataEdgeCases:
 class TestSessionMetadataPersistenceEdgeCases:
     """Edge case tests for session metadata persistence (Story 4.3 expanded)."""
 
-    def test_save_session_metadata_unicode_name(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_save_session_metadata_unicode_name(self, temp_campaigns_dir: Path) -> None:
         """Test save_session_metadata handles Unicode characters."""
         from models import SessionMetadata
         from persistence import load_session_metadata, save_session_metadata
@@ -3500,7 +3497,7 @@ class TestSessionMetadataPersistenceEdgeCases:
         metadata = SessionMetadata(
             session_id="001",
             session_number=1,
-            name="\U0001F409 Dragon's Lair \u2014 \u03b1\u03b2\u03b3",
+            name="\U0001f409 Dragon's Lair \u2014 \u03b1\u03b2\u03b3",
             created_at="2026-01-28T10:00:00Z",
             updated_at="2026-01-28T10:00:00Z",
         )
@@ -3552,9 +3549,7 @@ class TestSessionMetadataPersistenceEdgeCases:
 
         assert loaded is None
 
-    def test_load_session_metadata_empty_file(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_load_session_metadata_empty_file(self, temp_campaigns_dir: Path) -> None:
         """Test load_session_metadata handles empty YAML file."""
         from persistence import load_session_metadata
 
@@ -3568,9 +3563,7 @@ class TestSessionMetadataPersistenceEdgeCases:
 
         assert loaded is None
 
-    def test_load_session_metadata_yaml_null(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_load_session_metadata_yaml_null(self, temp_campaigns_dir: Path) -> None:
         """Test load_session_metadata handles YAML null."""
         from persistence import load_session_metadata
 
@@ -3686,16 +3679,14 @@ class TestListSessionsWithMetadataEdgeCases:
         assert len(sessions) == 1
         assert sessions[0].session_id == "001"
 
-    def test_list_sessions_with_many_sessions(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_list_sessions_with_many_sessions(self, temp_campaigns_dir: Path) -> None:
         """Test list_sessions_with_metadata with many sessions (50+)."""
         from models import SessionMetadata
         from persistence import list_sessions_with_metadata, save_session_metadata
 
         # Create 50 sessions
         for i in range(50):
-            session_id = f"{i+1:03d}"
+            session_id = f"{i + 1:03d}"
             metadata = SessionMetadata(
                 session_id=session_id,
                 session_number=i + 1,
@@ -3799,7 +3790,11 @@ class TestCreateNewSessionEdgeCases:
         """Test create_new_session with Unicode character names."""
         from persistence import create_new_session, load_session_metadata
 
-        names = ["\u0394\u03c1\u03ac\u03ba\u03c9\u03bd", "Ng\u01b0\u1eddi", "\U0001F409Knight"]
+        names = [
+            "\u0394\u03c1\u03ac\u03ba\u03c9\u03bd",
+            "Ng\u01b0\u1eddi",
+            "\U0001f409Knight",
+        ]
 
         with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
             session_id = create_new_session(character_names=names)
@@ -3808,9 +3803,7 @@ class TestCreateNewSessionEdgeCases:
         assert metadata is not None
         assert metadata.character_names == names
 
-    def test_create_new_session_with_empty_name(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_create_new_session_with_empty_name(self, temp_campaigns_dir: Path) -> None:
         """Test create_new_session with empty session name."""
         from persistence import create_new_session, load_session_metadata
 
@@ -3959,8 +3952,11 @@ class TestGenerateRecapSummaryEdgeCases:
 
         assert recap is not None
         assert "..." in recap
-        # Should be 147 + 3 = 150 chars max
-        assert len(recap.split("\n")[0]) == 150
+        # Should contain truncated content
+        lines = recap.split("\n")
+        # Find the line with the truncated content (not the header)
+        truncated_line = [line for line in lines if "..." in line and "A" in line][0]
+        assert len(truncated_line) == 150  # 147 chars + "..."
 
     def test_recap_num_turns_less_than_available(
         self, temp_campaigns_dir: Path, sample_game_state: GameState
@@ -3968,24 +3964,22 @@ class TestGenerateRecapSummaryEdgeCases:
         """Test recap with num_turns less than available entries."""
         from persistence import generate_recap_summary
 
-        sample_game_state["ground_truth_log"] = [
-            f"[dm] Message {i}" for i in range(10)
-        ]
+        sample_game_state["ground_truth_log"] = [f"[dm] Message {i}" for i in range(10)]
 
         with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
             save_checkpoint(sample_game_state, "001", 10)
             recap = generate_recap_summary("001", num_turns=3)
 
         assert recap is not None
-        # Should only have 3 entries (from end of log)
-        assert recap.count("\n") == 2  # 3 lines = 2 newlines
+        # Should only have last 3 entries (from end of log)
         assert "Message 7" in recap
         assert "Message 8" in recap
         assert "Message 9" in recap
+        # But not earlier messages
+        assert "Message 0" not in recap
+        assert "Message 6" not in recap
 
-    def test_recap_missing_session(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_recap_missing_session(self, temp_campaigns_dir: Path) -> None:
         """Test recap returns None for missing session."""
         from persistence import generate_recap_summary
 
@@ -3994,9 +3988,7 @@ class TestGenerateRecapSummaryEdgeCases:
 
         assert recap is None
 
-    def test_recap_corrupted_checkpoint(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_recap_corrupted_checkpoint(self, temp_campaigns_dir: Path) -> None:
         """Test recap returns None for corrupted checkpoint."""
         from persistence import generate_recap_summary
 
@@ -4062,9 +4054,7 @@ class TestStory43IntegrationScenarios:
         # Step 2: Play a few turns (save checkpoints)
         sample_game_state["session_id"] = session_id
         for turn in range(1, 6):
-            sample_game_state["ground_truth_log"].append(
-                f"[dm] Turn {turn} happened."
-            )
+            sample_game_state["ground_truth_log"].append(f"[dm] Turn {turn} happened.")
             with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
                 save_checkpoint(sample_game_state, session_id, turn)
 
@@ -4188,7 +4178,9 @@ class TestTranscriptEntryModel:
             timestamp="2026-01-28T10:05:00Z",
             agent="dm",
             content="Roll for initiative!",
-            tool_calls=[{"name": "roll_dice", "args": {"notation": "1d20"}, "result": 15}],
+            tool_calls=[
+                {"name": "roll_dice", "args": {"notation": "1d20"}, "result": 15}
+            ],
         )
 
         assert entry.tool_calls is not None
@@ -4250,7 +4242,9 @@ class TestTranscriptEntryModel:
             timestamp="2026-01-28T14:35:22Z",
             agent="rogue",
             content="I check the door for traps.",
-            tool_calls=[{"name": "roll_dice", "args": {"notation": "1d20+7"}, "result": 18}],
+            tool_calls=[
+                {"name": "roll_dice", "args": {"notation": "1d20+7"}, "result": 18}
+            ],
         )
 
         data = entry.model_dump()
@@ -4284,9 +4278,7 @@ class TestTranscriptPathFunctions:
 class TestAppendTranscriptEntry:
     """Tests for append_transcript_entry function."""
 
-    def test_append_creates_transcript_file(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_append_creates_transcript_file(self, temp_campaigns_dir: Path) -> None:
         """Test append_transcript_entry creates transcript.json if missing."""
         from models import TranscriptEntry
         from persistence import append_transcript_entry, get_transcript_path
@@ -4304,9 +4296,7 @@ class TestAppendTranscriptEntry:
 
         assert transcript_path.exists()
 
-    def test_append_writes_valid_json(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_append_writes_valid_json(self, temp_campaigns_dir: Path) -> None:
         """Test append_transcript_entry writes valid JSON."""
         from models import TranscriptEntry
         from persistence import append_transcript_entry, get_transcript_path
@@ -4329,9 +4319,7 @@ class TestAppendTranscriptEntry:
         assert len(data) == 1
         assert data[0]["agent"] == "dm"
 
-    def test_append_is_append_only(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_append_is_append_only(self, temp_campaigns_dir: Path) -> None:
         """Test append_transcript_entry is append-only (file grows)."""
         from models import TranscriptEntry
         from persistence import append_transcript_entry, load_transcript
@@ -4360,17 +4348,18 @@ class TestAppendTranscriptEntry:
             assert entries_after_2 is not None
             assert len(entries_after_2) == 2
 
-    def test_append_preserves_existing_entries(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_append_preserves_existing_entries(self, temp_campaigns_dir: Path) -> None:
         """Test append_transcript_entry preserves existing entries."""
         from models import TranscriptEntry
         from persistence import append_transcript_entry, load_transcript
 
         entries_to_add = [
-            TranscriptEntry(turn=i, timestamp=f"2026-01-28T10:{i:02d}:00Z",
-                          agent="dm" if i % 2 == 1 else "fighter",
-                          content=f"Message {i}")
+            TranscriptEntry(
+                turn=i,
+                timestamp=f"2026-01-28T10:{i:02d}:00Z",
+                agent="dm" if i % 2 == 1 else "fighter",
+                content=f"Message {i}",
+            )
             for i in range(1, 6)
         ]
 
@@ -4387,9 +4376,7 @@ class TestAppendTranscriptEntry:
             assert entry.turn == i + 1
             assert entry.content == f"Message {i + 1}"
 
-    def test_append_handles_corrupted_file(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_append_handles_corrupted_file(self, temp_campaigns_dir: Path) -> None:
         """Test append_transcript_entry handles corrupted transcript file."""
         from models import TranscriptEntry
         from persistence import append_transcript_entry, load_transcript
@@ -4420,9 +4407,7 @@ class TestAppendTranscriptEntry:
 class TestLoadTranscript:
     """Tests for load_transcript function."""
 
-    def test_load_missing_returns_none(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_load_missing_returns_none(self, temp_campaigns_dir: Path) -> None:
         """Test load_transcript returns None for missing transcript."""
         from persistence import load_transcript
 
@@ -4431,9 +4416,7 @@ class TestLoadTranscript:
 
         assert result is None
 
-    def test_load_empty_file_returns_empty_list(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_load_empty_file_returns_empty_list(self, temp_campaigns_dir: Path) -> None:
         """Test load_transcript returns empty list for empty transcript."""
         from persistence import load_transcript
 
@@ -4448,9 +4431,7 @@ class TestLoadTranscript:
         assert result is not None
         assert result == []
 
-    def test_load_returns_transcript_entries(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_load_returns_transcript_entries(self, temp_campaigns_dir: Path) -> None:
         """Test load_transcript returns list of TranscriptEntry objects."""
         from models import TranscriptEntry
         from persistence import append_transcript_entry, load_transcript
@@ -4488,9 +4469,7 @@ class TestLoadTranscript:
         assert result is not None
         assert result == []
 
-    def test_load_skips_invalid_entries(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_load_skips_invalid_entries(self, temp_campaigns_dir: Path) -> None:
         """Test load_transcript skips invalid entries gracefully."""
         from persistence import load_transcript
 
@@ -4500,11 +4479,19 @@ class TestLoadTranscript:
 
         # Mix of valid and invalid entries
         data = [
-            {"turn": 1, "timestamp": "2026-01-28T10:00:00Z",
-             "agent": "dm", "content": "Valid entry."},
+            {
+                "turn": 1,
+                "timestamp": "2026-01-28T10:00:00Z",
+                "agent": "dm",
+                "content": "Valid entry.",
+            },
             {"turn": "invalid", "timestamp": "bad"},  # Invalid
-            {"turn": 2, "timestamp": "2026-01-28T10:01:00Z",
-             "agent": "fighter", "content": "Also valid."},
+            {
+                "turn": 2,
+                "timestamp": "2026-01-28T10:01:00Z",
+                "agent": "fighter",
+                "content": "Also valid.",
+            },
         ]
         transcript_path.write_text(json.dumps(data), encoding="utf-8")
 
@@ -4520,9 +4507,7 @@ class TestLoadTranscript:
 class TestGetTranscriptDownloadData:
     """Tests for get_transcript_download_data function."""
 
-    def test_download_missing_returns_none(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_download_missing_returns_none(self, temp_campaigns_dir: Path) -> None:
         """Test get_transcript_download_data returns None if no transcript."""
         from persistence import get_transcript_download_data
 
@@ -4531,9 +4516,7 @@ class TestGetTranscriptDownloadData:
 
         assert result is None
 
-    def test_download_returns_valid_json(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_download_returns_valid_json(self, temp_campaigns_dir: Path) -> None:
         """Test get_transcript_download_data returns valid JSON string."""
         from models import TranscriptEntry
         from persistence import append_transcript_entry, get_transcript_download_data
@@ -4555,9 +4538,7 @@ class TestGetTranscriptDownloadData:
         assert len(parsed) == 1
         assert parsed[0]["agent"] == "dm"
 
-    def test_download_pretty_printed(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_download_pretty_printed(self, temp_campaigns_dir: Path) -> None:
         """Test get_transcript_download_data returns pretty-printed JSON."""
         from models import TranscriptEntry
         from persistence import append_transcript_entry, get_transcript_download_data
@@ -4579,9 +4560,7 @@ class TestGetTranscriptDownloadData:
         # And indentation
         assert "  " in data
 
-    def test_download_empty_returns_empty_array(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_download_empty_returns_empty_array(self, temp_campaigns_dir: Path) -> None:
         """Test get_transcript_download_data returns '[]' for empty transcript."""
         from persistence import get_transcript_download_data
 
@@ -4599,23 +4578,37 @@ class TestGetTranscriptDownloadData:
 class TestTranscriptResearchAnalysis:
     """Tests demonstrating research analysis capabilities (AC #5)."""
 
-    def test_coherence_scoring_capability(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_coherence_scoring_capability(self, temp_campaigns_dir: Path) -> None:
         """Test transcript supports coherence scoring via narrative reference counting."""
         from models import TranscriptEntry
         from persistence import append_transcript_entry, load_transcript
 
         # Create entries with narrative callbacks/references
         entries = [
-            TranscriptEntry(turn=1, timestamp="2026-01-28T10:00:00Z",
-                          agent="dm", content="The tavern falls silent."),
-            TranscriptEntry(turn=2, timestamp="2026-01-28T10:01:00Z",
-                          agent="fighter", content="I remember the earlier warning."),
-            TranscriptEntry(turn=3, timestamp="2026-01-28T10:02:00Z",
-                          agent="dm", content="As before, the stranger enters."),
-            TranscriptEntry(turn=4, timestamp="2026-01-28T10:03:00Z",
-                          agent="rogue", content="I recall what happened before."),
+            TranscriptEntry(
+                turn=1,
+                timestamp="2026-01-28T10:00:00Z",
+                agent="dm",
+                content="The tavern falls silent.",
+            ),
+            TranscriptEntry(
+                turn=2,
+                timestamp="2026-01-28T10:01:00Z",
+                agent="fighter",
+                content="I remember the earlier warning.",
+            ),
+            TranscriptEntry(
+                turn=3,
+                timestamp="2026-01-28T10:02:00Z",
+                agent="dm",
+                content="As before, the stranger enters.",
+            ),
+            TranscriptEntry(
+                turn=4,
+                timestamp="2026-01-28T10:03:00Z",
+                agent="rogue",
+                content="I recall what happened before.",
+            ),
         ]
 
         with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
@@ -4628,7 +4621,8 @@ class TestTranscriptResearchAnalysis:
         # Count narrative references (coherence metric)
         reference_words = ["remember", "earlier", "before", "recall"]
         reference_count = sum(
-            1 for entry in loaded
+            1
+            for entry in loaded
             if any(word in entry.content.lower() for word in reference_words)
         )
 
@@ -4642,16 +4636,36 @@ class TestTranscriptResearchAnalysis:
         from persistence import append_transcript_entry, load_transcript
 
         entries = [
-            TranscriptEntry(turn=1, timestamp="2026-01-28T10:00:00Z",
-                          agent="dm", content="The DM narrates."),
-            TranscriptEntry(turn=2, timestamp="2026-01-28T10:01:00Z",
-                          agent="fighter", content="Fighter speaks."),
-            TranscriptEntry(turn=3, timestamp="2026-01-28T10:02:00Z",
-                          agent="rogue", content="Rogue acts."),
-            TranscriptEntry(turn=4, timestamp="2026-01-28T10:03:00Z",
-                          agent="fighter", content="Fighter again."),
-            TranscriptEntry(turn=5, timestamp="2026-01-28T10:04:00Z",
-                          agent="dm", content="DM again."),
+            TranscriptEntry(
+                turn=1,
+                timestamp="2026-01-28T10:00:00Z",
+                agent="dm",
+                content="The DM narrates.",
+            ),
+            TranscriptEntry(
+                turn=2,
+                timestamp="2026-01-28T10:01:00Z",
+                agent="fighter",
+                content="Fighter speaks.",
+            ),
+            TranscriptEntry(
+                turn=3,
+                timestamp="2026-01-28T10:02:00Z",
+                agent="rogue",
+                content="Rogue acts.",
+            ),
+            TranscriptEntry(
+                turn=4,
+                timestamp="2026-01-28T10:03:00Z",
+                agent="fighter",
+                content="Fighter again.",
+            ),
+            TranscriptEntry(
+                turn=5,
+                timestamp="2026-01-28T10:04:00Z",
+                agent="dm",
+                content="DM again.",
+            ),
         ]
 
         with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
@@ -4673,20 +4687,30 @@ class TestTranscriptResearchAnalysis:
         assert agent_stats["fighter"]["turns"] == 2
         assert agent_stats["rogue"]["turns"] == 1
 
-    def test_callback_detection_capability(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_callback_detection_capability(self, temp_campaigns_dir: Path) -> None:
         """Test transcript supports callback detection via content analysis."""
         from models import TranscriptEntry
         from persistence import append_transcript_entry, load_transcript
 
         entries = [
-            TranscriptEntry(turn=1, timestamp="2026-01-28T10:00:00Z",
-                          agent="dm", content="The ancient artifact glows with power."),
-            TranscriptEntry(turn=5, timestamp="2026-01-28T10:05:00Z",
-                          agent="dm", content="The artifact from earlier pulses again."),
-            TranscriptEntry(turn=10, timestamp="2026-01-28T10:10:00Z",
-                          agent="fighter", content="I grab the glowing artifact."),
+            TranscriptEntry(
+                turn=1,
+                timestamp="2026-01-28T10:00:00Z",
+                agent="dm",
+                content="The ancient artifact glows with power.",
+            ),
+            TranscriptEntry(
+                turn=5,
+                timestamp="2026-01-28T10:05:00Z",
+                agent="dm",
+                content="The artifact from earlier pulses again.",
+            ),
+            TranscriptEntry(
+                turn=10,
+                timestamp="2026-01-28T10:10:00Z",
+                agent="fighter",
+                content="I grab the glowing artifact.",
+            ),
         ]
 
         with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
@@ -4698,8 +4722,7 @@ class TestTranscriptResearchAnalysis:
 
         # Find callbacks - entries that reference "artifact"
         artifact_mentions = [
-            entry for entry in loaded
-            if "artifact" in entry.content.lower()
+            entry for entry in loaded if "artifact" in entry.content.lower()
         ]
 
         assert len(artifact_mentions) == 3  # All three mention it
@@ -4708,9 +4731,7 @@ class TestTranscriptResearchAnalysis:
 class TestTranscriptEdgeCases:
     """Edge case tests for transcript functionality."""
 
-    def test_first_turn_creates_new_file(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_first_turn_creates_new_file(self, temp_campaigns_dir: Path) -> None:
         """Test first turn (turn 1) creates new transcript file."""
         from models import TranscriptEntry
         from persistence import append_transcript_entry, get_transcript_path
@@ -4730,9 +4751,7 @@ class TestTranscriptEdgeCases:
 
             assert transcript_path.exists()
 
-    def test_handles_very_long_content(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_handles_very_long_content(self, temp_campaigns_dir: Path) -> None:
         """Test transcript handles very long content without truncation."""
         from models import TranscriptEntry
         from persistence import append_transcript_entry, load_transcript
@@ -4754,15 +4773,15 @@ class TestTranscriptEdgeCases:
         assert len(loaded) == 1
         assert len(loaded[0].content) == 50000  # Not truncated
 
-    def test_handles_special_characters(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_handles_special_characters(self, temp_campaigns_dir: Path) -> None:
         """Test transcript handles special characters and unicode."""
         from models import TranscriptEntry
         from persistence import append_transcript_entry, load_transcript
 
         # Use valid unicode characters (heart, sparkles, die emoji)
-        special_content = 'Special chars: "quotes", *asterisks*, and unicode: \u2764\u2728'
+        special_content = (
+            'Special chars: "quotes", *asterisks*, and unicode: \u2764\u2728'
+        )
 
         entry = TranscriptEntry(
             turn=1,
@@ -4778,9 +4797,7 @@ class TestTranscriptEdgeCases:
         assert loaded is not None
         assert loaded[0].content == special_content
 
-    def test_no_temp_files_on_success(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_no_temp_files_on_success(self, temp_campaigns_dir: Path) -> None:
         """Test no temp files left after successful append."""
         from models import TranscriptEntry
         from persistence import append_transcript_entry
@@ -4926,15 +4943,17 @@ class TestTranscriptEntryModelExpanded:
             timestamp="2026-01-28T10:00:00Z",
             agent="dm",
             content="Complex tool call.",
-            tool_calls=[{
-                "name": "complex_tool",
-                "args": {
-                    "nested": {"key": "value", "list": [1, 2, 3]},
-                    "number": 42.5,
-                    "boolean": True,
-                },
-                "result": {"status": "success", "data": [1, 2, 3]},
-            }],
+            tool_calls=[
+                {
+                    "name": "complex_tool",
+                    "args": {
+                        "nested": {"key": "value", "list": [1, 2, 3]},
+                        "number": 42.5,
+                        "boolean": True,
+                    },
+                    "result": {"status": "success", "data": [1, 2, 3]},
+                }
+            ],
         )
         assert entry.tool_calls[0]["args"]["nested"]["key"] == "value"
 
@@ -5035,9 +5054,7 @@ class TestAppendTranscriptEntryExpanded:
 
             assert session_dir.exists()
 
-    def test_append_handles_non_list_json_file(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_append_handles_non_list_json_file(self, temp_campaigns_dir: Path) -> None:
         """Test append_transcript_entry handles JSON object (not list)."""
         from models import TranscriptEntry
         from persistence import append_transcript_entry, load_transcript
@@ -5063,9 +5080,7 @@ class TestAppendTranscriptEntryExpanded:
         assert loaded is not None
         assert len(loaded) == 1
 
-    def test_append_handles_empty_file(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_append_handles_empty_file(self, temp_campaigns_dir: Path) -> None:
         """Test append_transcript_entry handles empty file (0 bytes)."""
         from models import TranscriptEntry
         from persistence import append_transcript_entry, load_transcript
@@ -5127,7 +5142,7 @@ class TestAppendTranscriptEntryExpanded:
             turn=1,
             timestamp="2026-01-28T10:00:00Z",
             agent="dm",
-            content="Unicode: \u2764\u2728\U0001F3B2",
+            content="Unicode: \u2764\u2728\U0001f3b2",
         )
         entry2 = TranscriptEntry(
             turn=2,
@@ -5145,9 +5160,7 @@ class TestAppendTranscriptEntryExpanded:
         assert "\u2764" in loaded[0].content
         assert "\u4e2d\u6587" in loaded[1].content
 
-    def test_append_many_entries_performance(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_append_many_entries_performance(self, temp_campaigns_dir: Path) -> None:
         """Test append handles many entries (100+) without issues."""
         from models import TranscriptEntry
         from persistence import append_transcript_entry, load_transcript
@@ -5172,9 +5185,7 @@ class TestAppendTranscriptEntryExpanded:
         assert loaded[0].turn == 1
         assert loaded[99].turn == 100
 
-    def test_append_invalid_session_id_raises(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_append_invalid_session_id_raises(self, temp_campaigns_dir: Path) -> None:
         """Test append_transcript_entry validates session_id."""
         from models import TranscriptEntry
         from persistence import append_transcript_entry
@@ -5199,9 +5210,7 @@ class TestAppendTranscriptEntryExpanded:
 class TestLoadTranscriptExpanded:
     """Expanded tests for load_transcript edge cases."""
 
-    def test_load_handles_null_in_list(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_load_handles_null_in_list(self, temp_campaigns_dir: Path) -> None:
         """Test load_transcript handles null values in list."""
         from persistence import load_transcript
 
@@ -5211,11 +5220,19 @@ class TestLoadTranscriptExpanded:
 
         # List with null
         data = [
-            {"turn": 1, "timestamp": "2026-01-28T10:00:00Z",
-             "agent": "dm", "content": "Valid entry."},
+            {
+                "turn": 1,
+                "timestamp": "2026-01-28T10:00:00Z",
+                "agent": "dm",
+                "content": "Valid entry.",
+            },
             None,  # Invalid null
-            {"turn": 2, "timestamp": "2026-01-28T10:01:00Z",
-             "agent": "fighter", "content": "Also valid."},
+            {
+                "turn": 2,
+                "timestamp": "2026-01-28T10:01:00Z",
+                "agent": "fighter",
+                "content": "Also valid.",
+            },
         ]
         transcript_path.write_text(json.dumps(data), encoding="utf-8")
 
@@ -5225,9 +5242,7 @@ class TestLoadTranscriptExpanded:
         assert result is not None
         assert len(result) == 2  # Skips null
 
-    def test_load_handles_empty_object_in_list(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_load_handles_empty_object_in_list(self, temp_campaigns_dir: Path) -> None:
         """Test load_transcript handles empty objects in list."""
         from persistence import load_transcript
 
@@ -5236,11 +5251,19 @@ class TestLoadTranscriptExpanded:
         transcript_path = session_dir / "transcript.json"
 
         data = [
-            {"turn": 1, "timestamp": "2026-01-28T10:00:00Z",
-             "agent": "dm", "content": "Valid."},
+            {
+                "turn": 1,
+                "timestamp": "2026-01-28T10:00:00Z",
+                "agent": "dm",
+                "content": "Valid.",
+            },
             {},  # Empty object - invalid
-            {"turn": 2, "timestamp": "2026-01-28T10:01:00Z",
-             "agent": "fighter", "content": "Valid."},
+            {
+                "turn": 2,
+                "timestamp": "2026-01-28T10:01:00Z",
+                "agent": "fighter",
+                "content": "Valid.",
+            },
         ]
         transcript_path.write_text(json.dumps(data), encoding="utf-8")
 
@@ -5261,13 +5284,27 @@ class TestLoadTranscriptExpanded:
         transcript_path = session_dir / "transcript.json"
 
         data = [
-            {"turn": 1, "timestamp": "2026-01-28T10:00:00Z",
-             "agent": "dm", "content": "Complete."},
-            {"turn": 2, "timestamp": "2026-01-28T10:01:00Z",
-             "agent": "dm"},  # Missing content
-            {"turn": 3, "agent": "dm", "content": "Missing timestamp"},  # Missing timestamp
-            {"timestamp": "2026-01-28T10:03:00Z",
-             "agent": "dm", "content": "Missing turn"},  # Missing turn
+            {
+                "turn": 1,
+                "timestamp": "2026-01-28T10:00:00Z",
+                "agent": "dm",
+                "content": "Complete.",
+            },
+            {
+                "turn": 2,
+                "timestamp": "2026-01-28T10:01:00Z",
+                "agent": "dm",
+            },  # Missing content
+            {
+                "turn": 3,
+                "agent": "dm",
+                "content": "Missing timestamp",
+            },  # Missing timestamp
+            {
+                "timestamp": "2026-01-28T10:03:00Z",
+                "agent": "dm",
+                "content": "Missing turn",
+            },  # Missing turn
         ]
         transcript_path.write_text(json.dumps(data), encoding="utf-8")
 
@@ -5279,9 +5316,7 @@ class TestLoadTranscriptExpanded:
         assert len(result) == 1
         assert result[0].turn == 1
 
-    def test_load_handles_wrong_type_turn(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_load_handles_wrong_type_turn(self, temp_campaigns_dir: Path) -> None:
         """Test load_transcript skips entries with wrong type for turn."""
         from persistence import load_transcript
 
@@ -5290,10 +5325,18 @@ class TestLoadTranscriptExpanded:
         transcript_path = session_dir / "transcript.json"
 
         data = [
-            {"turn": 1, "timestamp": "2026-01-28T10:00:00Z",
-             "agent": "dm", "content": "Valid."},
-            {"turn": "not_a_number", "timestamp": "2026-01-28T10:01:00Z",
-             "agent": "dm", "content": "Invalid turn type."},
+            {
+                "turn": 1,
+                "timestamp": "2026-01-28T10:00:00Z",
+                "agent": "dm",
+                "content": "Valid.",
+            },
+            {
+                "turn": "not_a_number",
+                "timestamp": "2026-01-28T10:01:00Z",
+                "agent": "dm",
+                "content": "Invalid turn type.",
+            },
         ]
         transcript_path.write_text(json.dumps(data), encoding="utf-8")
 
@@ -5303,9 +5346,7 @@ class TestLoadTranscriptExpanded:
         assert result is not None
         assert len(result) == 1
 
-    def test_load_invalid_session_id_validates(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_load_invalid_session_id_validates(self, temp_campaigns_dir: Path) -> None:
         """Test load_transcript validates session_id."""
         from persistence import load_transcript
 
@@ -5349,9 +5390,7 @@ class TestGetTranscriptDownloadDataExpanded:
 
         assert result is None
 
-    def test_download_preserves_unicode(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_download_preserves_unicode(self, temp_campaigns_dir: Path) -> None:
         """Test get_transcript_download_data preserves unicode characters."""
         from models import TranscriptEntry
         from persistence import append_transcript_entry, get_transcript_download_data
@@ -5360,7 +5399,7 @@ class TestGetTranscriptDownloadDataExpanded:
             turn=1,
             timestamp="2026-01-28T10:00:00Z",
             agent="dm",
-            content="Unicode: \u2764 \u4e2d\u6587 \U0001F3B2",
+            content="Unicode: \u2764 \u4e2d\u6587 \U0001f3b2",
         )
 
         with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
@@ -5372,9 +5411,7 @@ class TestGetTranscriptDownloadDataExpanded:
         assert "\u2764" in data
         assert "\u4e2d\u6587" in data
 
-    def test_download_large_transcript(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_download_large_transcript(self, temp_campaigns_dir: Path) -> None:
         """Test get_transcript_download_data handles large transcripts."""
         from models import TranscriptEntry
         from persistence import append_transcript_entry, get_transcript_download_data
@@ -5396,9 +5433,7 @@ class TestGetTranscriptDownloadDataExpanded:
         parsed = json.loads(data)
         assert len(parsed) == 50
 
-    def test_download_invalid_session_id(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_download_invalid_session_id(self, temp_campaigns_dir: Path) -> None:
         """Test get_transcript_download_data validates session_id."""
         from persistence import get_transcript_download_data
 
@@ -5410,9 +5445,7 @@ class TestGetTranscriptDownloadDataExpanded:
 class TestTranscriptBoundaryConditions:
     """Boundary condition tests for transcript functionality."""
 
-    def test_transcript_turn_number_sequential(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_transcript_turn_number_sequential(self, temp_campaigns_dir: Path) -> None:
         """Test transcript maintains sequential turn numbers."""
         from models import TranscriptEntry
         from persistence import append_transcript_entry, load_transcript
@@ -5468,9 +5501,7 @@ class TestTranscriptBoundaryConditions:
         assert len(loaded[1].content) == 1
         assert len(loaded[4].content) == 100000
 
-    def test_transcript_all_agent_types(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_transcript_all_agent_types(self, temp_campaigns_dir: Path) -> None:
         """Test transcript handles all agent types in a game."""
         from models import TranscriptEntry
         from persistence import append_transcript_entry, load_transcript
@@ -5498,9 +5529,7 @@ class TestTranscriptBoundaryConditions:
 class TestTranscriptIntegrationScenarios:
     """Integration scenarios for transcript with other persistence operations."""
 
-    def test_transcript_with_multiple_sessions(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_transcript_with_multiple_sessions(self, temp_campaigns_dir: Path) -> None:
         """Test transcripts are isolated between sessions."""
         from models import TranscriptEntry
         from persistence import append_transcript_entry, load_transcript
@@ -5622,7 +5651,7 @@ class TestTranscriptIntegrationScenarios:
                 if log_entry.startswith("["):
                     bracket_end = log_entry.find("]")
                     agent = log_entry[1:bracket_end]
-                    content = log_entry[bracket_end + 1:].strip()
+                    content = log_entry[bracket_end + 1 :].strip()
                 else:
                     agent = "dm"
                     content = log_entry
@@ -5709,3 +5738,719 @@ class TestTranscriptErrorRecovery:
             result = get_transcript_download_data("nonexistent_session_999")
 
         assert result is None
+
+
+# =============================================================================
+# Story 5.4: Cross-Session Memory Persistence Tests
+# =============================================================================
+
+
+class TestCrossSessionMemorySerialization:
+    """Tests for cross-session memory persistence with CharacterFacts (Story 5.4)."""
+
+    def test_serialize_preserves_character_facts(self) -> None:
+        """Test serialize_game_state preserves character_facts in agent_memories."""
+        from models import AgentMemory, CharacterConfig, CharacterFacts
+        from persistence import serialize_game_state
+
+        facts = CharacterFacts(
+            name="Shadowmere",
+            character_class="Rogue",
+            key_traits=["Sardonic wit", "Trust issues"],
+            relationships={"Theros": "Trusted ally"},
+            notable_events=["Discovered hidden passage"],
+        )
+
+        state: GameState = {
+            "ground_truth_log": [],
+            "turn_queue": ["dm", "rogue"],
+            "current_turn": "dm",
+            "agent_memories": {
+                "dm": AgentMemory(long_term_summary="Story so far"),
+                "rogue": AgentMemory(
+                    long_term_summary="My journey",
+                    character_facts=facts,
+                ),
+            },
+            "game_config": GameConfig(),
+            "dm_config": DMConfig(),
+            "characters": {
+                "rogue": CharacterConfig(
+                    name="Shadowmere",
+                    character_class="Rogue",
+                    personality="Sardonic wit",
+                    color="#6B8E6B",
+                ),
+            },
+            "whisper_queue": [],
+            "human_active": False,
+            "controlled_character": None,
+            "session_number": 1,
+            "session_id": "001",
+        }
+
+        json_str = serialize_game_state(state)
+        data = json.loads(json_str)
+
+        # Verify character_facts is serialized
+        assert "character_facts" in data["agent_memories"]["rogue"]
+        assert (
+            data["agent_memories"]["rogue"]["character_facts"]["name"] == "Shadowmere"
+        )
+        assert (
+            "Sardonic wit"
+            in data["agent_memories"]["rogue"]["character_facts"]["key_traits"]
+        )
+        assert (
+            "Theros"
+            in data["agent_memories"]["rogue"]["character_facts"]["relationships"]
+        )
+
+    def test_deserialize_restores_character_facts(self) -> None:
+        """Test deserialize_game_state restores character_facts from JSON."""
+        from models import CharacterFacts
+        from persistence import deserialize_game_state
+
+        json_data = {
+            "ground_truth_log": [],
+            "turn_queue": ["dm", "rogue"],
+            "current_turn": "dm",
+            "agent_memories": {
+                "dm": {
+                    "long_term_summary": "Story so far",
+                    "short_term_buffer": [],
+                    "token_limit": 8000,
+                    "character_facts": None,
+                },
+                "rogue": {
+                    "long_term_summary": "My journey",
+                    "short_term_buffer": [],
+                    "token_limit": 4000,
+                    "character_facts": {
+                        "name": "Shadowmere",
+                        "character_class": "Rogue",
+                        "key_traits": ["Sardonic wit", "Trust issues"],
+                        "relationships": {"Theros": "Trusted ally"},
+                        "notable_events": ["Discovered hidden passage"],
+                    },
+                },
+            },
+            "game_config": {
+                "combat_mode": "Narrative",
+                "summarizer_model": "gemini-1.5-flash",
+                "party_size": 4,
+            },
+            "dm_config": {
+                "name": "Dungeon Master",
+                "provider": "gemini",
+                "model": "gemini-1.5-flash",
+                "token_limit": 8000,
+                "color": "#D4A574",
+            },
+            "characters": {
+                "rogue": {
+                    "name": "Shadowmere",
+                    "character_class": "Rogue",
+                    "personality": "Sardonic",
+                    "color": "#6B8E6B",
+                    "provider": "gemini",
+                    "model": "gemini-1.5-flash",
+                    "token_limit": 4000,
+                },
+            },
+            "whisper_queue": [],
+            "human_active": False,
+            "controlled_character": None,
+            "session_number": 1,
+            "session_id": "001",
+        }
+
+        state = deserialize_game_state(json.dumps(json_data))
+
+        # Verify character_facts is restored as CharacterFacts instance
+        rogue_memory = state["agent_memories"]["rogue"]
+        assert rogue_memory.character_facts is not None
+        assert isinstance(rogue_memory.character_facts, CharacterFacts)
+        assert rogue_memory.character_facts.name == "Shadowmere"
+        assert rogue_memory.character_facts.character_class == "Rogue"
+        assert "Sardonic wit" in rogue_memory.character_facts.key_traits
+        assert (
+            rogue_memory.character_facts.relationships.get("Theros") == "Trusted ally"
+        )
+        assert (
+            "Discovered hidden passage" in rogue_memory.character_facts.notable_events
+        )
+
+    def test_serialize_deserialize_roundtrip_with_character_facts(self) -> None:
+        """Test character_facts survives full serialize/deserialize cycle."""
+        from models import AgentMemory, CharacterConfig, CharacterFacts
+        from persistence import deserialize_game_state, serialize_game_state
+
+        facts = CharacterFacts(
+            name="Lyra",
+            character_class="Wizard",
+            key_traits=["Curious", "Analytical", "Bookish"],
+            relationships={"Master Aldric": "Mentor", "Shadowmere": "Cautious ally"},
+            notable_events=["Cast first fireball", "Discovered ancient tome"],
+        )
+
+        original_state: GameState = {
+            "ground_truth_log": ["[dm] The adventure begins."],
+            "turn_queue": ["dm", "wizard"],
+            "current_turn": "wizard",
+            "agent_memories": {
+                "dm": AgentMemory(long_term_summary="Epic tale begins"),
+                "wizard": AgentMemory(
+                    long_term_summary="My magical journey",
+                    short_term_buffer=["Recent spell cast"],
+                    character_facts=facts,
+                    token_limit=6000,
+                ),
+            },
+            "game_config": GameConfig(),
+            "dm_config": DMConfig(),
+            "characters": {
+                "wizard": CharacterConfig(
+                    name="Lyra",
+                    character_class="Wizard",
+                    personality="Curious",
+                    color="#7B68B8",
+                    token_limit=6000,
+                ),
+            },
+            "whisper_queue": [],
+            "human_active": False,
+            "controlled_character": None,
+            "session_number": 2,
+            "session_id": "002",
+        }
+
+        # Roundtrip
+        json_str = serialize_game_state(original_state)
+        restored_state = deserialize_game_state(json_str)
+
+        # Verify character_facts survived
+        wizard_memory = restored_state["agent_memories"]["wizard"]
+        assert wizard_memory.character_facts is not None
+        assert wizard_memory.character_facts.name == "Lyra"
+        assert wizard_memory.character_facts.character_class == "Wizard"
+        assert wizard_memory.character_facts.key_traits == [
+            "Curious",
+            "Analytical",
+            "Bookish",
+        ]
+        assert wizard_memory.character_facts.relationships == {
+            "Master Aldric": "Mentor",
+            "Shadowmere": "Cautious ally",
+        }
+        assert wizard_memory.character_facts.notable_events == [
+            "Cast first fireball",
+            "Discovered ancient tome",
+        ]
+
+    def test_long_term_summary_persists_in_checkpoint(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test long_term_summary persists through save/load checkpoint cycle."""
+        from models import AgentMemory
+        from persistence import load_checkpoint, save_checkpoint
+
+        state: GameState = {
+            "ground_truth_log": ["[dm] Test entry"],
+            "turn_queue": ["dm", "rogue"],
+            "current_turn": "dm",
+            "agent_memories": {
+                "dm": AgentMemory(
+                    long_term_summary="The party befriended a goblin named Skrix"
+                ),
+                "rogue": AgentMemory(
+                    long_term_summary="I stole the merchant's key in session 2"
+                ),
+            },
+            "game_config": GameConfig(),
+            "dm_config": DMConfig(),
+            "characters": {},
+            "whisper_queue": [],
+            "human_active": False,
+            "controlled_character": None,
+            "session_number": 1,
+            "session_id": "001",
+        }
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(state, "001", 10, update_metadata=False)
+            loaded = load_checkpoint("001", 10)
+
+        assert loaded is not None
+        assert (
+            loaded["agent_memories"]["dm"].long_term_summary
+            == "The party befriended a goblin named Skrix"
+        )
+        assert (
+            loaded["agent_memories"]["rogue"].long_term_summary
+            == "I stole the merchant's key in session 2"
+        )
+
+    def test_character_facts_persists_in_checkpoint(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test character_facts persists through save/load checkpoint cycle."""
+        from models import AgentMemory, CharacterFacts
+        from persistence import load_checkpoint, save_checkpoint
+
+        facts = CharacterFacts(
+            name="Marcus",
+            character_class="Fighter",
+            key_traits=["Brave", "Loyal"],
+            relationships={"Lord Blackwood": "Enemy - killed my family"},
+            notable_events=["Defended the gate alone"],
+        )
+
+        state: GameState = {
+            "ground_truth_log": [],
+            "turn_queue": ["dm", "fighter"],
+            "current_turn": "dm",
+            "agent_memories": {
+                "dm": AgentMemory(),
+                "fighter": AgentMemory(character_facts=facts),
+            },
+            "game_config": GameConfig(),
+            "dm_config": DMConfig(),
+            "characters": {},
+            "whisper_queue": [],
+            "human_active": False,
+            "controlled_character": None,
+            "session_number": 1,
+            "session_id": "001",
+        }
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(state, "001", 5, update_metadata=False)
+            loaded = load_checkpoint("001", 5)
+
+        assert loaded is not None
+        fighter_facts = loaded["agent_memories"]["fighter"].character_facts
+        assert fighter_facts is not None
+        assert fighter_facts.name == "Marcus"
+        assert (
+            fighter_facts.relationships.get("Lord Blackwood")
+            == "Enemy - killed my family"
+        )
+
+
+class TestInitializeSessionWithPreviousMemories:
+    """Tests for initialize_session_with_previous_memories function (Story 5.4)."""
+
+    def test_initialize_from_previous_session_copies_long_term_summary(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test that long_term_summary is copied from previous session."""
+        from models import AgentMemory, CharacterFacts
+        from persistence import (
+            initialize_session_with_previous_memories,
+            save_checkpoint,
+        )
+
+        # Create previous session with memories
+        prev_state: GameState = {
+            "ground_truth_log": ["[dm] Previous adventure"],
+            "turn_queue": ["dm", "rogue"],
+            "current_turn": "dm",
+            "agent_memories": {
+                "dm": AgentMemory(
+                    long_term_summary="The party defeated the dragon",
+                    short_term_buffer=["Old buffer entry"],
+                ),
+                "rogue": AgentMemory(
+                    long_term_summary="I found the secret treasure",
+                    short_term_buffer=["Another old entry"],
+                    character_facts=CharacterFacts(
+                        name="Shadowmere",
+                        character_class="Rogue",
+                        key_traits=["Sneaky"],
+                        relationships={"Dragon": "Defeated enemy"},
+                    ),
+                ),
+            },
+            "game_config": GameConfig(),
+            "dm_config": DMConfig(),
+            "characters": {},
+            "whisper_queue": [],
+            "human_active": False,
+            "controlled_character": None,
+            "session_number": 1,
+            "session_id": "001",
+        }
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(prev_state, "001", 20, update_metadata=False)
+
+        # Create new session state
+        new_state: GameState = {
+            "ground_truth_log": [],
+            "turn_queue": ["dm", "rogue"],
+            "current_turn": "dm",
+            "agent_memories": {
+                "dm": AgentMemory(),
+                "rogue": AgentMemory(),
+            },
+            "game_config": GameConfig(),
+            "dm_config": DMConfig(),
+            "characters": {},
+            "whisper_queue": [],
+            "human_active": False,
+            "controlled_character": None,
+            "session_number": 2,
+            "session_id": "002",
+        }
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            result = initialize_session_with_previous_memories("001", "002", new_state)
+
+        # Verify long_term_summary copied
+        assert (
+            result["agent_memories"]["dm"].long_term_summary
+            == "The party defeated the dragon"
+        )
+        assert (
+            result["agent_memories"]["rogue"].long_term_summary
+            == "I found the secret treasure"
+        )
+
+    def test_initialize_from_previous_session_copies_character_facts(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test that character_facts is copied from previous session."""
+        from models import AgentMemory, CharacterFacts
+        from persistence import (
+            initialize_session_with_previous_memories,
+            save_checkpoint,
+        )
+
+        facts = CharacterFacts(
+            name="Shadowmere",
+            character_class="Rogue",
+            key_traits=["Sardonic wit"],
+            relationships={"Marcus the Merchant": "Rival - session 2"},
+            notable_events=["Stole the enchanted dagger"],
+        )
+
+        prev_state: GameState = {
+            "ground_truth_log": [],
+            "turn_queue": ["dm", "rogue"],
+            "current_turn": "dm",
+            "agent_memories": {
+                "dm": AgentMemory(),
+                "rogue": AgentMemory(character_facts=facts),
+            },
+            "game_config": GameConfig(),
+            "dm_config": DMConfig(),
+            "characters": {},
+            "whisper_queue": [],
+            "human_active": False,
+            "controlled_character": None,
+            "session_number": 1,
+            "session_id": "001",
+        }
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(prev_state, "001", 10, update_metadata=False)
+
+        new_state: GameState = {
+            "ground_truth_log": [],
+            "turn_queue": ["dm", "rogue"],
+            "current_turn": "dm",
+            "agent_memories": {
+                "dm": AgentMemory(),
+                "rogue": AgentMemory(),
+            },
+            "game_config": GameConfig(),
+            "dm_config": DMConfig(),
+            "characters": {},
+            "whisper_queue": [],
+            "human_active": False,
+            "controlled_character": None,
+            "session_number": 2,
+            "session_id": "002",
+        }
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            result = initialize_session_with_previous_memories("001", "002", new_state)
+
+        # Verify character_facts copied
+        rogue_facts = result["agent_memories"]["rogue"].character_facts
+        assert rogue_facts is not None
+        assert rogue_facts.name == "Shadowmere"
+        assert (
+            rogue_facts.relationships.get("Marcus the Merchant") == "Rival - session 2"
+        )
+
+    def test_initialize_clears_short_term_buffer(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test that short_term_buffer starts empty in new session."""
+        from models import AgentMemory
+        from persistence import (
+            initialize_session_with_previous_memories,
+            save_checkpoint,
+        )
+
+        prev_state: GameState = {
+            "ground_truth_log": [],
+            "turn_queue": ["dm", "rogue"],
+            "current_turn": "dm",
+            "agent_memories": {
+                "dm": AgentMemory(
+                    long_term_summary="Previous summary",
+                    short_term_buffer=["Old event 1", "Old event 2", "Old event 3"],
+                ),
+                "rogue": AgentMemory(
+                    short_term_buffer=["Rogue old event"],
+                ),
+            },
+            "game_config": GameConfig(),
+            "dm_config": DMConfig(),
+            "characters": {},
+            "whisper_queue": [],
+            "human_active": False,
+            "controlled_character": None,
+            "session_number": 1,
+            "session_id": "001",
+        }
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(prev_state, "001", 15, update_metadata=False)
+
+        new_state: GameState = {
+            "ground_truth_log": [],
+            "turn_queue": ["dm", "rogue"],
+            "current_turn": "dm",
+            "agent_memories": {
+                "dm": AgentMemory(),
+                "rogue": AgentMemory(),
+            },
+            "game_config": GameConfig(),
+            "dm_config": DMConfig(),
+            "characters": {},
+            "whisper_queue": [],
+            "human_active": False,
+            "controlled_character": None,
+            "session_number": 2,
+            "session_id": "002",
+        }
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            result = initialize_session_with_previous_memories("001", "002", new_state)
+
+        # Verify short_term_buffer is empty
+        assert result["agent_memories"]["dm"].short_term_buffer == []
+        assert result["agent_memories"]["rogue"].short_term_buffer == []
+        # But long_term_summary is preserved
+        assert result["agent_memories"]["dm"].long_term_summary == "Previous summary"
+
+    def test_initialize_no_previous_session_returns_state_unchanged(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test that first session (no previous) returns state unchanged."""
+        from models import AgentMemory
+        from persistence import initialize_session_with_previous_memories
+
+        new_state: GameState = {
+            "ground_truth_log": [],
+            "turn_queue": ["dm", "fighter"],
+            "current_turn": "dm",
+            "agent_memories": {
+                "dm": AgentMemory(long_term_summary="Fresh start"),
+                "fighter": AgentMemory(),
+            },
+            "game_config": GameConfig(),
+            "dm_config": DMConfig(),
+            "characters": {},
+            "whisper_queue": [],
+            "human_active": False,
+            "controlled_character": None,
+            "session_number": 1,
+            "session_id": "001",
+        }
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            result = initialize_session_with_previous_memories(
+                "nonexistent", "001", new_state
+            )
+
+        # State should be returned unchanged
+        assert result["agent_memories"]["dm"].long_term_summary == "Fresh start"
+
+    def test_initialize_preserves_new_state_token_limits(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test that token_limit from new state is preserved."""
+        from models import AgentMemory
+        from persistence import (
+            initialize_session_with_previous_memories,
+            save_checkpoint,
+        )
+
+        prev_state: GameState = {
+            "ground_truth_log": [],
+            "turn_queue": ["dm", "wizard"],
+            "current_turn": "dm",
+            "agent_memories": {
+                "dm": AgentMemory(long_term_summary="Previous", token_limit=8000),
+                "wizard": AgentMemory(
+                    long_term_summary="Wizard's tale", token_limit=4000
+                ),
+            },
+            "game_config": GameConfig(),
+            "dm_config": DMConfig(),
+            "characters": {},
+            "whisper_queue": [],
+            "human_active": False,
+            "controlled_character": None,
+            "session_number": 1,
+            "session_id": "001",
+        }
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(prev_state, "001", 10, update_metadata=False)
+
+        # New state has different token limits
+        new_state: GameState = {
+            "ground_truth_log": [],
+            "turn_queue": ["dm", "wizard"],
+            "current_turn": "dm",
+            "agent_memories": {
+                "dm": AgentMemory(token_limit=16000),
+                "wizard": AgentMemory(token_limit=6000),
+            },
+            "game_config": GameConfig(),
+            "dm_config": DMConfig(),
+            "characters": {},
+            "whisper_queue": [],
+            "human_active": False,
+            "controlled_character": None,
+            "session_number": 2,
+            "session_id": "002",
+        }
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            result = initialize_session_with_previous_memories("001", "002", new_state)
+
+        # New state's token limits should be preserved
+        assert result["agent_memories"]["dm"].token_limit == 16000
+        assert result["agent_memories"]["wizard"].token_limit == 6000
+        # But memories are from previous session
+        assert result["agent_memories"]["dm"].long_term_summary == "Previous"
+        assert result["agent_memories"]["wizard"].long_term_summary == "Wizard's tale"
+
+
+class TestGenerateRecapSummaryEnhanced:
+    """Tests for enhanced generate_recap_summary with cross-session content (Story 5.4)."""
+
+    def test_recap_includes_long_term_summary(self, temp_campaigns_dir: Path) -> None:
+        """Test recap includes long_term_summary from agent memories."""
+        from persistence import generate_recap_summary, save_checkpoint
+
+        state: GameState = {
+            "ground_truth_log": ["[dm] A new adventure begins."],
+            "turn_queue": ["dm", "rogue"],
+            "current_turn": "dm",
+            "agent_memories": {
+                "dm": AgentMemory(
+                    long_term_summary="Last session: The party defeated the goblin king."
+                ),
+                "rogue": AgentMemory(
+                    long_term_summary="Shadowmere discovered the secret map."
+                ),
+            },
+            "game_config": GameConfig(),
+            "dm_config": DMConfig(),
+            "characters": {},
+            "whisper_queue": [],
+            "human_active": False,
+            "controlled_character": None,
+            "session_number": 2,
+            "session_id": "002",
+        }
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(state, "002", 1, update_metadata=False)
+            recap = generate_recap_summary("002")
+
+        assert recap is not None
+        # Should include story context
+        assert "goblin king" in recap or "adventure" in recap
+
+    def test_recap_includes_character_relationships(
+        self, temp_campaigns_dir: Path
+    ) -> None:
+        """Test recap includes character relationships from CharacterFacts."""
+        from models import CharacterFacts
+        from persistence import generate_recap_summary, save_checkpoint
+
+        facts = CharacterFacts(
+            name="Shadowmere",
+            character_class="Rogue",
+            relationships={
+                "Theros": "Trusted ally who saved my life",
+                "Lord Blackwood": "Enemy - stole from him",
+            },
+        )
+
+        state: GameState = {
+            "ground_truth_log": ["[dm] The party gathers at the tavern."],
+            "turn_queue": ["dm", "rogue"],
+            "current_turn": "dm",
+            "agent_memories": {
+                "dm": AgentMemory(),
+                "rogue": AgentMemory(character_facts=facts),
+            },
+            "game_config": GameConfig(),
+            "dm_config": DMConfig(),
+            "characters": {},
+            "whisper_queue": [],
+            "human_active": False,
+            "controlled_character": None,
+            "session_number": 1,
+            "session_id": "001",
+        }
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(state, "001", 5, update_metadata=False)
+            recap = generate_recap_summary("001", include_cross_session=True)
+
+        assert recap is not None
+        # Relationships should be included
+        assert "Theros" in recap or "relationship" in recap.lower()
+
+    def test_recap_without_cross_session_flag(self, temp_campaigns_dir: Path) -> None:
+        """Test recap without cross-session flag returns basic recap."""
+        from persistence import generate_recap_summary, save_checkpoint
+
+        state: GameState = {
+            "ground_truth_log": [
+                "[dm] The party enters the dungeon.",
+                "[rogue] I check for traps.",
+            ],
+            "turn_queue": ["dm", "rogue"],
+            "current_turn": "rogue",
+            "agent_memories": {
+                "dm": AgentMemory(long_term_summary="Previous adventures"),
+                "rogue": AgentMemory(),
+            },
+            "game_config": GameConfig(),
+            "dm_config": DMConfig(),
+            "characters": {},
+            "whisper_queue": [],
+            "human_active": False,
+            "controlled_character": None,
+            "session_number": 1,
+            "session_id": "001",
+        }
+
+        with patch("persistence.CAMPAIGNS_DIR", temp_campaigns_dir):
+            save_checkpoint(state, "001", 3, update_metadata=False)
+            recap = generate_recap_summary("001", include_cross_session=False)
+
+        assert recap is not None
+        assert "dungeon" in recap or "traps" in recap

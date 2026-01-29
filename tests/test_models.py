@@ -883,3 +883,274 @@ class TestSessionMetadataModel:
         )
 
         assert metadata.turn_count == 0
+
+
+# =============================================================================
+# Story 5.4: CharacterFacts Model Tests
+# =============================================================================
+
+
+class TestCharacterFacts:
+    """Tests for CharacterFacts model (Story 5.4, Task 1)."""
+
+    def test_character_facts_creation_with_required_fields(self) -> None:
+        """Test CharacterFacts can be created with required fields only."""
+        from models import CharacterFacts
+
+        facts = CharacterFacts(
+            name="Shadowmere",
+            character_class="Rogue",
+        )
+
+        assert facts.name == "Shadowmere"
+        assert facts.character_class == "Rogue"
+        assert facts.key_traits == []
+        assert facts.relationships == {}
+        assert facts.notable_events == []
+
+    def test_character_facts_creation_with_all_fields(self) -> None:
+        """Test CharacterFacts can be created with all fields."""
+        from models import CharacterFacts
+
+        facts = CharacterFacts(
+            name="Shadowmere",
+            character_class="Rogue",
+            key_traits=["Sardonic wit", "Trust issues", "Observant"],
+            relationships={
+                "Theros": "Trusted party member, saved my life in the goblin cave",
+                "Marcus the Merchant": "Rival - tried to cheat me in session 2",
+            },
+            notable_events=[
+                "Discovered the hidden passage in Thornwood Tower",
+                "Stole the enchanted dagger from Lord Blackwood",
+            ],
+        )
+
+        assert facts.name == "Shadowmere"
+        assert facts.character_class == "Rogue"
+        assert len(facts.key_traits) == 3
+        assert "Sardonic wit" in facts.key_traits
+        assert len(facts.relationships) == 2
+        assert "Theros" in facts.relationships
+        assert len(facts.notable_events) == 2
+
+    def test_character_facts_json_serialization(self) -> None:
+        """Test CharacterFacts can serialize to JSON."""
+        from models import CharacterFacts
+
+        facts = CharacterFacts(
+            name="Theron",
+            character_class="Fighter",
+            key_traits=["Brave", "Honorable"],
+            relationships={"Shadowmere": "Fellow party member"},
+            notable_events=["Defended the village gate"],
+        )
+
+        json_str = facts.model_dump_json()
+        data = json.loads(json_str)
+
+        assert data["name"] == "Theron"
+        assert data["character_class"] == "Fighter"
+        assert "Brave" in data["key_traits"]
+
+    def test_character_facts_json_roundtrip(self) -> None:
+        """Test CharacterFacts survives JSON roundtrip."""
+        from models import CharacterFacts
+
+        original = CharacterFacts(
+            name="Lyra",
+            character_class="Wizard",
+            key_traits=["Curious", "Analytical"],
+            relationships={"Master Aldric": "Mentor"},
+            notable_events=["Cast first fireball spell"],
+        )
+
+        json_str = original.model_dump_json()
+        restored = CharacterFacts.model_validate_json(json_str)
+
+        assert restored.name == original.name
+        assert restored.character_class == original.character_class
+        assert restored.key_traits == original.key_traits
+        assert restored.relationships == original.relationships
+        assert restored.notable_events == original.notable_events
+
+    def test_character_facts_in_all_exports(self) -> None:
+        """Test CharacterFacts is in module __all__ exports."""
+        import models
+
+        assert "CharacterFacts" in models.__all__
+
+
+class TestAgentMemoryWithCharacterFacts:
+    """Tests for AgentMemory with character_facts field (Story 5.4, Task 1)."""
+
+    def test_agent_memory_character_facts_default_none(self) -> None:
+        """Test AgentMemory defaults character_facts to None."""
+        from models import AgentMemory
+
+        memory = AgentMemory()
+        assert memory.character_facts is None
+
+    def test_agent_memory_with_character_facts(self) -> None:
+        """Test AgentMemory can be created with character_facts."""
+        from models import AgentMemory, CharacterFacts
+
+        facts = CharacterFacts(
+            name="Shadowmere",
+            character_class="Rogue",
+            key_traits=["Sardonic wit"],
+        )
+
+        memory = AgentMemory(
+            long_term_summary="The party explored the dungeon",
+            character_facts=facts,
+        )
+
+        assert memory.character_facts is not None
+        assert memory.character_facts.name == "Shadowmere"
+        assert memory.character_facts.character_class == "Rogue"
+
+    def test_agent_memory_with_character_facts_serialization(self) -> None:
+        """Test AgentMemory with character_facts serializes correctly."""
+        from models import AgentMemory, CharacterFacts
+
+        facts = CharacterFacts(
+            name="Theron",
+            character_class="Fighter",
+            key_traits=["Brave"],
+            relationships={"Shadowmere": "Ally"},
+        )
+
+        memory = AgentMemory(
+            long_term_summary="Test summary",
+            character_facts=facts,
+            token_limit=6000,
+        )
+
+        json_str = memory.model_dump_json()
+        data = json.loads(json_str)
+
+        assert "character_facts" in data
+        assert data["character_facts"]["name"] == "Theron"
+        assert data["character_facts"]["character_class"] == "Fighter"
+
+    def test_agent_memory_with_character_facts_roundtrip(self) -> None:
+        """Test AgentMemory with character_facts survives JSON roundtrip."""
+        from models import AgentMemory, CharacterFacts
+
+        facts = CharacterFacts(
+            name="Lyra",
+            character_class="Wizard",
+            key_traits=["Curious"],
+            relationships={"Master": "Mentor"},
+            notable_events=["Learned fireball"],
+        )
+
+        original = AgentMemory(
+            long_term_summary="Original summary",
+            short_term_buffer=["Event 1"],
+            character_facts=facts,
+            token_limit=5000,
+        )
+
+        json_str = original.model_dump_json()
+        restored = AgentMemory.model_validate_json(json_str)
+
+        assert restored.character_facts is not None
+        assert restored.character_facts.name == "Lyra"
+        assert restored.character_facts.key_traits == ["Curious"]
+        assert restored.character_facts.relationships == {"Master": "Mentor"}
+        assert restored.character_facts.notable_events == ["Learned fireball"]
+
+
+class TestCreateAgentMemoryWithFacts:
+    """Tests for create_agent_memory factory with character_facts (Story 5.4, Task 1)."""
+
+    def test_create_agent_memory_without_facts(self) -> None:
+        """Test create_agent_memory works without character_facts."""
+        from models import create_agent_memory
+
+        memory = create_agent_memory()
+        assert memory.character_facts is None
+
+    def test_create_agent_memory_with_facts(self) -> None:
+        """Test create_agent_memory accepts optional character_facts."""
+        from models import CharacterFacts, create_agent_memory
+
+        facts = CharacterFacts(name="Test", character_class="Fighter")
+        memory = create_agent_memory(token_limit=4000, character_facts=facts)
+
+        assert memory.token_limit == 4000
+        assert memory.character_facts is not None
+        assert memory.character_facts.name == "Test"
+
+
+class TestCreateCharacterFactsFromConfig:
+    """Tests for create_character_facts_from_config function (Story 5.4, Task 4)."""
+
+    def test_create_character_facts_basic(self) -> None:
+        """Test creating CharacterFacts from a CharacterConfig."""
+        from models import CharacterConfig, create_character_facts_from_config
+
+        config = CharacterConfig(
+            name="Shadowmere",
+            character_class="Rogue",
+            personality="Sardonic wit, trust issues",
+            color="#6B8E6B",
+        )
+
+        facts = create_character_facts_from_config(config)
+
+        assert facts.name == "Shadowmere"
+        assert facts.character_class == "Rogue"
+        assert facts.key_traits == []  # Initially empty
+        assert facts.relationships == {}  # Initially empty
+        assert facts.notable_events == []  # Initially empty
+
+    def test_create_character_facts_all_character_classes(self) -> None:
+        """Test CharacterFacts creation works for all character classes."""
+        from models import CharacterConfig, create_character_facts_from_config
+
+        classes = ["Fighter", "Rogue", "Wizard", "Cleric", "Ranger", "Paladin"]
+        for char_class in classes:
+            config = CharacterConfig(
+                name=f"Test {char_class}",
+                character_class=char_class,
+                personality="Test personality",
+                color="#123456",
+            )
+            facts = create_character_facts_from_config(config)
+            assert facts.character_class == char_class
+
+    def test_create_character_facts_in_all_exports(self) -> None:
+        """Test create_character_facts_from_config is in module __all__."""
+        import models
+
+        assert "create_character_facts_from_config" in models.__all__
+
+
+class TestPopulateGameStateWithCharacterFacts:
+    """Tests for populate_game_state with CharacterFacts (Story 5.4, Task 4)."""
+
+    def test_populate_game_state_initializes_character_facts(self) -> None:
+        """Test populate_game_state creates CharacterFacts for PC agents."""
+        from models import CharacterFacts, populate_game_state
+
+        state = populate_game_state(include_sample_messages=False)
+
+        # Each PC agent should have character_facts
+        for char_name, char_config in state["characters"].items():
+            memory = state["agent_memories"][char_name]
+            assert memory.character_facts is not None
+            assert isinstance(memory.character_facts, CharacterFacts)
+            assert memory.character_facts.name == char_config.name
+            assert memory.character_facts.character_class == char_config.character_class
+
+    def test_populate_game_state_dm_has_no_character_facts(self) -> None:
+        """Test DM agent does not have character_facts (DM is not a character)."""
+        from models import populate_game_state
+
+        state = populate_game_state(include_sample_messages=False)
+
+        dm_memory = state["agent_memories"]["dm"]
+        assert dm_memory.character_facts is None

@@ -14,13 +14,14 @@ for validation and serialization benefits.
 
 import re
 from datetime import UTC, datetime
-from typing import Literal, TypedDict
+from typing import ClassVar, Literal, TypedDict
 
 from pydantic import BaseModel, Field, field_validator
 
 __all__ = [
     "AgentMemory",
     "CharacterConfig",
+    "CharacterFacts",
     "DMConfig",
     "ERROR_TYPES",
     "GameConfig",
@@ -31,6 +32,7 @@ __all__ = [
     "TranscriptEntry",
     "UserError",
     "create_agent_memory",
+    "create_character_facts_from_config",
     "create_initial_game_state",
     "create_user_error",
     "populate_game_state",
@@ -47,6 +49,55 @@ LOG_ENTRY_PATTERN = re.compile(r"^\[([^\]]+)\]\s*(.*)$")
 ACTION_PATTERN = re.compile(r"\*([^*]+)\*")
 
 
+class CharacterFacts(BaseModel):
+    """Persistent character identity that carries across sessions.
+
+    This model captures the essential facts about a character that should
+    persist between sessions and always be included in agent context.
+    Story 5.4: Cross-Session Memory & Character Facts.
+
+    Attributes:
+        name: Character's name (e.g., "Shadowmere").
+        character_class: D&D class (e.g., "Rogue").
+        key_traits: Core personality traits and quirks (max 10).
+        relationships: Dict of character name -> relationship description (max 20).
+        notable_events: List of significant events involving this character (max 20).
+    """
+
+    # Limits to prevent unbounded growth across sessions
+    MAX_KEY_TRAITS: ClassVar[int] = 10
+    MAX_RELATIONSHIPS: ClassVar[int] = 20
+    MAX_NOTABLE_EVENTS: ClassVar[int] = 20
+
+    name: str = Field(..., min_length=1, description="Character's name")
+    character_class: str = Field(..., min_length=1, description="D&D class")
+    key_traits: list[str] = Field(
+        default_factory=list,
+        max_length=MAX_KEY_TRAITS,
+        description="Core personality traits and quirks (max 10)",
+    )
+    relationships: dict[str, str] = Field(
+        default_factory=dict,
+        description="Character name -> relationship description (max 20)",
+    )
+    notable_events: list[str] = Field(
+        default_factory=list,
+        max_length=MAX_NOTABLE_EVENTS,
+        description="Significant events involving this character (max 20)",
+    )
+
+    @field_validator("relationships")
+    @classmethod
+    def relationships_max_size(cls, v: dict[str, str]) -> dict[str, str]:
+        """Validate that relationships dict doesn't exceed max size."""
+        if len(v) > cls.MAX_RELATIONSHIPS:
+            raise ValueError(
+                f"relationships cannot have more than {cls.MAX_RELATIONSHIPS} entries, "
+                f"got {len(v)}"
+            )
+        return v
+
+
 class AgentMemory(BaseModel):
     """Per-agent memory for context management.
 
@@ -61,6 +112,8 @@ class AgentMemory(BaseModel):
             approaching token_limit. Newest entries at the end.
         token_limit: Maximum tokens for this agent's context window.
             Context Manager node checks this before each turn.
+        character_facts: Persistent character identity (Story 5.4).
+            Carries across sessions and is always included in context.
     """
 
     long_term_summary: str = Field(
@@ -75,6 +128,10 @@ class AgentMemory(BaseModel):
         default=8000,
         ge=1,
         description="Maximum tokens for this agent's context",
+    )
+    character_facts: CharacterFacts | None = Field(
+        default=None,
+        description="Persistent character identity (Story 5.4)",
     )
 
 
@@ -566,16 +623,40 @@ def parse_message_content(content: str) -> list[MessageSegment]:
     return [s for s in segments if s.text]
 
 
-def create_agent_memory(token_limit: int = 8000) -> AgentMemory:
+def create_agent_memory(
+    token_limit: int = 8000, character_facts: CharacterFacts | None = None
+) -> AgentMemory:
     """Factory function to create a new AgentMemory instance.
 
     Args:
         token_limit: Maximum tokens for this agent's context window.
+        character_facts: Optional CharacterFacts for persistent identity (Story 5.4).
 
     Returns:
         A new AgentMemory with empty summary and buffer.
     """
-    return AgentMemory(token_limit=token_limit)
+    return AgentMemory(token_limit=token_limit, character_facts=character_facts)
+
+
+def create_character_facts_from_config(config: "CharacterConfig") -> CharacterFacts:
+    """Create CharacterFacts from a CharacterConfig.
+
+    This factory function initializes CharacterFacts with the character's
+    name and class from the config. Other fields (key_traits, relationships,
+    notable_events) start empty and are populated during gameplay.
+
+    Story 5.4: Cross-Session Memory & Character Facts.
+
+    Args:
+        config: The CharacterConfig to extract identity from.
+
+    Returns:
+        A new CharacterFacts with name and class from config.
+    """
+    return CharacterFacts(
+        name=config.name,
+        character_class=config.character_class,
+    )
 
 
 def create_initial_game_state() -> GameState:
@@ -630,10 +711,14 @@ def populate_game_state(include_sample_messages: bool = True) -> GameState:
     turn_queue = ["dm"] + sorted(characters.keys())
 
     # Initialize agent memories with appropriate token limits
+    # PC agents get CharacterFacts, DM does not (Story 5.4)
     agent_memories: dict[str, AgentMemory] = {}
     agent_memories["dm"] = AgentMemory(token_limit=dm_config.token_limit)
     for char_name, char_config in characters.items():
-        agent_memories[char_name] = AgentMemory(token_limit=char_config.token_limit)
+        facts = create_character_facts_from_config(char_config)
+        agent_memories[char_name] = AgentMemory(
+            token_limit=char_config.token_limit, character_facts=facts
+        )
 
     # Sample messages demonstrating different message types and styling
     sample_messages: list[str] = []

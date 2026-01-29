@@ -348,7 +348,7 @@
 |-------|--------|-------|
 | 5-1-short-term-context-buffer | ✅ done | Full Cycle |
 | 5-2-session-summary-generation | ✅ done | Full Cycle |
-| 5-3-in-session-memory-references | ⏳ backlog | Queued |
+| 5-3-in-session-memory-references | ✅ done | Full Cycle |
 | 5-4-cross-session-memory-character-facts | ⏳ backlog | Queued |
 | 5-5-memory-compression-system | ⏳ backlog | Queued |
 
@@ -413,6 +413,36 @@
 - **MEDIUM**: Summarizer created repeatedly → Added module-level caching
 - **MEDIUM**: No buffer truncation before LLM → Added MAX_BUFFER_CHARS (50KB)
 - **MEDIUM**: Missing error recovery tests → Added comprehensive tests
+
+### User Input Required
+- None - all issues auto-resolved
+
+---
+
+## Story: 5-3-in-session-memory-references
+
+**Status:** ✅ Completed
+**Duration:** 2026-01-28
+
+### Files Touched
+- `agents.py` - Added "Reference the past" guideline to PC prompt
+- `memory.py` - Enhanced documentation explaining callback behavior
+- `tests/test_memory.py` - 60 new tests (27 dev + 33 testarch = 280 total)
+- `_bmad-output/implementation-artifacts/5-3-in-session-memory-references.md` - Story file
+
+### Key Design Decisions
+- Primarily verification story - existing infrastructure already enables callbacks
+- Buffer accumulates turns with agent attribution
+- get_context() includes last 10 entries in "Recent Events" section
+- DM prompt has "Narrative Continuity" guidance for callbacks
+- PC prompt enhanced with "Reference the past" guideline
+- LLMs naturally recognize patterns when given sufficient context
+
+### Issues Auto-Resolved
+- **MEDIUM**: Test file docstring outdated → Updated for Stories 5.1-5.3
+- **MEDIUM**: Weak test assertion → Fixed crystal key count test
+- **MEDIUM**: Missing cross-character mention test → Added isolation test
+- **MEDIUM**: Documentation missing constant references → Added to memory.py
 
 ### User Input Required
 - None - all issues auto-resolved

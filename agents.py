@@ -16,7 +16,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_ollama import ChatOllama
 
 from config import get_config
-from models import AgentMemory, CharacterConfig, DMConfig, GameState
+from models import AgentMemory, CharacterConfig, CharacterFacts, DMConfig, GameState
 from tools import dm_roll_dice, pc_roll_dice
 
 # Logger for error tracking (technical details logged internally per FR40)
@@ -41,6 +41,7 @@ __all__ = [
     "create_pc_agent",
     "detect_network_error",
     "dm_turn",
+    "format_character_facts",
     "get_default_model",
     "get_llm",
     "pc_turn",
@@ -482,6 +483,33 @@ def create_pc_agent(config: CharacterConfig) -> Runnable:  # type: ignore[type-a
     return base_model.bind_tools([pc_roll_dice])
 
 
+def format_character_facts(facts: CharacterFacts) -> str:
+    """Format CharacterFacts into a context string for inclusion in agent prompts.
+
+    Story 5.4: Cross-Session Memory & Character Facts.
+
+    Args:
+        facts: The CharacterFacts to format.
+
+    Returns:
+        Formatted string with character identity information.
+    """
+    lines = [f"**{facts.name}** ({facts.character_class})"]
+
+    if facts.key_traits:
+        traits = ", ".join(facts.key_traits)
+        lines.append(f"  Traits: {traits}")
+
+    if facts.relationships:
+        rel_parts = [f"{name}: {desc}" for name, desc in facts.relationships.items()]
+        lines.append(f"  Relationships: {'; '.join(rel_parts)}")
+
+    if facts.notable_events:
+        lines.append(f"  Notable: {'; '.join(facts.notable_events)}")
+
+    return "\n".join(lines)
+
+
 def _build_dm_context(state: GameState) -> str:
     """Build the context string for the DM from all agent memories.
 
@@ -507,6 +535,17 @@ def _build_dm_context(state: GameState) -> str:
             dm_memory.short_term_buffer[-DM_CONTEXT_RECENT_EVENTS_LIMIT:]
         )
         context_parts.append(f"## Recent Events\n{recent_events}")
+
+    # Add CharacterFacts for all PC agents (Story 5.4)
+    character_facts_parts: list[str] = []
+    for agent_name, memory in state["agent_memories"].items():
+        if agent_name == "dm":
+            continue  # DM doesn't have character facts
+        if memory.character_facts:
+            character_facts_parts.append(format_character_facts(memory.character_facts))
+
+    if character_facts_parts:
+        context_parts.append("## Party Members\n" + "\n\n".join(character_facts_parts))
 
     # DM reads ALL agent memories (asymmetric access per architecture)
     agent_knowledge: list[str] = []
@@ -560,6 +599,12 @@ def _build_pc_context(state: GameState, agent_name: str) -> str:
     # PC agents ONLY access their own memory - strict isolation
     pc_memory = state["agent_memories"].get(agent_name)
     if pc_memory:
+        # Add CharacterFacts first - who am I? (Story 5.4)
+        if pc_memory.character_facts:
+            context_parts.append(
+                f"## Character Identity\n{format_character_facts(pc_memory.character_facts)}"
+            )
+
         # Add long-term summary if available
         if pc_memory.long_term_summary:
             context_parts.append(f"## What You Remember\n{pc_memory.long_term_summary}")
@@ -680,6 +725,7 @@ def dm_turn(state: GameState) -> GameState:
         controlled_character=state["controlled_character"],
         session_number=state["session_number"],
         session_id=state["session_id"],
+        summarization_in_progress=state.get("summarization_in_progress", False),
     )
 
 
@@ -790,4 +836,5 @@ def pc_turn(state: GameState, agent_name: str) -> GameState:
         controlled_character=state["controlled_character"],
         session_number=state["session_number"],
         session_id=state["session_id"],
+        summarization_in_progress=state.get("summarization_in_progress", False),
     )

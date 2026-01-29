@@ -5143,3 +5143,272 @@ class TestStory53RealWorldCallbackScenarios:
 
         # All Marcus interactions should be visible for dramatic impact
         assert context.count("Marcus") >= 4
+
+
+# =============================================================================
+# Story 5.4: Cross-Session Memory Tests
+# =============================================================================
+
+
+class TestMemoryManagerCharacterFacts:
+    """Tests for MemoryManager with CharacterFacts (Story 5.4, Task 6)."""
+
+    def test_get_character_facts_returns_facts(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test get_character_facts returns CharacterFacts for agent."""
+        from models import CharacterFacts
+
+        facts = CharacterFacts(
+            name="Shadowmere",
+            character_class="Rogue",
+            key_traits=["Sardonic wit"],
+        )
+        empty_game_state["agent_memories"]["rogue"] = AgentMemory(character_facts=facts)
+
+        manager = MemoryManager(empty_game_state)
+        result = manager.get_character_facts("rogue")
+
+        assert result is not None
+        assert result.name == "Shadowmere"
+
+    def test_get_character_facts_returns_none_when_missing(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test get_character_facts returns None when facts not set."""
+        empty_game_state["agent_memories"]["rogue"] = AgentMemory()
+
+        manager = MemoryManager(empty_game_state)
+        result = manager.get_character_facts("rogue")
+
+        assert result is None
+
+    def test_get_character_facts_returns_none_for_dm(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test get_character_facts returns None for DM."""
+        empty_game_state["agent_memories"]["dm"] = AgentMemory()
+
+        manager = MemoryManager(empty_game_state)
+        result = manager.get_character_facts("dm")
+
+        assert result is None
+
+    def test_pc_context_includes_character_facts(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test PC context includes character_facts when present."""
+        from models import CharacterFacts
+
+        facts = CharacterFacts(
+            name="Shadowmere",
+            character_class="Rogue",
+            key_traits=["Sardonic wit", "Trust issues"],
+            relationships={"Theros": "Ally"},
+        )
+        empty_game_state["agent_memories"]["rogue"] = AgentMemory(
+            character_facts=facts,
+            long_term_summary="My journey",
+        )
+
+        manager = MemoryManager(empty_game_state)
+        context = manager.get_context("rogue")
+
+        assert "Shadowmere" in context
+        assert "Rogue" in context
+        assert "Sardonic wit" in context
+
+    def test_dm_context_includes_all_character_facts(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test DM context includes CharacterFacts for all PC agents."""
+        from models import CharacterFacts
+
+        facts_rogue = CharacterFacts(
+            name="Shadowmere",
+            character_class="Rogue",
+        )
+        facts_fighter = CharacterFacts(
+            name="Theros",
+            character_class="Fighter",
+        )
+        empty_game_state["agent_memories"]["dm"] = AgentMemory()
+        empty_game_state["agent_memories"]["rogue"] = AgentMemory(
+            character_facts=facts_rogue
+        )
+        empty_game_state["agent_memories"]["fighter"] = AgentMemory(
+            character_facts=facts_fighter
+        )
+
+        manager = MemoryManager(empty_game_state)
+        context = manager.get_context("dm")
+
+        assert "Shadowmere" in context
+        assert "Theros" in context
+
+    def test_get_cross_session_summary_returns_long_term_summary(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test get_cross_session_summary returns long_term_summary."""
+        empty_game_state["agent_memories"]["rogue"] = AgentMemory(
+            long_term_summary="In the last session, I discovered the hidden treasure."
+        )
+
+        manager = MemoryManager(empty_game_state)
+        result = manager.get_cross_session_summary("rogue")
+
+        assert result == "In the last session, I discovered the hidden treasure."
+
+    def test_get_cross_session_summary_returns_empty_when_none(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test get_cross_session_summary returns empty string when no summary."""
+        empty_game_state["agent_memories"]["rogue"] = AgentMemory()
+
+        manager = MemoryManager(empty_game_state)
+        result = manager.get_cross_session_summary("rogue")
+
+        assert result == ""
+
+    def test_get_cross_session_summary_for_nonexistent_agent(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test get_cross_session_summary returns empty for nonexistent agent."""
+        manager = MemoryManager(empty_game_state)
+        result = manager.get_cross_session_summary("nonexistent")
+
+        assert result == ""
+
+
+class TestUpdateCharacterFacts:
+    """Tests for update_character_facts method (Story 5.4, Task 9)."""
+
+    def test_update_adds_new_relationship(self, empty_game_state: GameState) -> None:
+        """Test update_character_facts adds a new relationship."""
+        from models import CharacterFacts
+
+        facts = CharacterFacts(name="Shadowmere", character_class="Rogue")
+        empty_game_state["agent_memories"]["rogue"] = AgentMemory(character_facts=facts)
+
+        manager = MemoryManager(empty_game_state)
+        manager.update_character_facts(
+            "rogue", relationships={"Theros": "Trusted ally"}
+        )
+
+        updated_facts = manager.get_character_facts("rogue")
+        assert updated_facts is not None
+        assert "Theros" in updated_facts.relationships
+        assert updated_facts.relationships["Theros"] == "Trusted ally"
+
+    def test_update_merges_relationships(self, empty_game_state: GameState) -> None:
+        """Test update_character_facts merges with existing relationships."""
+        from models import CharacterFacts
+
+        facts = CharacterFacts(
+            name="Shadowmere",
+            character_class="Rogue",
+            relationships={"OldFriend": "Childhood companion"},
+        )
+        empty_game_state["agent_memories"]["rogue"] = AgentMemory(character_facts=facts)
+
+        manager = MemoryManager(empty_game_state)
+        manager.update_character_facts(
+            "rogue", relationships={"NewEnemy": "Rival from session 3"}
+        )
+
+        updated_facts = manager.get_character_facts("rogue")
+        assert updated_facts is not None
+        assert "OldFriend" in updated_facts.relationships
+        assert "NewEnemy" in updated_facts.relationships
+
+    def test_update_adds_notable_event(self, empty_game_state: GameState) -> None:
+        """Test update_character_facts adds a notable event."""
+        from models import CharacterFacts
+
+        facts = CharacterFacts(name="Shadowmere", character_class="Rogue")
+        empty_game_state["agent_memories"]["rogue"] = AgentMemory(character_facts=facts)
+
+        manager = MemoryManager(empty_game_state)
+        manager.update_character_facts(
+            "rogue", notable_events=["Discovered the hidden treasure"]
+        )
+
+        updated_facts = manager.get_character_facts("rogue")
+        assert updated_facts is not None
+        assert "Discovered the hidden treasure" in updated_facts.notable_events
+
+    def test_update_appends_notable_events(self, empty_game_state: GameState) -> None:
+        """Test update_character_facts appends to existing notable events."""
+        from models import CharacterFacts
+
+        facts = CharacterFacts(
+            name="Shadowmere",
+            character_class="Rogue",
+            notable_events=["First adventure"],
+        )
+        empty_game_state["agent_memories"]["rogue"] = AgentMemory(character_facts=facts)
+
+        manager = MemoryManager(empty_game_state)
+        manager.update_character_facts("rogue", notable_events=["Defeated the dragon"])
+
+        updated_facts = manager.get_character_facts("rogue")
+        assert updated_facts is not None
+        assert len(updated_facts.notable_events) == 2
+        assert "First adventure" in updated_facts.notable_events
+        assert "Defeated the dragon" in updated_facts.notable_events
+
+    def test_update_adds_key_trait(self, empty_game_state: GameState) -> None:
+        """Test update_character_facts adds a key trait."""
+        from models import CharacterFacts
+
+        facts = CharacterFacts(name="Shadowmere", character_class="Rogue")
+        empty_game_state["agent_memories"]["rogue"] = AgentMemory(character_facts=facts)
+
+        manager = MemoryManager(empty_game_state)
+        manager.update_character_facts("rogue", key_traits=["Brave"])
+
+        updated_facts = manager.get_character_facts("rogue")
+        assert updated_facts is not None
+        assert "Brave" in updated_facts.key_traits
+
+    def test_update_skips_nonexistent_agent(self, empty_game_state: GameState) -> None:
+        """Test update_character_facts does nothing for nonexistent agent."""
+        manager = MemoryManager(empty_game_state)
+        # Should not raise
+        manager.update_character_facts("nonexistent", relationships={"Test": "Test"})
+        # Verify no error and no new memory created
+        assert "nonexistent" not in empty_game_state["agent_memories"]
+
+    def test_update_skips_agent_without_facts(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test update_character_facts does nothing if agent has no facts."""
+        empty_game_state["agent_memories"]["rogue"] = AgentMemory()  # No facts
+
+        manager = MemoryManager(empty_game_state)
+        # Should not raise
+        manager.update_character_facts("rogue", relationships={"Test": "Test"})
+
+        # Facts should still be None
+        assert manager.get_character_facts("rogue") is None
+
+    def test_update_multiple_fields_at_once(self, empty_game_state: GameState) -> None:
+        """Test update_character_facts can update multiple fields."""
+        from models import CharacterFacts
+
+        facts = CharacterFacts(name="Shadowmere", character_class="Rogue")
+        empty_game_state["agent_memories"]["rogue"] = AgentMemory(character_facts=facts)
+
+        manager = MemoryManager(empty_game_state)
+        manager.update_character_facts(
+            "rogue",
+            key_traits=["Cunning"],
+            relationships={"Theros": "Ally"},
+            notable_events=["Found the key"],
+        )
+
+        updated_facts = manager.get_character_facts("rogue")
+        assert updated_facts is not None
+        assert "Cunning" in updated_facts.key_traits
+        assert "Theros" in updated_facts.relationships
+        assert "Found the key" in updated_facts.notable_events

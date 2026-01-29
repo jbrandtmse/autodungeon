@@ -2082,9 +2082,11 @@ def handle_session_continue(session_id: str) -> bool:
     st.session_state["is_autopilot_running"] = False
     st.session_state["autopilot_turn_count"] = 0
 
-    # Generate recap if there are turns
+    # Generate recap if there are turns (Story 5.4: include cross-session content)
     if latest_turn > 0:
-        recap = generate_recap_summary(session_id, num_turns=5)
+        recap = generate_recap_summary(
+            session_id, num_turns=5, include_cross_session=True
+        )
         if recap:
             st.session_state["show_recap"] = True
             st.session_state["recap_text"] = recap

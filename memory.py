@@ -50,10 +50,11 @@ from agents import (
     PC_CONTEXT_RECENT_EVENTS_LIMIT,
     LLMError,
     categorize_error,
+    format_character_facts,
     get_llm,
 )
 from config import get_config
-from models import GameState
+from models import CharacterFacts, GameState
 
 # Logger for error tracking (technical details logged internally)
 logger = logging.getLogger("autodungeon")
@@ -324,6 +325,21 @@ class MemoryManager:
                 )
                 context_parts.append(f"## Recent Events\n{recent_events}")
 
+        # Add CharacterFacts for all PC agents (Story 5.4)
+        character_facts_parts: list[str] = []
+        for name, memory in self._state["agent_memories"].items():
+            if name == "dm":
+                continue  # DM doesn't have character facts
+            if memory.character_facts:
+                character_facts_parts.append(
+                    format_character_facts(memory.character_facts)
+                )
+
+        if character_facts_parts:
+            context_parts.append(
+                "## Party Members\n" + "\n\n".join(character_facts_parts)
+            )
+
         # DM reads ALL agent memories (asymmetric access per architecture)
         agent_knowledge: list[str] = []
         for name, memory in self._state["agent_memories"].items():
@@ -356,6 +372,12 @@ class MemoryManager:
         # PC agents ONLY access their own memory - strict isolation
         pc_memory = self._state["agent_memories"].get(agent_name)
         if pc_memory:
+            # Add CharacterFacts first - who am I? (Story 5.4)
+            if pc_memory.character_facts:
+                context_parts.append(
+                    f"## Character Identity\n{format_character_facts(pc_memory.character_facts)}"
+                )
+
             # Add long-term summary if available
             if pc_memory.long_term_summary:
                 context_parts.append(
@@ -414,6 +436,80 @@ class MemoryManager:
         """
         memory = self._state["agent_memories"].get(agent_name)
         return memory.long_term_summary if memory else ""
+
+    def get_character_facts(self, agent_name: str) -> CharacterFacts | None:
+        """Get an agent's CharacterFacts.
+
+        Story 5.4: Cross-Session Memory & Character Facts.
+
+        Args:
+            agent_name: The agent to get character facts for.
+
+        Returns:
+            CharacterFacts if present, None otherwise.
+        """
+        memory = self._state["agent_memories"].get(agent_name)
+        return memory.character_facts if memory else None
+
+    def get_cross_session_summary(self, agent_name: str) -> str:
+        """Get an agent's cross-session summary (alias for long_term_summary).
+
+        Story 5.4: Cross-Session Memory & Character Facts.
+
+        Args:
+            agent_name: The agent to get summary for.
+
+        Returns:
+            Long-term summary string, or empty string if not found.
+        """
+        return self.get_long_term_summary(agent_name)
+
+    def update_character_facts(
+        self,
+        agent_name: str,
+        key_traits: list[str] | None = None,
+        relationships: dict[str, str] | None = None,
+        notable_events: list[str] | None = None,
+    ) -> None:
+        """Update an agent's CharacterFacts with new information.
+
+        This method merges new information into existing CharacterFacts:
+        - key_traits are appended to the existing list
+        - relationships are merged (updates existing, adds new)
+        - notable_events are appended to the existing list
+
+        Story 5.4: Cross-Session Memory & Character Facts.
+
+        WARNING: This modifies the state in-place. In LangGraph nodes, consider
+        using immutable patterns with model_copy() instead.
+
+        Args:
+            agent_name: The agent to update facts for.
+            key_traits: New traits to add (optional).
+            relationships: New relationships to merge (optional).
+            notable_events: New events to add (optional).
+        """
+        memory = self._state["agent_memories"].get(agent_name)
+        if not memory or not memory.character_facts:
+            return
+
+        facts = memory.character_facts
+
+        # Append new key traits
+        if key_traits:
+            for trait in key_traits:
+                if trait not in facts.key_traits:
+                    facts.key_traits.append(trait)
+
+        # Merge relationships (update existing, add new)
+        if relationships:
+            facts.relationships.update(relationships)
+
+        # Append new notable events
+        if notable_events:
+            for event in notable_events:
+                if event not in facts.notable_events:
+                    facts.notable_events.append(event)
 
     def get_buffer_entries(self, agent_name: str, limit: int = 10) -> list[str]:
         """Get recent entries from an agent's buffer.
