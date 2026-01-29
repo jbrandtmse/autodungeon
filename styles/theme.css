@@ -1906,3 +1906,168 @@ hr {
   background: var(--accent-warm);
   color: var(--bg-primary);
 }
+
+/* ==========================================================================
+   Agent Model Selection UI (Story 6.3)
+   ========================================================================== */
+
+/* Agent model grid container */
+.agent-model-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+/* Individual agent model row */
+.agent-model-row {
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  padding: var(--space-md);
+  border-left: 3px solid var(--text-secondary);
+}
+
+/* DM row styling */
+.agent-model-row.dm {
+  border-left-color: var(--color-dm);
+}
+
+/* PC rows by class */
+.agent-model-row.fighter {
+  border-left-color: var(--color-fighter);
+}
+
+.agent-model-row.rogue {
+  border-left-color: var(--color-rogue);
+}
+
+.agent-model-row.wizard {
+  border-left-color: var(--color-wizard);
+}
+
+.agent-model-row.cleric {
+  border-left-color: var(--color-cleric);
+}
+
+/* Summarizer row styling */
+.agent-model-row.summarizer {
+  border-left-color: var(--text-secondary);
+  opacity: 0.9;
+}
+
+/* Agent name styling within row */
+.agent-model-name {
+  font-family: var(--font-ui);
+  font-size: var(--text-name);
+  font-weight: 600;
+  margin-bottom: var(--space-xs);
+}
+
+.agent-model-name.dm {
+  color: var(--color-dm);
+}
+
+.agent-model-name.fighter {
+  color: var(--color-fighter);
+}
+
+.agent-model-name.rogue {
+  color: var(--color-rogue);
+}
+
+.agent-model-name.wizard {
+  color: var(--color-wizard);
+}
+
+.agent-model-name.cleric {
+  color: var(--color-cleric);
+}
+
+.agent-model-name.summarizer {
+  color: var(--text-secondary);
+}
+
+/* Status badge styling */
+.agent-status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 500;
+  text-align: center;
+  margin-left: var(--space-sm);
+}
+
+.agent-status-badge.active {
+  background: rgba(232, 168, 73, 0.2);
+  color: var(--accent-warm);
+}
+
+.agent-status-badge.ai {
+  background: rgba(107, 142, 107, 0.2);
+  color: var(--color-rogue);
+}
+
+.agent-status-badge.you {
+  background: rgba(123, 104, 184, 0.2);
+  color: var(--color-wizard);
+}
+
+/* Quick actions container */
+.model-quick-actions {
+  display: flex;
+  gap: var(--space-md);
+  margin-top: var(--space-lg);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--bg-secondary);
+}
+
+/* Separator line between PCs and Summarizer */
+.model-separator {
+  height: 1px;
+  background: var(--bg-secondary);
+  margin: var(--space-md) 0;
+}
+
+/* Models tab section header */
+.models-section-header {
+  font-family: var(--font-ui);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 var(--space-md) 0;
+  padding-bottom: var(--space-sm);
+  border-bottom: 1px solid var(--bg-secondary);
+}
+
+/* Model help text */
+.model-help-text {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: var(--space-xs);
+  font-style: italic;
+}
+
+/* Quick action buttons - secondary style */
+[data-testid="stDialog"] .model-quick-actions .stButton > button {
+  background: transparent;
+  border: 1px solid var(--text-secondary);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+[data-testid="stDialog"] .model-quick-actions .stButton > button:hover {
+  background: var(--bg-message);
+  border-color: var(--text-primary);
+}
+
+/* Selectbox styling within agent model rows */
+[data-testid="stDialog"] .agent-model-row .stSelectbox label {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+[data-testid="stDialog"] .agent-model-row [data-baseweb="select"] {
+  background-color: var(--bg-message);
+}

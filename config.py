@@ -24,8 +24,12 @@ __all__ = [
     "AgentConfig",
     "AgentsConfig",
     "AppConfig",
+    "CLAUDE_MODELS",
+    "GEMINI_MODELS",
+    "OLLAMA_FALLBACK_MODELS",
     "_sanitize_error_message",
     "get_api_key_source",
+    "get_available_models",
     "get_config",
     "get_effective_api_key",
     "load_character_configs",
@@ -580,3 +584,68 @@ def validate_ollama_connection(base_url: str) -> ValidationResult:
             message=f"Connection error: {error_msg}",
             models=None,
         )
+
+
+# =============================================================================
+# Per-Agent Model Selection (Story 6.3)
+# =============================================================================
+
+# Model lists by provider (static for Gemini/Claude, dynamic for Ollama)
+GEMINI_MODELS: list[str] = [
+    "gemini-1.5-flash",
+    "gemini-1.5-pro",
+    "gemini-2.0-flash",
+]
+
+CLAUDE_MODELS: list[str] = [
+    "claude-3-haiku-20240307",
+    "claude-3-5-sonnet-20241022",
+    "claude-sonnet-4-20250514",
+]
+
+OLLAMA_FALLBACK_MODELS: list[str] = [
+    "llama3",
+    "mistral",
+    "phi3",
+]
+
+
+def get_available_models(provider: str) -> list[str]:
+    """Get available models for a provider.
+
+    Returns the list of models available for selection in the Models tab.
+    For Gemini and Claude, returns static lists. For Ollama, returns
+    dynamically discovered models or a fallback suggestion list.
+
+    Args:
+        provider: Provider name ("gemini", "claude", or "ollama").
+
+    Returns:
+        List of model names for the provider.
+
+    Example:
+        >>> get_available_models("gemini")
+        ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-2.0-flash']
+    """
+    provider = provider.lower()
+
+    if provider == "gemini":
+        return GEMINI_MODELS.copy()
+    elif provider == "claude":
+        return CLAUDE_MODELS.copy()
+    elif provider == "ollama":
+        # Try to get models from session state (set by Story 6.2 validation)
+        try:
+            import streamlit as st
+
+            models = st.session_state.get("ollama_available_models")
+            if models and isinstance(models, list) and len(models) > 0:
+                return list(models)
+        except (ImportError, AttributeError):
+            # Streamlit not available (e.g., in tests)
+            pass
+        # Fallback to suggestions
+        return OLLAMA_FALLBACK_MODELS.copy()
+    else:
+        # Unknown provider - return empty list
+        return []

@@ -599,8 +599,8 @@
 | Story | Status | Phase |
 |-------|--------|-------|
 | 6-1-configuration-modal-structure | ✅ done | Full Cycle |
-| 6-2-api-key-management-ui | 🔄 in-progress | Create Story |
-| 6-3-per-agent-model-selection | ⏳ backlog | - |
+| 6-2-api-key-management-ui | ✅ done | Full Cycle |
+| 6-3-per-agent-model-selection | 🔄 in-progress | Create Story |
 | 6-4-context-limit-configuration | ⏳ backlog | - |
 | 6-5-mid-campaign-provider-switching | ⏳ backlog | - |
 
@@ -630,6 +630,37 @@
 - **MEDIUM**: Duplicate assignment in test → Fixed
 - **MEDIUM**: Missing render_config_modal() tests → Added TestConfigModalRendering
 - **MEDIUM**: Missing edge case tests → Added TestConfigModalEdgeCases
+
+### User Input Required
+- None - all issues auto-resolved
+
+---
+
+## Story: 6-2-api-key-management-ui
+
+**Status:** ✅ Completed
+**Duration:** 2026-01-28
+
+### Files Touched
+- `app.py` - API key field rendering, validation handlers, PROVIDER_CONFIG
+- `config.py` - Validation functions, mask_api_key(), get_api_key_source(), _sanitize_error_message()
+- `models.py` - ValidationResult, ApiKeyFieldState Pydantic models
+- `styles/theme.css` - API key field CSS (badges, status, spinner animation)
+- `tests/test_story_6_2_api_key_management.py` - 138 tests (76 initial + 62 testarch)
+
+### Key Design Decisions
+- API key overrides stored in session state only (not persisted to .env)
+- Environment variable detection with "Set via environment" badge
+- Masked display by default (Show/Hide toggle)
+- Validation functions for each provider with proper error handling
+- Ollama validation includes model listing on success
+
+### Issues Auto-Resolved
+- **HIGH**: Error message sanitization to prevent API key leakage → Added _sanitize_error_message()
+- **HIGH**: HTML attribute escaping for provider name → Added escape_html()
+- **HIGH**: Missing security tests for sanitization → Added TestApiKeySecuritySanitization (6 tests)
+- **MEDIUM**: Misleading docstring for Anthropic validation → Updated
+- **MEDIUM**: Empty apply_api_key_overrides() → Added documentation
 
 ### User Input Required
 - None - all issues auto-resolved

@@ -94,7 +94,7 @@ development_status:
   epic-6: in-progress
   6-1-configuration-modal-structure: done
   6-2-api-key-management-ui: done
-  6-3-per-agent-model-selection: backlog
+  6-3-per-agent-model-selection: done
   6-4-context-limit-configuration: backlog
   6-5-mid-campaign-provider-switching: backlog
   epic-6-retrospective: optional

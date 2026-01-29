@@ -15,6 +15,7 @@ import streamlit as st
 from config import (
     AppConfig,
     get_api_key_source,
+    get_available_models,
     get_config,
     get_effective_api_key,
     mask_api_key,
@@ -26,6 +27,8 @@ from config import (
 from graph import run_single_round
 from models import (
     CharacterConfig,
+    DMConfig,
+    GameConfig,
     GameState,
     SessionMetadata,
     UserError,
@@ -1134,22 +1137,26 @@ def handle_config_modal_close(save_changes: bool = False) -> None:
     st.session_state["config_original_values"] = None
 
 
-def snapshot_config_values() -> dict[str, dict[str, str]]:
+def snapshot_config_values() -> dict[str, dict[str, str] | dict[str, dict[str, str]]]:
     """Take snapshot of current config values when modal opens.
 
     Returns:
         Dict containing current config values for change detection.
-        Includes API key overrides from Story 6.2.
+        Includes API key overrides from Story 6.2 and model overrides from Story 6.3.
     """
     # Get current API key overrides from session state
-    overrides = st.session_state.get("api_key_overrides", {})
+    api_overrides = st.session_state.get("api_key_overrides", {})
+
+    # Get current agent model overrides from session state (Story 6.3)
+    model_overrides = st.session_state.get("agent_model_overrides", {})
+
     return {
         "api_keys": {
-            "google": overrides.get("google", ""),
-            "anthropic": overrides.get("anthropic", ""),
-            "ollama": overrides.get("ollama", ""),
+            "google": api_overrides.get("google", ""),
+            "anthropic": api_overrides.get("anthropic", ""),
+            "ollama": api_overrides.get("ollama", ""),
         },
-        "models": {},  # Story 6.3
+        "models": dict(model_overrides),  # Story 6.3 - copy current overrides
         "settings": {},  # Story 6.4/6.5
     }
 
@@ -1524,6 +1531,477 @@ def apply_api_key_overrides() -> None:
     st.session_state["config_has_changes"] = False
 
 
+# =============================================================================
+# Models Tab - Per-Agent Model Selection (Story 6.3)
+# =============================================================================
+
+# Provider display names and mappings
+# PROVIDER_OPTIONS: UI dropdown options (display names)
+# PROVIDER_KEYS: Maps display names to internal provider keys
+# PROVIDER_DISPLAY: Maps internal provider keys to display names (inverse of PROVIDER_KEYS)
+PROVIDER_OPTIONS: list[str] = ["Gemini", "Claude", "Ollama"]
+PROVIDER_KEYS: dict[str, str] = {
+    "Gemini": "gemini",
+    "Claude": "claude",
+    "Ollama": "ollama",
+}
+PROVIDER_DISPLAY: dict[str, str] = {
+    "gemini": "Gemini",
+    "claude": "Claude",
+    "ollama": "Ollama",
+}
+
+
+def get_agent_status(agent_key: str) -> str:
+    """Determine status for an agent.
+
+    Args:
+        agent_key: The agent key to check status for (e.g., "dm", "theron", "summarizer").
+            Must be a non-empty string.
+
+    Returns:
+        "Active" if this agent's turn
+        "You" if human controls this agent
+        "AI" otherwise
+    """
+    if not agent_key or not isinstance(agent_key, str):
+        return "AI"
+
+    controlled = st.session_state.get("controlled_character")
+    if controlled and controlled.lower() == agent_key.lower():
+        return "You"
+
+    game: GameState | None = st.session_state.get("game")
+    if game and game.get("current_turn", "").lower() == agent_key.lower():
+        return "Active"
+
+    return "AI"
+
+
+def get_class_from_character_key(agent_key: str) -> str:
+    """Get character class from character key.
+
+    Args:
+        agent_key: The agent key (lowercase character name).
+
+    Returns:
+        Character class string or empty string if not found.
+    """
+    game: GameState | None = st.session_state.get("game")
+    if not game:
+        return ""
+
+    characters = game.get("characters", {})
+    char_config = characters.get(agent_key)
+    if char_config:
+        return char_config.character_class.lower()
+    return ""
+
+
+def get_class_css_name(character_class: str) -> str:
+    """Convert character class to CSS class name.
+
+    Args:
+        character_class: Full class name (e.g., "Fighter").
+
+    Returns:
+        Lowercase CSS class name (e.g., "fighter").
+    """
+    if not character_class:
+        return ""
+    return character_class.lower()
+
+
+def get_current_agent_model(agent_key: str) -> tuple[str, str]:
+    """Get current provider/model for an agent.
+
+    Checks overrides first, then falls back to game state.
+
+    Args:
+        agent_key: Agent key ("dm", character name, or "summarizer").
+            Must be a non-empty string.
+
+    Returns:
+        Tuple of (provider, model). Returns default ("gemini", "gemini-1.5-flash")
+        if agent_key is invalid or not found.
+    """
+    # Validate input
+    if not agent_key or not isinstance(agent_key, str):
+        return "gemini", "gemini-1.5-flash"
+
+    # Check overrides first
+    overrides = st.session_state.get("agent_model_overrides", {})
+    if agent_key in overrides:
+        override = overrides[agent_key]
+        return override.get("provider", "gemini"), override.get("model", "")
+
+    # Fall back to game state
+    game: GameState | None = st.session_state.get("game")
+    if not game:
+        return "gemini", "gemini-1.5-flash"
+
+    if agent_key == "dm":
+        dm_config = game.get("dm_config")
+        if dm_config:
+            return dm_config.provider, dm_config.model
+        return "gemini", "gemini-1.5-flash"
+
+    if agent_key == "summarizer":
+        game_config = game.get("game_config")
+        if game_config:
+            return game_config.summarizer_provider, game_config.summarizer_model
+        return "gemini", "gemini-1.5-flash"
+
+    # PC character
+    characters = game.get("characters", {})
+    char_config = characters.get(agent_key)
+    if char_config:
+        return char_config.provider, char_config.model
+    return "gemini", "gemini-1.5-flash"
+
+
+def handle_provider_change(agent_key: str) -> None:
+    """Handle provider dropdown change.
+
+    Resets model to first available for the new provider.
+
+    Args:
+        agent_key: Agent key to update. Must be a non-empty string.
+    """
+    # Validate input
+    if not agent_key or not isinstance(agent_key, str):
+        return
+
+    # Get the new provider from session state key
+    select_key = f"provider_select_{agent_key}"
+    new_provider_display = st.session_state.get(select_key, "Gemini")
+    new_provider = PROVIDER_KEYS.get(new_provider_display, "gemini")
+
+    # Get first available model for new provider
+    models = get_available_models(new_provider)
+    # Fallback to known default if models list is empty
+    if models:
+        default_model = models[0]
+    else:
+        # Use a safe default based on provider
+        from agents import DEFAULT_MODELS
+        default_model = DEFAULT_MODELS.get(new_provider, "gemini-1.5-flash")
+
+    # Update overrides
+    overrides = st.session_state.get("agent_model_overrides", {})
+    overrides[agent_key] = {"provider": new_provider, "model": default_model}
+    st.session_state["agent_model_overrides"] = overrides
+
+    mark_config_changed()
+
+
+def handle_model_change(agent_key: str) -> None:
+    """Handle model dropdown change.
+
+    Args:
+        agent_key: Agent key to update. Must be a non-empty string.
+    """
+    # Validate input
+    if not agent_key or not isinstance(agent_key, str):
+        return
+
+    # Get the new model from session state key
+    select_key = f"model_select_{agent_key}"
+    new_model = st.session_state.get(select_key, "")
+
+    # Get current provider
+    current_provider, _ = get_current_agent_model(agent_key)
+
+    # Update overrides
+    overrides = st.session_state.get("agent_model_overrides", {})
+    if agent_key not in overrides:
+        overrides[agent_key] = {"provider": current_provider, "model": new_model}
+    else:
+        overrides[agent_key]["model"] = new_model
+    st.session_state["agent_model_overrides"] = overrides
+
+    mark_config_changed()
+
+
+def render_status_badge(status: str) -> str:
+    """Generate HTML for status badge.
+
+    Args:
+        status: Status string ("Active", "AI", or "You").
+
+    Returns:
+        HTML string for the badge.
+    """
+    css_class = status.lower()
+    return f'<span class="agent-status-badge {css_class}">{escape_html(status)}</span>'
+
+
+def render_agent_model_row(
+    agent_key: str,
+    agent_name: str,
+    css_class: str,
+    is_dm: bool = False,
+    is_summarizer: bool = False,
+) -> None:
+    """Render a single agent row in the Models tab.
+
+    Args:
+        agent_key: Agent key for state management.
+        agent_name: Display name for the agent.
+        css_class: CSS class for styling (dm, fighter, rogue, wizard, cleric, summarizer).
+        is_dm: True if this is the DM row.
+        is_summarizer: True if this is the Summarizer row.
+    """
+    # Sanitize css_class to prevent injection - only allow alphanumeric and hyphens
+    safe_css_class = "".join(c for c in css_class if c.isalnum() or c == "-").lower()
+    if not safe_css_class:
+        safe_css_class = "default"
+
+    # Get current provider/model
+    current_provider, current_model = get_current_agent_model(agent_key)
+
+    # Get available models for current provider
+    available_models = get_available_models(current_provider)
+
+    # Ensure current model is in the list
+    if current_model and current_model not in available_models:
+        available_models.insert(0, current_model)
+
+    # Get status (not applicable for summarizer)
+    status = "" if is_summarizer else get_agent_status(agent_key)
+
+    # Start row container
+    st.markdown(
+        f'<div class="agent-model-row {safe_css_class}">',
+        unsafe_allow_html=True,
+    )
+
+    # Agent name with status badge
+    name_html = f'<span class="agent-model-name {safe_css_class}">{escape_html(agent_name)}</span>'
+    if status:
+        name_html += render_status_badge(status)
+    st.markdown(name_html, unsafe_allow_html=True)
+
+    # Provider and model dropdowns
+    col1, col2 = st.columns([1, 2])
+
+    with col1:
+        provider_display = PROVIDER_DISPLAY.get(current_provider, "Gemini")
+        provider_index = (
+            PROVIDER_OPTIONS.index(provider_display)
+            if provider_display in PROVIDER_OPTIONS
+            else 0
+        )
+        st.selectbox(
+            "Provider",
+            PROVIDER_OPTIONS,
+            index=provider_index,
+            key=f"provider_select_{agent_key}",
+            on_change=handle_provider_change,
+            args=(agent_key,),
+            label_visibility="collapsed",
+        )
+
+    with col2:
+        model_index = (
+            available_models.index(current_model)
+            if current_model in available_models
+            else 0
+        )
+        st.selectbox(
+            "Model",
+            available_models,
+            index=model_index,
+            key=f"model_select_{agent_key}",
+            on_change=handle_model_change,
+            args=(agent_key,),
+            label_visibility="collapsed",
+        )
+
+    # Help text for summarizer
+    if is_summarizer:
+        st.markdown(
+            '<p class="model-help-text">Model used for memory compression</p>',
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def handle_copy_dm_to_pcs() -> None:
+    """Copy DM's provider/model to all PC agents."""
+    overrides = st.session_state.get("agent_model_overrides", {})
+    dm_provider, dm_model = get_current_agent_model("dm")
+    dm_config = {"provider": dm_provider, "model": dm_model}
+
+    # Get PC agent keys from game state
+    game: GameState | None = st.session_state.get("game")
+    if not game:
+        return
+
+    characters = game.get("characters", {})
+    for agent_key in characters.keys():
+        overrides[agent_key] = dm_config.copy()
+
+    # Also update DM if not already in overrides
+    if "dm" not in overrides:
+        overrides["dm"] = dm_config.copy()
+
+    st.session_state["agent_model_overrides"] = overrides
+    mark_config_changed()
+
+
+def handle_reset_model_defaults() -> None:
+    """Reset all agents to YAML defaults."""
+    # Clear all overrides
+    st.session_state["agent_model_overrides"] = {}
+    mark_config_changed()
+
+
+def apply_model_config_changes() -> None:
+    """Apply model config overrides to game state.
+
+    Changes take effect on the NEXT turn, not immediately.
+    This is by design - we don't want to switch models mid-turn.
+    """
+    overrides = st.session_state.get("agent_model_overrides", {})
+    game: GameState | None = st.session_state.get("game")
+
+    if not game or not overrides:
+        return
+
+    # Update DM config
+    if "dm" in overrides:
+        dm_override = overrides["dm"]
+        old_dm = game.get("dm_config") or DMConfig()
+        game["dm_config"] = old_dm.model_copy(
+            update={
+                "provider": dm_override.get("provider", old_dm.provider),
+                "model": dm_override.get("model", old_dm.model),
+            }
+        )
+
+    # Update character configs
+    for agent_key, config in game.get("characters", {}).items():
+        if agent_key in overrides:
+            char_override = overrides[agent_key]
+            game["characters"][agent_key] = config.model_copy(
+                update={
+                    "provider": char_override.get("provider", config.provider),
+                    "model": char_override.get("model", config.model),
+                }
+            )
+
+    # Update summarizer config
+    if "summarizer" in overrides:
+        summ_override = overrides["summarizer"]
+        old_game_config = game.get("game_config") or GameConfig()
+        game["game_config"] = old_game_config.model_copy(
+            update={
+                "summarizer_provider": summ_override.get(
+                    "provider", old_game_config.summarizer_provider
+                ),
+                "summarizer_model": summ_override.get(
+                    "model", old_game_config.summarizer_model
+                ),
+            }
+        )
+
+    st.session_state["game"] = game
+    st.session_state["model_config_changed"] = True
+
+
+def render_models_tab() -> None:
+    """Render the Models tab content in the config modal.
+
+    Shows agent rows for DM, PCs, and Summarizer with provider/model selection.
+    Story 6.3: Per-Agent Model Selection.
+    """
+    # Section header
+    st.markdown(
+        '<h4 class="models-section-header">Agent Models</h4>',
+        unsafe_allow_html=True,
+    )
+
+    # Initialize overrides if needed
+    if "agent_model_overrides" not in st.session_state:
+        st.session_state["agent_model_overrides"] = {}
+
+    st.markdown('<div class="agent-model-grid">', unsafe_allow_html=True)
+
+    # DM row (gold color, no class)
+    render_agent_model_row(
+        agent_key="dm",
+        agent_name="Dungeon Master",
+        css_class="dm",
+        is_dm=True,
+    )
+
+    # PC rows - get from game state
+    game: GameState | None = st.session_state.get("game")
+    if game:
+        characters = game.get("characters", {})
+        # Sort by class for consistent ordering
+        sorted_chars = sorted(
+            characters.items(),
+            key=lambda x: ["fighter", "rogue", "wizard", "cleric"].index(
+                x[1].character_class.lower()
+            )
+            if x[1].character_class.lower() in ["fighter", "rogue", "wizard", "cleric"]
+            else 99,
+        )
+        for agent_key, char_config in sorted_chars:
+            css_class = get_class_css_name(char_config.character_class)
+            render_agent_model_row(
+                agent_key=agent_key,
+                agent_name=char_config.name,
+                css_class=css_class,
+            )
+    else:
+        # Fallback: show default PC classes
+        default_pcs = [
+            ("fighter", "Fighter", "fighter"),
+            ("rogue", "Rogue", "rogue"),
+            ("wizard", "Wizard", "wizard"),
+            ("cleric", "Cleric", "cleric"),
+        ]
+        for agent_key, name, css_class in default_pcs:
+            render_agent_model_row(
+                agent_key=agent_key,
+                agent_name=name,
+                css_class=css_class,
+            )
+
+    # Separator
+    st.markdown('<div class="model-separator"></div>', unsafe_allow_html=True)
+
+    # Summarizer row
+    render_agent_model_row(
+        agent_key="summarizer",
+        agent_name="Summarizer",
+        css_class="summarizer",
+        is_summarizer=True,
+    )
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    # Quick actions
+    st.markdown('<div class="model-quick-actions">', unsafe_allow_html=True)
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("Copy DM to all PCs", key="copy_dm_to_pcs_btn"):
+            handle_copy_dm_to_pcs()
+            st.rerun()
+
+    with col2:
+        if st.button("Reset to defaults", key="reset_model_defaults_btn"):
+            handle_reset_model_defaults()
+            st.rerun()
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
 @st.dialog("Configuration", width="large")
 def render_config_modal() -> None:
     """Render the configuration modal with tabs for API Keys, Models, and Settings.
@@ -1540,10 +2018,8 @@ def render_config_modal() -> None:
         render_api_keys_tab()
 
     with tab2:
-        st.markdown(
-            '<p class="config-tab-placeholder">Model selection coming in Story 6.3</p>',
-            unsafe_allow_html=True,
-        )
+        # Models tab content (Story 6.3)
+        render_models_tab()
 
     with tab3:
         st.markdown(
@@ -1602,8 +2078,18 @@ def handle_config_save_click() -> None:
     """Handle Save button click in config modal (Story 6.1 Task 8.4).
 
     Commits any pending config changes and closes the modal.
+    Shows confirmation toast if model configs changed (Story 6.3 AC #7).
     """
-    # TODO: Apply config changes (Stories 6.2-6.5)
+    # Apply model config changes (Story 6.3)
+    overrides = st.session_state.get("agent_model_overrides", {})
+    if overrides:
+        apply_model_config_changes()
+        # Show toast message for model changes
+        st.toast("Changes will apply on next turn", icon="\u2705")
+
+    # Apply API key overrides (Story 6.2)
+    apply_api_key_overrides()
+
     handle_config_modal_close(save_changes=True)
     st.rerun()
 

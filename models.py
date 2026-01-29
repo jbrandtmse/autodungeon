@@ -247,6 +247,7 @@ class GameConfig(BaseModel):
     Attributes:
         combat_mode: How combat is handled - "Narrative" for story-focused
             or "Tactical" for detailed mechanics.
+        summarizer_provider: LLM provider for memory compression (Story 6.3).
         summarizer_model: Model used for memory compression.
         party_size: Number of player characters in the party.
     """
@@ -254,6 +255,10 @@ class GameConfig(BaseModel):
     combat_mode: Literal["Narrative", "Tactical"] = Field(
         default="Narrative",
         description="Combat handling mode",
+    )
+    summarizer_provider: str = Field(
+        default="gemini",
+        description="Provider for memory compression (Story 6.3)",
     )
     summarizer_model: str = Field(
         default="gemini-1.5-flash",
