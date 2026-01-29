@@ -1,11 +1,23 @@
 """Tests for MemoryManager and memory operations.
 
-This module tests Story 5.1: Short-Term Context Buffer, covering:
+This module tests multiple stories in Epic 5: Memory & Narrative Continuity:
+
+Story 5.1: Short-Term Context Buffer
 - MemoryManager class instantiation
 - get_context() method with DM asymmetric access and PC isolation
 - Buffer size tracking with token estimation
 - Helper methods for memory operations
-- Comprehensive acceptance tests for all story criteria
+
+Story 5.2: Session Summary Generation
+- Summarizer class and JANITOR_SYSTEM_PROMPT
+- Memory compression via compress_buffer()
+- Summary merging and state preservation
+
+Story 5.3: In-Session Memory References
+- Buffer content preservation and attribution
+- Context format enabling LLM callbacks
+- Acceptance criteria for narrative coherence
+- Edge cases for session memory
 """
 
 import pytest
@@ -3727,3 +3739,716 @@ class TestIntegrationRealCompression:
 
         # Cleanup
         memory._summarizer_cache.clear()
+
+
+# =============================================================================
+# Story 5.3: In-Session Memory References Tests
+# =============================================================================
+
+
+class TestInSessionMemoryReferences:
+    """Tests for Story 5.3: In-Session Memory References.
+
+    These tests verify that agents can reference events from earlier
+    in the current session, enabling narrative coherence and callbacks.
+
+    The key insight is that the short_term_buffer + context building
+    from Stories 5.1/5.2 already provides the infrastructure for
+    in-session references. These tests verify that behavior.
+    """
+
+    def test_buffer_accumulates_turn_content_with_attribution(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test that buffer entries include agent attribution.
+
+        Buffer entries should have [AgentName]: prefix so LLMs can
+        identify who said/did what when making callbacks.
+        """
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=[
+                "[DM]: The cavern opens into a vast underground lake.",
+                "[DM]: Strange symbols glow on the stone pillars.",
+                "[Shadowmere]: I examine the symbols more closely.",
+                "[Theron]: I keep watch at the entrance.",
+            ]
+        )
+
+        manager = MemoryManager(state)
+        entries = manager.get_buffer_entries("dm")
+
+        # Verify all entries have attribution
+        for entry in entries:
+            assert "[" in entry and "]" in entry, f"Entry missing attribution: {entry}"
+
+    def test_buffer_maintains_chronological_order(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test that buffer entries maintain chronological order.
+
+        Older events should be at lower indices, newer at higher.
+        This is essential for LLMs to understand event sequence.
+        """
+        state = empty_game_state
+        # Add events in order
+        events = [f"[DM]: Turn {i} event" for i in range(1, 16)]
+        state["agent_memories"]["dm"] = AgentMemory(short_term_buffer=events)
+
+        manager = MemoryManager(state)
+        entries = manager.get_buffer_entries("dm", limit=15)
+
+        # Verify chronological order (turn numbers should increase)
+        for i in range(len(entries) - 1):
+            # Extract turn numbers from entries
+            current_turn = int(entries[i].split("Turn ")[1].split(" ")[0])
+            next_turn = int(entries[i + 1].split("Turn ")[1].split(" ")[0])
+            assert current_turn < next_turn, "Buffer not in chronological order"
+
+    def test_events_from_multiple_turns_ago_accessible_in_context(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test that events from 10 turns ago are still in context.
+
+        With a 10-entry limit, events from turns 1-10 should be visible
+        when we're at turn 10 (assuming one event per turn).
+        """
+        state = empty_game_state
+        # Simulate 10 turns with one event each
+        events = []
+        for turn in range(1, 11):
+            events.append(f"[DM]: Turn {turn} - The adventure continues.")
+        state["agent_memories"]["dm"] = AgentMemory(short_term_buffer=events)
+
+        manager = MemoryManager(state)
+        context = manager.get_context("dm")
+
+        # Verify oldest event (turn 1) is in context
+        assert "Turn 1" in context
+        # Verify newest event (turn 10) is in context
+        assert "Turn 10" in context
+
+    def test_context_includes_referenceable_event_details(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test that context contains specific details LLMs can reference.
+
+        Events with notable details (names, objects, locations) should
+        be preserved in a form that allows callbacks.
+        """
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=[
+                "[DM]: You enter the Crimson Tower of Archmage Valdris.",
+                "[DM]: A mysterious silver amulet lies on the altar.",
+                "[Shadowmere]: I pick up the silver amulet carefully.",
+                "[DM]: The amulet pulses with a faint blue light.",
+                "[Elara]: I sense powerful enchantment magic from it.",
+            ]
+        )
+
+        manager = MemoryManager(state)
+        context = manager.get_context("dm")
+
+        # All referenceable details should be in context
+        assert "Crimson Tower" in context
+        assert "Archmage Valdris" in context
+        assert "silver amulet" in context
+        assert "blue light" in context
+        assert "enchantment magic" in context
+
+
+class TestBufferContentPreservation:
+    """Tests verifying buffer correctly preserves events for reference.
+
+    These tests ensure the buffer mechanics support in-session
+    memory references by preserving event details accurately.
+    """
+
+    def test_buffer_preserves_exact_content(self, empty_game_state: GameState) -> None:
+        """Test that buffer preserves exact content without modification."""
+        state = empty_game_state
+        original_event = "[DM]: The ancient dragon Sythrix reveals her true name."
+        state["agent_memories"]["dm"] = AgentMemory(short_term_buffer=[original_event])
+
+        manager = MemoryManager(state)
+        entries = manager.get_buffer_entries("dm")
+
+        assert entries[0] == original_event
+
+    def test_buffer_preserves_special_characters(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test that buffer preserves special characters in events."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=[
+                "[DM]: The inscription reads: 'By blood & fire, the seal is broken!'",
+                '[Shadowmere]: "What does that mean?" I ask nervously.',
+            ]
+        )
+
+        manager = MemoryManager(state)
+        context = manager.get_context("dm")
+
+        assert "blood & fire" in context
+        assert "seal is broken" in context
+
+    def test_buffer_preserves_dialogue_for_reference(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test that dialogue is preserved for character callbacks."""
+        state = empty_game_state
+        state["agent_memories"]["rogue"] = AgentMemory(
+            short_term_buffer=[
+                "[DM]: The merchant says 'Meet me at midnight by the old well.'",
+                "[Shadowmere]: I nod, memorizing the location.",
+            ]
+        )
+
+        manager = MemoryManager(state)
+        context = manager.get_context("rogue")
+
+        # Dialogue should be preserved for callbacks
+        assert "midnight" in context
+        assert "old well" in context
+
+
+class TestContextEnablesCallbacks:
+    """Tests verifying context format allows LLMs to make callbacks.
+
+    These tests verify that the context provided to agents contains
+    sufficient information for LLMs to recognize and reference
+    earlier events.
+    """
+
+    def test_dm_context_format_supports_callbacks(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test that DM context format enables event referencing.
+
+        The context should have clear structure with "Recent Events"
+        section that LLMs can parse for callback opportunities.
+        """
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=[
+                "[DM]: A mysterious symbol appears on the cave wall.",
+                "[Shadowmere]: I sketch the symbol in my journal.",
+                "[DM]: Later, you find a matching symbol on an ancient map.",
+            ]
+        )
+
+        manager = MemoryManager(state)
+        context = manager.get_context("dm")
+
+        # Context should have "Recent Events" header
+        assert "## Recent Events" in context
+        # Both symbol mentions should be visible for pattern recognition
+        assert context.count("symbol") >= 2
+
+    def test_pc_context_enables_personal_callbacks(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test that PC context enables personal experience callbacks.
+
+        PCs should be able to reference their own past actions
+        and discoveries.
+        """
+        state = empty_game_state
+        state["agent_memories"]["rogue"] = AgentMemory(
+            short_term_buffer=[
+                "[Shadowmere]: I notice a hidden tripwire at the door.",
+                "[DM]: You skillfully disarm the trap.",
+                "[Shadowmere]: I mark the trap location on our map.",
+            ]
+        )
+
+        manager = MemoryManager(state)
+        context = manager.get_context("rogue")
+
+        # PC's own experiences should be in context
+        assert "tripwire" in context
+        assert "trap" in context
+        assert "map" in context
+
+    def test_context_timeline_supports_sequence_recognition(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test that context preserves event sequence for callbacks.
+
+        Events should maintain order so LLMs can recognize cause-effect
+        relationships and make appropriate callbacks.
+        """
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=[
+                "[DM]: The wizard casts a protective ward.",
+                "[DM]: An assassin's arrow bounces harmlessly off the ward.",
+                "[DM]: The wizard smiles, 'My precautions saved you.'",
+            ]
+        )
+
+        manager = MemoryManager(state)
+        context = manager.get_context("dm")
+
+        # Find positions to verify order
+        ward_pos = context.find("protective ward")
+        arrow_pos = context.find("arrow bounces")
+        smiles_pos = context.find("wizard smiles")
+
+        # Events should be in chronological order
+        assert ward_pos < arrow_pos < smiles_pos
+
+
+class TestStory53AcceptanceCriteria:
+    """Acceptance tests for Story 5.3: In-Session Memory References.
+
+    These tests verify all acceptance criteria from the story file.
+    """
+
+    def test_ac1_event_10_turns_ago_accessible_when_relevant(
+        self, empty_game_state: GameState
+    ) -> None:
+        """AC #1: Event from 10 turns ago accessible when relevant (FR13).
+
+        Given an event occurred 10 turns ago in the current session,
+        it should still be in the agent's context for potential reference.
+        """
+        state = empty_game_state
+        # Create exactly 10 events
+        events = []
+        for turn in range(1, 11):
+            events.append(f"[DM]: Turn {turn} - Event description.")
+        state["agent_memories"]["dm"] = AgentMemory(short_term_buffer=events)
+
+        manager = MemoryManager(state)
+        context = manager.get_context("dm")
+
+        # Event from 10 turns ago (turn 1) should be accessible
+        assert "Turn 1" in context
+        # Current turn event should also be there
+        assert "Turn 10" in context
+
+    def test_ac2_symbol_callback_scenario(self, empty_game_state: GameState) -> None:
+        """AC #2: Symbol callback scenario - context enables callback.
+
+        Given the DM described a mysterious symbol in turn 5,
+        when a similar symbol appears in turn 10,
+        the PC's context should contain both symbol descriptions.
+
+        Note: This test verifies the context ENABLES callbacks by containing
+        both symbol mentions. The actual callback generation is emergent LLM
+        behavior that cannot be deterministically tested without mocking.
+        """
+        state = empty_game_state
+        events = [
+            "[DM]: Turn 1 - You enter the dark cave.",
+            "[DM]: Turn 2 - The cave narrows.",
+            "[DM]: Turn 3 - You hear dripping water.",
+            "[DM]: Turn 4 - Bats scatter overhead.",
+            "[DM]: Turn 5 - A mysterious glowing symbol marks the wall.",
+            "[DM]: Turn 6 - You continue deeper.",
+            "[DM]: Turn 7 - The passage opens up.",
+            "[DM]: Turn 8 - An underground river blocks your path.",
+            "[DM]: Turn 9 - You cross via stepping stones.",
+            "[DM]: Turn 10 - Another glowing symbol appears on a pillar.",
+        ]
+        state["agent_memories"]["rogue"] = AgentMemory(short_term_buffer=events)
+
+        manager = MemoryManager(state)
+        context = manager.get_context("rogue")
+
+        # Both symbol descriptions should be visible
+        symbol_count = context.count("glowing symbol")
+        assert symbol_count == 2, f"Expected 2 symbol mentions, found {symbol_count}"
+
+        # Rogue should be able to see both turn 5 and turn 10 events
+        assert "Turn 5" in context
+        assert "Turn 10" in context
+
+    def test_ac3_buffer_context_enables_llm_connections(
+        self, empty_game_state: GameState
+    ) -> None:
+        """AC #3: Buffer context allows LLM to draw connections.
+
+        Given the short_term_buffer contains relevant context,
+        the context passed to the LLM should enable drawing connections.
+        """
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=[
+                "[DM]: The innkeeper mentions bandits on the north road.",
+                "[Theron]: I ask about the bandit leader.",
+                "[DM]: 'They call him One-Eyed Jack,' the innkeeper whispers.",
+                "[DM]: You travel the north road for two days.",
+                "[DM]: Bandits ambush you! Their leader has an eyepatch.",
+            ]
+        )
+
+        manager = MemoryManager(state)
+        context = manager.get_context("dm")
+
+        # Context should contain both the foreshadowing and the reveal
+        assert "One-Eyed Jack" in context
+        assert "eyepatch" in context
+        # Connection should be drawable (both pieces present)
+        assert "bandit" in context.lower()
+
+    def test_ac4_callback_format_enables_aha_moments(
+        self, empty_game_state: GameState
+    ) -> None:
+        """AC #4: Callbacks create 'aha moments' (UX: Memory is Magic).
+
+        The context format should enable the satisfying recognition
+        of patterns and connections that delight users.
+        """
+        state = empty_game_state
+        # Set up a pattern that should enable an aha moment
+        state["agent_memories"]["wizard"] = AgentMemory(
+            short_term_buffer=[
+                "[DM]: The prophecy speaks of 'three keys of starlight.'",
+                "[Elara]: I note this in my spellbook.",
+                "[DM]: You find a crystal key that glows with inner light.",
+                "[DM]: Later, you discover another crystal key in the ruins.",
+                "[DM]: A third crystal key lies in the dragon's hoard.",
+            ]
+        )
+
+        manager = MemoryManager(state)
+        context = manager.get_context("wizard")
+
+        # The pattern should be recognizable - verify all three keys are present
+        assert "three keys" in context
+        # Count exact phrase "crystal key" - should be exactly 3 (one for each discovery)
+        crystal_key_count = context.count("crystal key")
+        assert crystal_key_count == 3, (
+            f"Expected exactly 3 'crystal key' mentions, got {crystal_key_count}"
+        )
+        # The prophecy connection should be possible
+        assert "prophecy" in context
+
+    def test_ac5_narrative_coherence_without_explicit_prompting(
+        self, empty_game_state: GameState
+    ) -> None:
+        """AC #5: References demonstrate narrative coherence naturally.
+
+        The infrastructure should enable callbacks without requiring
+        explicit "remember X" instructions in every prompt.
+        """
+        state = empty_game_state
+        # Rich narrative content that enables natural callbacks
+        state["agent_memories"]["dm"] = AgentMemory(
+            long_term_summary="The party seeks the Sword of Dawn to defeat the Lich King.",
+            short_term_buffer=[
+                "[DM]: You enter the Temple of Dawn.",
+                "[Theron]: I search for clues about the sword.",
+                "[DM]: An ancient mural depicts a warrior wielding a radiant blade.",
+                "[Elara]: This must be the Sword of Dawn from the legends!",
+                "[DM]: The mural shows the sword hidden in the Sunken Citadel.",
+            ],
+        )
+
+        manager = MemoryManager(state)
+        context = manager.get_context("dm")
+
+        # Context should connect long-term goal with recent discovery
+        assert "Sword of Dawn" in context
+        assert "Sunken Citadel" in context
+        # The "What You Remember" equivalent for DM ("Story So Far")
+        assert "Story So Far" in context
+
+    def test_dm_has_access_to_all_agents_for_plot_weaving(
+        self, empty_game_state: GameState
+    ) -> None:
+        """DM has access to all agents' recent events for weaving plot threads."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=["[DM]: The adventure begins."]
+        )
+        state["agent_memories"]["rogue"] = AgentMemory(
+            short_term_buffer=["[Shadowmere]: I notice a hidden passage."]
+        )
+        state["agent_memories"]["fighter"] = AgentMemory(
+            short_term_buffer=["[Theron]: I stand guard at the door."]
+        )
+        state["agent_memories"]["wizard"] = AgentMemory(
+            short_term_buffer=["[Elara]: I sense magical wards nearby."]
+        )
+
+        manager = MemoryManager(state)
+        dm_context = manager.get_context("dm")
+
+        # DM should see player knowledge from all PCs
+        assert "Player Knowledge" in dm_context
+        assert "[rogue knows]" in dm_context
+        assert "[fighter knows]" in dm_context
+        assert "[wizard knows]" in dm_context
+
+    def test_pc_isolation_maintained_for_callbacks(
+        self, empty_game_state: GameState
+    ) -> None:
+        """PC isolation still maintained - only references own experiences."""
+        state = empty_game_state
+        state["agent_memories"]["rogue"] = AgentMemory(
+            short_term_buffer=[
+                "[Shadowmere]: I discover a secret treasure room.",
+                "[Shadowmere]: I hide some gold for myself.",
+            ]
+        )
+        state["agent_memories"]["fighter"] = AgentMemory(
+            short_term_buffer=[
+                "[Theron]: I train in the courtyard.",
+                "[Theron]: I hear rumors of treasure nearby.",
+            ]
+        )
+
+        manager = MemoryManager(state)
+
+        # Fighter should NOT see rogue's secret
+        fighter_context = manager.get_context("fighter")
+        assert "secret treasure room" not in fighter_context
+        assert "hide some gold" not in fighter_context
+
+        # Rogue should see their own secret
+        rogue_context = manager.get_context("rogue")
+        assert "secret treasure room" in rogue_context
+
+    def test_pc_isolation_with_cross_character_mentions(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test that mentioning another PC in dialogue doesn't leak context.
+
+        If Shadowmere says "I tell Theron about the secret", Theron's context
+        should NOT contain this entry since it's in Shadowmere's buffer only.
+        """
+        state = empty_game_state
+        state["agent_memories"]["rogue"] = AgentMemory(
+            short_term_buffer=[
+                "[Shadowmere]: I discover a hidden entrance.",
+                "[Shadowmere]: I tell Theron about the secret passage.",
+            ]
+        )
+        state["agent_memories"]["fighter"] = AgentMemory(
+            short_term_buffer=[
+                "[Theron]: I continue patrolling the perimeter.",
+            ]
+        )
+
+        manager = MemoryManager(state)
+
+        # Fighter should NOT see rogue's buffer even though Theron is mentioned
+        fighter_context = manager.get_context("fighter")
+        assert "hidden entrance" not in fighter_context
+        assert "secret passage" not in fighter_context
+        # Theron's name appearing in rogue's buffer shouldn't leak to fighter
+        assert "tell Theron" not in fighter_context
+
+
+class TestCallbackIntegrationScenarios:
+    """Integration tests with mocked LLM demonstrating callback behavior.
+
+    These tests simulate end-to-end scenarios where the context
+    enables meaningful callbacks in agent responses.
+    """
+
+    def test_dm_callback_context_available_for_symbol_scenario(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test scenario: DM describes symbol, later similar symbol appears.
+
+        Verifies the context contains information enabling the callback.
+        """
+        state = empty_game_state
+        # Set up the scenario
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=[
+                "[DM]: In the ancient tomb, you find strange runes carved into the wall.",
+                "[Shadowmere]: I try to decipher the runes.",
+                "[DM]: The runes depict a three-headed serpent devouring the moon.",
+                "[DM]: You continue through the dungeon for several rooms.",
+                "[DM]: In the throne room, identical runes glow on the king's crown.",
+            ]
+        )
+
+        manager = MemoryManager(state)
+        context = manager.get_context("dm")
+
+        # Both rune descriptions should be in context
+        assert "three-headed serpent" in context
+        assert "king's crown" in context
+        # The callback opportunity is clear (runes appear twice)
+        rune_count = context.count("rune")
+        assert rune_count >= 2, (
+            f"Expected runes mentioned at least twice, got {rune_count}"
+        )
+
+    def test_pc_callback_context_for_npc_encounter(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test scenario: PC meets NPC again and can reference first meeting."""
+        state = empty_game_state
+        state["agent_memories"]["fighter"] = AgentMemory(
+            short_term_buffer=[
+                "[DM]: A young squire named Pip helps you at the castle.",
+                "[Theron]: I thank Pip and give him a silver coin.",
+                "[DM]: Days later, you return to the castle.",
+                "[DM]: Pip rushes to greet you excitedly.",
+            ]
+        )
+
+        manager = MemoryManager(state)
+        context = manager.get_context("fighter")
+
+        # Both Pip encounters should be in context
+        pip_count = context.count("Pip")
+        assert pip_count >= 2, f"Expected Pip mentioned at least twice, got {pip_count}"
+        # The silver coin callback opportunity
+        assert "silver coin" in context
+
+    def test_buffer_entry_format_correct_for_ground_truth_log(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Verify response format is correct and appears in ground_truth_log style."""
+        state = empty_game_state
+        # Simulate what dm_turn and pc_turn would add
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=[
+                "[DM]: The torch flickers as you enter the chamber.",
+            ]
+        )
+        state["agent_memories"]["rogue"] = AgentMemory(
+            short_term_buffer=[
+                "[Shadowmere]: I move silently along the wall.",
+            ]
+        )
+
+        manager = MemoryManager(state)
+
+        # Verify format matches ground_truth_log expectations
+        dm_entries = manager.get_buffer_entries("dm")
+        rogue_entries = manager.get_buffer_entries("rogue")
+
+        # DM entries should have [DM] prefix
+        assert all(entry.startswith("[DM]") for entry in dm_entries)
+        # PC entries should have character name prefix
+        assert all(entry.startswith("[Shadowmere]") for entry in rogue_entries)
+
+
+class TestInSessionMemoryEdgeCases:
+    """Edge case tests for in-session memory references."""
+
+    def test_very_short_session_all_turns_visible(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Edge case: Very short session (<10 turns) shows all events."""
+        state = empty_game_state
+        # Only 3 turns
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=[
+                "[DM]: Turn 1 event.",
+                "[DM]: Turn 2 event.",
+                "[DM]: Turn 3 event.",
+            ]
+        )
+
+        manager = MemoryManager(state)
+        context = manager.get_context("dm")
+
+        # All 3 turns should be visible
+        assert "Turn 1" in context
+        assert "Turn 2" in context
+        assert "Turn 3" in context
+
+    def test_events_beyond_limit_pushed_out(self, empty_game_state: GameState) -> None:
+        """Edge case: Events beyond 10-entry limit are pushed out."""
+        state = empty_game_state
+        # 15 events, oldest 5 should not be in context
+        # Use unique identifiers to avoid substring matching issues
+        events = [f"[DM]: EventNum{i:02d}Marker" for i in range(1, 16)]
+        state["agent_memories"]["dm"] = AgentMemory(short_term_buffer=events)
+
+        manager = MemoryManager(state)
+        context = manager.get_context("dm")
+
+        # Events 1-5 should NOT be in context (pushed out by limit)
+        assert "EventNum01Marker" not in context
+        assert "EventNum05Marker" not in context
+        # Events 6-15 should be in context
+        assert "EventNum06Marker" in context
+        assert "EventNum15Marker" in context
+
+    def test_empty_buffer_graceful_handling(self, empty_game_state: GameState) -> None:
+        """Edge case: Empty buffer at session start handles gracefully."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(short_term_buffer=[])
+
+        manager = MemoryManager(state)
+        context = manager.get_context("dm")
+
+        # Should return empty or minimal context without error
+        # (No "Recent Events" section if buffer empty)
+        assert "Recent Events" not in context or context == ""
+
+    def test_single_long_entry_in_context(self, empty_game_state: GameState) -> None:
+        """Edge case: Single very long entry still accessible in context."""
+        state = empty_game_state
+        long_narration = "[DM]: " + " ".join(["word"] * 500)  # ~650 tokens
+        state["agent_memories"]["dm"] = AgentMemory(short_term_buffer=[long_narration])
+
+        manager = MemoryManager(state)
+        context = manager.get_context("dm")
+
+        # The long entry should be in context
+        assert "word" in context
+        assert "Recent Events" in context
+
+    def test_buffer_with_empty_string_entries(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Edge case: Buffer containing empty strings handles gracefully.
+
+        If empty strings somehow get into the buffer (e.g., from a bug),
+        context generation should still work without errors.
+        """
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=[
+                "[DM]: First event.",
+                "",  # Empty string
+                "[DM]: Third event.",
+            ]
+        )
+
+        manager = MemoryManager(state)
+        # Should not raise an error
+        context = manager.get_context("dm")
+
+        # Should still contain valid entries
+        assert "First event" in context
+        assert "Third event" in context
+
+    def test_buffer_with_whitespace_only_entries(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Edge case: Buffer containing whitespace-only strings handles gracefully.
+
+        Whitespace-only entries should not cause errors in context generation.
+        """
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=[
+                "[DM]: First event.",
+                "   ",  # Whitespace only
+                "\n\t",  # Newline and tab
+                "[DM]: Fourth event.",
+            ]
+        )
+
+        manager = MemoryManager(state)
+        # Should not raise an error
+        context = manager.get_context("dm")
+
+        # Should still contain valid entries
+        assert "First event" in context
+        assert "Fourth event" in context

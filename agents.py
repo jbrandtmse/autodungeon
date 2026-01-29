@@ -137,6 +137,7 @@ You are playing this character in a D&D adventure. Follow these guidelines:
 - **Stay in character** - Your responses should reflect your personality traits
 - **Be consistent** - Remember your character's motivations and relationships
 - **Collaborate** - Build on what others say and do; don't contradict established facts
+- **Reference the past** - When something reminds you of earlier events, mention it naturally
 
 ## Class Behavior
 
@@ -722,7 +723,9 @@ def pc_turn(state: GameState, agent_name: str) -> GameState:
         # Build messages for the model
         messages: list[BaseMessage] = [SystemMessage(content=system_prompt)]
         if context:
-            messages.append(HumanMessage(content=f"Your current knowledge:\n\n{context}"))
+            messages.append(
+                HumanMessage(content=f"Your current knowledge:\n\n{context}")
+            )
         messages.append(HumanMessage(content="It's your turn. What do you do?"))
 
         # Invoke the model

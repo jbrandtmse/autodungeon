@@ -12,6 +12,31 @@ The MemoryManager provides a clean interface for:
 
 Story 5.1: Short-Term Context Buffer implementation.
 Story 5.2: Session Summary Generation - Summarizer and compression.
+Story 5.3: In-Session Memory References - Buffer enables narrative callbacks.
+
+In-Session Memory References (Story 5.3)
+----------------------------------------
+The short_term_buffer enables in-session callbacks and references by:
+
+1. **Content Accumulation**: Each turn appends to the buffer with attribution
+   (e.g., "[DM]: ...", "[Shadowmere]: ..."), preserving who said/did what.
+
+2. **Context Building**: The get_context() method includes the last 10 buffer
+   entries in the "Recent Events" section of agent prompts.
+
+3. **Callback Capability**: LLMs naturally draw connections when given sufficient
+   context. If an event from turn 5 (e.g., "mysterious symbol on the wall") is
+   still in the buffer at turn 15, the LLM can reference it when a similar
+   symbol appears ("This looks like that marking we saw earlier...").
+
+4. **Chronological Order**: Buffer entries maintain insertion order (oldest first),
+   allowing LLMs to understand event sequences for cause-effect relationships.
+
+This architecture means callbacks "just work" when:
+- Events are within the 10-entry context window (see DM_CONTEXT_RECENT_EVENTS_LIMIT
+  and PC_CONTEXT_RECENT_EVENTS_LIMIT constants in agents.py)
+- The DM/PC prompts encourage narrative continuity (see agents.py)
+- LLMs recognize patterns in the provided context
 """
 
 import logging
@@ -258,6 +283,12 @@ class MemoryManager:
         Respects memory isolation rules:
         - DM: Returns context with all agent memories (asymmetric access)
         - PC: Returns context with only that PC's memory (strict isolation)
+
+        The context includes recent buffer entries (up to 10) in a "Recent Events"
+        section. This enables in-session memory references (Story 5.3) - LLMs can
+        recognize patterns and make callbacks to earlier events when they see
+        sufficient context (e.g., "This symbol looks like the one we saw in the
+        cave earlier...").
 
         Args:
             agent_name: The agent to build context for (e.g., "dm", "rogue").

@@ -347,7 +347,7 @@
 | Story | Status | Phase |
 |-------|--------|-------|
 | 5-1-short-term-context-buffer | ✅ done | Full Cycle |
-| 5-2-session-summary-generation | 🔄 in-progress | Create Story |
+| 5-2-session-summary-generation | ✅ done | Full Cycle |
 | 5-3-in-session-memory-references | ⏳ backlog | Queued |
 | 5-4-cross-session-memory-character-facts | ⏳ backlog | Queued |
 | 5-5-memory-compression-system | ⏳ backlog | Queued |
@@ -376,6 +376,43 @@
 - **MEDIUM**: No input validation on add_to_buffer() → Added None check and 100KB size limit
 - **MEDIUM**: Token estimation fails for CJK text → Added character-based fallback
 - **MEDIUM**: Duplicated constants → Imported from agents.py instead
+
+### User Input Required
+- None - all issues auto-resolved
+
+---
+
+## Story: 5-2-session-summary-generation
+
+**Status:** ✅ Completed
+**Duration:** 2026-01-28
+
+### Files Touched
+- `memory.py` - Summarizer class, compress_buffer(), _merge_summaries(), caching
+- `graph.py` - context_manager node, workflow integration (START -> context_manager -> dm)
+- `models.py` - Added summarization_in_progress field to GameState
+- `app.py` - render_summarization_indicator_html()
+- `styles/theme.css` - Summarization indicator styling
+- `tests/test_memory.py` - 233 tests (Summarizer, compression, Janitor prompt)
+- `tests/test_graph.py` - context_manager node tests
+- `tests/test_app.py` - indicator tests
+
+### Key Design Decisions
+- Summarizer class with lazy LLM initialization and module-level caching
+- "Janitor" prompt preserves characters, relationships, inventory, quests, status effects
+- Discards verbatim dialogue (keeps gist), dice mechanics, repetitive descriptions
+- context_manager runs once per round before DM turn
+- compress_buffer retains last 3 entries, compresses older ones
+- Summary merging concatenates existing + new with separator
+- Synchronous execution per Architecture decision
+
+### Issues Auto-Resolved
+- **HIGH**: TypedDict handling in context_manager → Fixed to proper spread syntax
+- **HIGH**: Claude list content block handling → Added proper extraction
+- **HIGH**: summarization_in_progress missing from GameState → Added field
+- **MEDIUM**: Summarizer created repeatedly → Added module-level caching
+- **MEDIUM**: No buffer truncation before LLM → Added MAX_BUFFER_CHARS (50KB)
+- **MEDIUM**: Missing error recovery tests → Added comprehensive tests
 
 ### User Input Required
 - None - all issues auto-resolved
