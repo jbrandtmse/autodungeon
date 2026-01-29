@@ -4,7 +4,12 @@
       "Bash(dir:*)",
       "mcp__perplexity-mcp__search",
       "Bash(git init:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git remote add:*)",
+      "Bash(git branch:*)",
+      "Bash(git push:*)",
+      "Bash(xargs -I {} bash -c \"echo ''=== {} ==='' && wc -l {}\")"
     ]
   }
 }

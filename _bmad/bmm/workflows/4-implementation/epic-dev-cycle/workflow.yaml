@@ -1,0 +1,74 @@
+# Epic Development Cycle Workflow
+name: epic-dev-cycle
+description: "Orchestrates the complete BMAD development cycle for all stories in an Epic. Executes create-story, dev-story, code-review, commit/push, testarch-automate, commit/push sequentially for each story using sub-agents. Auto-resolves high/medium severity issues and only pauses for ambiguous requirements or critical design decisions."
+author: "BMad"
+
+# Critical variables from config
+config_source: "{project-root}/_bmad/bmm/config.yaml"
+output_folder: "{config_source}:output_folder"
+user_name: "{config_source}:user_name"
+communication_language: "{config_source}:communication_language"
+user_skill_level: "{config_source}:user_skill_level"
+document_output_language: "{config_source}:document_output_language"
+planning_artifacts: "{config_source}:planning_artifacts"
+implementation_artifacts: "{config_source}:implementation_artifacts"
+date: system-generated
+
+# Workflow components
+installed_path: "{project-root}/_bmad/bmm/workflows/4-implementation/epic-dev-cycle"
+instructions: "{installed_path}/instructions.xml"
+validation: "{installed_path}/checklist.md"
+template: false
+
+# Variables
+variables:
+  project_context: "**/project-context.md"
+  story_dir: "{implementation_artifacts}"
+  sprint_status: "{implementation_artifacts}/sprint-status.yaml"
+  epic_num: ""  # Optional: specific epic to process (auto-discovered if empty)
+  cycle_log: "{implementation_artifacts}/epic-dev-cycle-log.md"
+
+# Smart input file references
+input_file_patterns:
+  architecture:
+    description: "System architecture for context"
+    whole: "{planning_artifacts}/*architecture*.md"
+    sharded: "{planning_artifacts}/*architecture*/*.md"
+    load_strategy: "FULL_LOAD"
+  epics:
+    description: "Epic definitions and stories"
+    whole: "{planning_artifacts}/*epic*.md"
+    sharded_index: "{planning_artifacts}/*epic*/index.md"
+    sharded_single: "{planning_artifacts}/*epic*/epic-{{epic_num}}.md"
+    load_strategy: "SELECTIVE_LOAD"
+
+# Output
+default_output_file: "{implementation_artifacts}/epic-dev-cycle-log.md"
+
+# Execution settings
+standalone: true
+tags:
+  - implementation
+  - orchestration
+  - automation
+  - epic-cycle
+
+# Sub-workflow paths (for reference)
+sub_workflows:
+  create_story: "_bmad/bmm/workflows/4-implementation/create-story/workflow.yaml"
+  dev_story: "_bmad/bmm/workflows/4-implementation/dev-story/workflow.yaml"
+  code_review: "_bmad/bmm/workflows/4-implementation/code-review/workflow.yaml"
+  testarch_automate: "_bmad/bmm/workflows/testarch/automate/workflow.yaml"
+
+# Autonomy settings
+autonomy:
+  auto_resolve_severities:
+    - HIGH
+    - MEDIUM
+  pause_conditions:
+    - ambiguous_requirements
+    - multiple_design_options
+    - security_risk
+    - compliance_risk
+    - performance_risk
+    - interoperability_risk
