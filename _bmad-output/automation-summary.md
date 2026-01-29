@@ -12,13 +12,94 @@ Expanded test coverage for the autodungeon project by analyzing existing gaps an
 
 | Metric | Before | After | Change |
 |--------|--------|-------|--------|
-| Total Tests | 1874 | 1907 | +33 |
-| Story 5-4 Tests | 16 | 49 | +33 |
-| Story 5-4 Coverage | Acceptance Only | Comprehensive | +33 tests |
+| Total Tests | 2017 | 2059 | +42 |
+| Story 6-1 Tests | 35 | 77 | +42 |
+| Story 6-1 Coverage | Basic | Comprehensive | +42 tests |
 
 ---
 
-## Story 5-4: Cross-Session Memory & Character Facts (Latest Session)
+## Story 6-1: Configuration Modal Structure (Latest Session)
+
+**Date:** 2026-01-28
+**Story Key:** 6-1-configuration-modal-structure
+
+### Implementation Summary
+
+Story 6.1 implements the Configuration Modal Structure for LLM Configuration UI (Epic 6):
+- `app.py` - Modal lifecycle functions (handle_config_modal_open, handle_config_modal_close, render_config_modal, render_configure_button, snapshot_config_values, etc.)
+- `styles/theme.css` - Config modal CSS classes (.config-modal-*, dialog styling, tab styling)
+- Acceptance Criteria: Configure button, 3-tab structure (API Keys/Models/Settings), auto-pause, pause state restore, discard confirmation, CSS theming
+
+### Tests Added (42 new tests in 18 test classes)
+
+| Test Class | Tests | Focus Area |
+|------------|-------|------------|
+| TestSnapshotConfigValuesExpanded | 3 | Snapshot structure, independence |
+| TestConfigModalCloseWithSaveChanges | 2 | save_changes parameter behavior |
+| TestConfigModalOpenStateTransitions | 3 | State initialization, pause preservation |
+| TestConfigModalCSSExpanded | 10 | Modal CSS completeness verification |
+| TestConfigureButtonExpanded | 2 | Button click handling, no-op behavior |
+| TestSaveButtonExpanded | 2 | Change tracking, pause state restore |
+| TestDiscardConfirmationExpanded | 2 | Confirmation flag, pause restore |
+| TestCancelButtonExpanded | 2 | Original values clearing, rerun trigger |
+| TestLegacyAliasesExpanded | 2 | Legacy modal_open key compatibility |
+| TestModeIndicatorPausedExpanded | 3 | Pause priority, pause-dot element |
+| TestConfigModalAutopilotInteraction | 2 | Autopilot stop, turn count preserve |
+| TestSessionStateInitializationExpanded | 2 | No overwrite, default values |
+| TestMarkConfigChanged | 2 | Idempotent behavior, key creation |
+| TestConfigModalRenderingExpanded | 2 | Decorator verification, callable check |
+| TestConfigModalEdgeCasesExpanded | 3 | Missing state, play mode, confirmation |
+
+### Key Test Scenarios Added
+
+1. **Snapshot Config Values:**
+   - All three required keys present (api_keys, models, settings)
+   - Values are all dictionaries
+   - Snapshots are independent copies (no mutation)
+
+2. **Modal Close with Parameters:**
+   - save_changes=True clears change tracking
+   - save_changes=False restores original pause state
+
+3. **State Transitions:**
+   - Modal open initializes all required config keys
+   - True pause state preserved correctly
+   - Discard confirmation reset on open
+
+4. **CSS Completeness (10 new tests):**
+   - Modal max-width 600px per UX spec
+   - Dark overlay rgba(0,0,0,0.6)
+   - Save/Cancel button styling
+   - Tab font 14px per spec
+   - Close button ghost styling
+   - Header/Footer styling
+   - Tab list border
+   - Amber underline for active tab (2px solid)
+
+5. **Mode Indicator Paused State:**
+   - Paused takes priority over watch mode
+   - Paused takes priority over play mode
+   - Uses pause-dot class (not pulse-dot)
+
+6. **Autopilot Interaction:**
+   - Modal open stops active autopilot
+   - Turn count preserved (not reset)
+
+7. **Edge Cases:**
+   - Missing pre_modal_pause_state defaults to False
+   - Modal open from play mode works correctly
+   - Cancel with confirmation already showing is idempotent
+
+### Quality Checks
+
+```bash
+pytest tests/test_story_6_1_config_modal.py - 77 passed
+pytest (full suite) - 2059 passed, 1 skipped
+```
+
+---
+
+## Story 5-4: Cross-Session Memory & Character Facts
 
 **Date:** 2026-01-28
 **Story Key:** 5-4-cross-session-memory-character-facts
