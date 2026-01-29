@@ -12,13 +12,24 @@ from pathlib import Path
 
 import streamlit as st
 
-from config import AppConfig, get_config, validate_api_keys
+from config import (
+    AppConfig,
+    get_api_key_source,
+    get_config,
+    get_effective_api_key,
+    mask_api_key,
+    validate_anthropic_api_key,
+    validate_api_keys,
+    validate_google_api_key,
+    validate_ollama_connection,
+)
 from graph import run_single_round
 from models import (
     CharacterConfig,
     GameState,
     SessionMetadata,
     UserError,
+    ValidationResult,
     populate_game_state,
 )
 from persistence import (
@@ -1030,6 +1041,18 @@ def initialize_session_state() -> None:
         st.session_state["config_has_changes"] = False
         st.session_state["config_original_values"] = None
         st.session_state["show_discard_confirmation"] = False
+        # API key management state (Story 6.2)
+        st.session_state["api_key_overrides"] = {}
+        st.session_state["api_key_status_google"] = None
+        st.session_state["api_key_status_anthropic"] = None
+        st.session_state["api_key_status_ollama"] = None
+        st.session_state["api_key_validating_google"] = False
+        st.session_state["api_key_validating_anthropic"] = False
+        st.session_state["api_key_validating_ollama"] = False
+        st.session_state["ollama_available_models"] = []
+        st.session_state["show_api_key_google"] = False
+        st.session_state["show_api_key_anthropic"] = False
+        st.session_state["show_api_key_ollama"] = False
         # Error handling state (Story 4.5)
         st.session_state["error"] = None
         st.session_state["error_retry_count"] = 0
@@ -1116,10 +1139,16 @@ def snapshot_config_values() -> dict[str, dict[str, str]]:
 
     Returns:
         Dict containing current config values for change detection.
-        Placeholder structure - will be populated in Stories 6.2-6.5.
+        Includes API key overrides from Story 6.2.
     """
+    # Get current API key overrides from session state
+    overrides = st.session_state.get("api_key_overrides", {})
     return {
-        "api_keys": {},  # Story 6.2
+        "api_keys": {
+            "google": overrides.get("google", ""),
+            "anthropic": overrides.get("anthropic", ""),
+            "ollama": overrides.get("ollama", ""),
+        },
         "models": {},  # Story 6.3
         "settings": {},  # Story 6.4/6.5
     }
@@ -1170,23 +1199,345 @@ def handle_modal_close() -> None:
 # =============================================================================
 
 
+# =============================================================================
+# API Key Management UI (Story 6.2)
+# =============================================================================
+
+# Provider display configuration
+PROVIDER_CONFIG = {
+    "google": {
+        "label": "Google (Gemini)",
+        "env_var": "GOOGLE_API_KEY",
+        "help": "Required for Gemini models",
+        "placeholder": "Enter your Google API key...",
+        "is_password": True,
+    },
+    "anthropic": {
+        "label": "Anthropic (Claude)",
+        "env_var": "ANTHROPIC_API_KEY",
+        "help": "Required for Claude models",
+        "placeholder": "Enter your Anthropic API key...",
+        "is_password": True,
+    },
+    "ollama": {
+        "label": "Ollama Base URL",
+        "env_var": "OLLAMA_BASE_URL",
+        "help": "Local Ollama server URL",
+        "placeholder": "http://localhost:11434",
+        "is_password": False,
+    },
+}
+
+
+def render_validation_status_html(status: str, message: str, provider: str) -> str:
+    """Generate HTML for validation status display.
+
+    Args:
+        status: Validation status (untested, validating, valid, invalid).
+        message: Status message to display.
+        provider: Provider name for key prefixing.
+
+    Returns:
+        HTML string for validation status.
+    """
+    if status == "untested":
+        return (
+            '<div class="api-key-status untested">'
+            '<span class="api-key-status-icon">?</span>'
+            '<span class="api-key-status-text">Not tested</span>'
+            "</div>"
+        )
+    elif status == "validating":
+        return (
+            '<div class="api-key-status validating">'
+            '<span class="api-key-status-spinner"></span>'
+            '<span class="api-key-status-text">Validating...</span>'
+            "</div>"
+        )
+    elif status == "valid":
+        return (
+            '<div class="api-key-status valid">'
+            '<span class="api-key-status-icon">&#10003;</span>'
+            f'<span class="api-key-status-text">{escape_html(message)}</span>'
+            "</div>"
+        )
+    else:  # invalid
+        return (
+            '<div class="api-key-status invalid">'
+            '<span class="api-key-status-icon">&#10007;</span>'
+            f'<span class="api-key-status-text">{escape_html(message)}</span>'
+            "</div>"
+        )
+
+
+def handle_api_key_change(provider: str, value: str) -> None:
+    """Handle API key field change with validation trigger.
+
+    Stores the new value in session state and triggers validation.
+
+    Args:
+        provider: Provider name (google, anthropic, ollama).
+        value: New field value.
+    """
+    # Store the new value in overrides
+    if "api_key_overrides" not in st.session_state:
+        st.session_state["api_key_overrides"] = {}
+    st.session_state["api_key_overrides"][provider] = value
+
+    # Mark config as changed
+    mark_config_changed()
+
+    # Clear previous validation status when value changes
+    st.session_state[f"api_key_status_{provider}"] = None
+
+    # Skip validation if empty
+    if not value.strip():
+        return
+
+    # Set validating flag (will trigger spinner on rerun)
+    st.session_state[f"api_key_validating_{provider}"] = True
+
+
+def run_api_key_validation(provider: str, value: str) -> None:
+    """Run validation for an API key and store result.
+
+    Args:
+        provider: Provider name (google, anthropic, ollama).
+        value: Value to validate.
+    """
+    if not value.strip():
+        st.session_state[f"api_key_validating_{provider}"] = False
+        return
+
+    try:
+        match provider:
+            case "google":
+                result = validate_google_api_key(value)
+            case "anthropic":
+                result = validate_anthropic_api_key(value)
+            case "ollama":
+                result = validate_ollama_connection(value)
+                # Store available models for Ollama
+                if result.models is not None:
+                    st.session_state["ollama_available_models"] = result.models
+            case _:
+                result = ValidationResult(
+                    valid=False, message="Unknown provider", models=None
+                )
+
+        st.session_state[f"api_key_status_{provider}"] = result
+    except Exception as e:
+        st.session_state[f"api_key_status_{provider}"] = ValidationResult(
+            valid=False, message=f"Error: {str(e)[:40]}", models=None
+        )
+    finally:
+        st.session_state[f"api_key_validating_{provider}"] = False
+
+
+def render_api_key_field(provider: str) -> None:
+    """Render an API key input field with validation status.
+
+    Handles three states:
+    - Empty: Shows placeholder prompting for input
+    - Environment: Shows "Set via environment" with masked preview
+    - UI Override: Shows user-entered value with validation status
+
+    Args:
+        provider: Provider name (google, anthropic, ollama).
+    """
+    pconfig = PROVIDER_CONFIG.get(provider, {})
+    label = str(pconfig.get("label", provider.title()))
+    help_text = str(pconfig.get("help", ""))
+    placeholder = str(pconfig.get("placeholder", ""))
+    is_password = bool(pconfig.get("is_password", True))
+
+    # Get current values
+    overrides = st.session_state.get("api_key_overrides", {})
+    source = get_api_key_source(provider, overrides)
+    effective_value = get_effective_api_key(provider, overrides)
+    current_override = overrides.get(provider, "")
+
+    # Render field container (provider sanitized for HTML attribute safety)
+    safe_provider = escape_html(provider)
+    st.markdown(
+        f'<div class="api-key-field" data-provider="{safe_provider}">',
+        unsafe_allow_html=True,
+    )
+
+    # Label and help text
+    st.markdown(
+        f'<div class="api-key-label">{escape_html(label)}</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f'<div class="api-key-help">{escape_html(help_text)}</div>',
+        unsafe_allow_html=True,
+    )
+
+    # Source badge
+    if source == "environment" and not current_override:
+        masked = mask_api_key(effective_value or "") if effective_value else ""
+        st.markdown(
+            f'<div class="api-key-source-badge environment">'
+            f"Set via environment ({masked})"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
+    # Get show/hide state
+    show_key = f"show_api_key_{provider}"
+    show_value = st.session_state.get(show_key, False)
+
+    # Input field with columns for show/hide toggle
+    col1, col2 = st.columns([4, 1])
+
+    with col1:
+        # Determine input type
+        input_type = "default" if (not is_password or show_value) else "password"
+
+        # For Ollama, always show as text
+        if provider == "ollama":
+            input_type = "default"
+
+        # Create input field
+        new_value = st.text_input(
+            f"{label} input",
+            value=current_override,
+            placeholder=placeholder,
+            key=f"api_key_input_{provider}",
+            type=input_type,
+            label_visibility="collapsed",
+        )
+
+        # Handle value change
+        if new_value is not None and new_value != current_override:
+            handle_api_key_change(provider, new_value)
+
+    with col2:
+        # Show/Hide toggle for password fields (not for Ollama)
+        if is_password:
+            toggle_label = "Hide" if show_value else "Show"
+            if st.button(toggle_label, key=f"toggle_show_{provider}"):
+                st.session_state[show_key] = not show_value
+                st.rerun()
+
+    # Check if we need to run validation
+    if st.session_state.get(f"api_key_validating_{provider}", False):
+        with st.spinner("Validating..."):
+            run_api_key_validation(provider, new_value or current_override)
+            st.rerun()
+
+    # Validation status display
+    validation_result: ValidationResult | None = st.session_state.get(
+        f"api_key_status_{provider}"
+    )
+    is_validating = st.session_state.get(f"api_key_validating_{provider}", False)
+
+    if is_validating:
+        status_html = render_validation_status_html("validating", "", provider)
+    elif validation_result is not None:
+        status = "valid" if validation_result.valid else "invalid"
+        status_html = render_validation_status_html(
+            status, validation_result.message, provider
+        )
+    elif source == "environment" and not current_override:
+        # Environment key set but not validated yet
+        status_html = render_validation_status_html(
+            "untested", "Environment key - click Validate to test", provider
+        )
+    elif not current_override and source == "empty":
+        status_html = ""  # No status for empty fields
+    else:
+        status_html = render_validation_status_html("untested", "", provider)
+
+    if status_html:
+        st.markdown(status_html, unsafe_allow_html=True)
+
+    # Validate button for environment keys or entered values
+    effective = effective_value or current_override
+    if effective and not is_validating:
+        if st.button("Validate", key=f"validate_{provider}"):
+            st.session_state[f"api_key_validating_{provider}"] = True
+            st.rerun()
+
+    # Close field container
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def render_ollama_models_list() -> None:
+    """Render the list of available Ollama models if connected."""
+    models = st.session_state.get("ollama_available_models", [])
+    validation_result: ValidationResult | None = st.session_state.get(
+        "api_key_status_ollama"
+    )
+
+    if validation_result and validation_result.valid and models:
+        with st.expander("Available Models", expanded=False):
+            st.markdown('<div class="ollama-models">', unsafe_allow_html=True)
+            for model in models:
+                st.markdown(
+                    f'<div class="ollama-model-item">{escape_html(model)}</div>',
+                    unsafe_allow_html=True,
+                )
+            st.markdown("</div>", unsafe_allow_html=True)
+
+
+def render_api_keys_tab() -> None:
+    """Render the API Keys tab content in the config modal.
+
+    Shows entry fields for Google (Gemini), Anthropic (Claude),
+    and Ollama with validation and status display.
+    """
+    # Section header
+    st.markdown(
+        '<h4 class="api-keys-section-header">Provider API Keys</h4>',
+        unsafe_allow_html=True,
+    )
+
+    # Provider fields in order: Gemini, Claude, Ollama
+    render_api_key_field("google")
+    st.markdown("---")
+
+    render_api_key_field("anthropic")
+    st.markdown("---")
+
+    render_api_key_field("ollama")
+    render_ollama_models_list()
+
+
+def apply_api_key_overrides() -> None:
+    """Apply API key overrides to the config system.
+
+    Called when Save is clicked in the config modal.
+
+    Note: API key overrides are stored in session state only (not persisted
+    to disk). This is by design - users who want persistent keys should use
+    environment variables or .env files. The overrides in session state are
+    already set by handle_api_key_change(), so this function currently just
+    logs that save was applied.
+
+    This hook exists for future expansion (e.g., optional .env file writing
+    with explicit user consent in a later story).
+    """
+    # Overrides are already in session state via handle_api_key_change
+    # Mark as saved (no-op for now since changes are already applied)
+    st.session_state["config_has_changes"] = False
+
+
 @st.dialog("Configuration", width="large")
 def render_config_modal() -> None:
     """Render the configuration modal with tabs for API Keys, Models, and Settings.
 
     Uses st.dialog decorator for modal container.
     Implements Story 6.1 AC #2: three tabs with campfire theme styling.
+    Story 6.2: API Keys tab with provider configuration.
     """
     # Tab structure (Story 6.1 Task 3)
     tab1, tab2, tab3 = st.tabs(["API Keys", "Models", "Settings"])
 
     with tab1:
-        st.markdown(
-            '<p class="config-tab-placeholder">'
-            "API key configuration coming in Story 6.2"
-            "</p>",
-            unsafe_allow_html=True,
-        )
+        # API Keys tab content (Story 6.2)
+        render_api_keys_tab()
 
     with tab2:
         st.markdown(

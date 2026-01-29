@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field, field_validator
 
 __all__ = [
     "AgentMemory",
+    "ApiKeyFieldState",
     "CharacterConfig",
     "CharacterFacts",
     "DMConfig",
@@ -31,6 +32,7 @@ __all__ = [
     "SessionMetadata",
     "TranscriptEntry",
     "UserError",
+    "ValidationResult",
     "create_agent_memory",
     "create_character_facts_from_config",
     "create_initial_game_state",
@@ -433,6 +435,59 @@ def create_user_error(
         agent=agent,
         retry_count=retry_count,
         last_checkpoint_turn=last_checkpoint_turn,
+    )
+
+
+# =============================================================================
+# API Key Validation (Story 6.2)
+# =============================================================================
+
+
+class ValidationResult(BaseModel):
+    """Result of API key or connection validation.
+
+    Used by the API Keys tab in the configuration modal to show
+    validation status after testing provider credentials.
+
+    Attributes:
+        valid: Whether the validation passed.
+        message: Human-readable status message.
+        models: List of available models if valid, None otherwise.
+    """
+
+    valid: bool = Field(..., description="Whether the validation passed")
+    message: str = Field(..., description="Human-readable status message")
+    models: list[str] | None = Field(
+        default=None, description="List of available models if valid"
+    )
+
+
+class ApiKeyFieldState(BaseModel):
+    """State tracking for an API key input field.
+
+    Tracks the current value, source (where it came from), and validation
+    status for display in the configuration modal.
+
+    Attributes:
+        value: Current field value (may be masked for display).
+        source: Where the value comes from: "empty", "environment", or "ui_override".
+        validation_status: Current validation status: "untested", "validating", "valid", or "invalid".
+        validation_message: Message from last validation attempt.
+        show_value: Whether to show the actual value (vs masked).
+    """
+
+    value: str = Field(default="", description="Current field value")
+    source: Literal["empty", "environment", "ui_override"] = Field(
+        default="empty", description="Where the value comes from"
+    )
+    validation_status: Literal["untested", "validating", "valid", "invalid"] = Field(
+        default="untested", description="Current validation status"
+    )
+    validation_message: str = Field(
+        default="", description="Message from last validation"
+    )
+    show_value: bool = Field(
+        default=False, description="Whether to show actual value vs masked"
     )
 
 

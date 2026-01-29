@@ -1711,3 +1711,198 @@ hr {
   border-color: var(--text-primary);
   color: var(--text-primary);
 }
+
+/* ==========================================================================
+   API Key Management UI (Story 6.2)
+   ========================================================================== */
+
+/* API Keys section header */
+.api-keys-section-header {
+  font-family: var(--font-ui);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 var(--space-md) 0;
+  padding-bottom: var(--space-sm);
+  border-bottom: 1px solid var(--bg-secondary);
+}
+
+/* API key field container */
+.api-key-field {
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  padding: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+
+/* API key field label */
+.api-key-label {
+  font-family: var(--font-ui);
+  font-size: var(--text-name);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--space-xs);
+}
+
+/* API key field help text */
+.api-key-help {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-sm);
+}
+
+/* API key source badge (environment indicator) */
+.api-key-source-badge {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  margin-bottom: var(--space-sm);
+}
+
+.api-key-source-badge.environment {
+  background: rgba(107, 142, 107, 0.2);
+  color: var(--color-rogue);
+  border: 1px solid rgba(107, 142, 107, 0.3);
+}
+
+.api-key-source-badge.empty {
+  background: rgba(184, 168, 150, 0.2);
+  color: var(--text-secondary);
+  border: 1px solid rgba(184, 168, 150, 0.3);
+}
+
+/* API key validation status container */
+.api-key-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-family: var(--font-ui);
+  font-size: var(--text-system);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: 4px;
+  margin-top: var(--space-sm);
+}
+
+/* Validation status - untested */
+.api-key-status.untested {
+  background: rgba(184, 168, 150, 0.1);
+  color: var(--text-secondary);
+}
+
+/* Validation status - validating */
+.api-key-status.validating {
+  background: rgba(232, 168, 73, 0.1);
+  color: var(--accent-warm);
+}
+
+/* Validation status - valid */
+.api-key-status.valid {
+  background: rgba(107, 142, 107, 0.15);
+  color: var(--color-rogue);
+}
+
+/* Validation status - invalid */
+.api-key-status.invalid {
+  background: rgba(196, 92, 74, 0.15);
+  color: var(--color-fighter);
+}
+
+/* Validation status icon */
+.api-key-status-icon {
+  font-size: 14px;
+  font-weight: 600;
+  width: 18px;
+  text-align: center;
+}
+
+/* Validation status spinner (CSS animation) */
+.api-key-status-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--accent-warm);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: api-key-spin 1s linear infinite;
+}
+
+@keyframes api-key-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Validation status text */
+.api-key-status-text {
+  font-size: var(--text-system);
+}
+
+/* Ollama models list */
+.ollama-models {
+  max-height: 150px;
+  overflow-y: auto;
+  padding: var(--space-sm);
+}
+
+.ollama-model-item {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: var(--space-xs) 0;
+  border-bottom: 1px solid var(--bg-secondary);
+}
+
+.ollama-model-item:last-child {
+  border-bottom: none;
+}
+
+/* API key input field overrides within modal */
+[data-testid="stDialog"] .api-key-field .stTextInput > div > div > input {
+  background: var(--bg-message);
+  border: 1px solid var(--bg-message);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+[data-testid="stDialog"] .api-key-field .stTextInput > div > div > input:focus {
+  border-color: var(--accent-warm);
+  box-shadow: 0 0 0 1px var(--accent-warm);
+}
+
+[data-testid="stDialog"] .api-key-field .stTextInput > div > div > input::placeholder {
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-style: italic;
+}
+
+/* Show/Hide toggle button in API key field */
+[data-testid="stDialog"] .api-key-field .stButton > button {
+  background: transparent;
+  border: 1px solid var(--text-secondary);
+  color: var(--text-secondary);
+  padding: var(--space-xs) var(--space-sm);
+  font-size: 12px;
+  height: auto;
+  min-height: 38px;
+}
+
+[data-testid="stDialog"] .api-key-field .stButton > button:hover {
+  background: var(--bg-message);
+  border-color: var(--text-primary);
+  color: var(--text-primary);
+}
+
+/* Validate button styling */
+[data-testid="stDialog"] .api-key-field .stButton > button[data-testid*="validate_"] {
+  background: transparent;
+  border: 1px solid var(--accent-warm);
+  color: var(--accent-warm);
+  width: auto;
+  margin-top: var(--space-sm);
+}
+
+[data-testid="stDialog"] .api-key-field .stButton > button[data-testid*="validate_"]:hover {
+  background: var(--accent-warm);
+  color: var(--bg-primary);
+}

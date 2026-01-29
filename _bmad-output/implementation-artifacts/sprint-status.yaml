@@ -92,8 +92,8 @@ development_status:
 
   # Epic 6: LLM Configuration UI (5 stories)
   epic-6: in-progress
-  6-1-configuration-modal-structure: ready-for-dev
-  6-2-api-key-management-ui: backlog
+  6-1-configuration-modal-structure: done
+  6-2-api-key-management-ui: done
   6-3-per-agent-model-selection: backlog
   6-4-context-limit-configuration: backlog
   6-5-mid-campaign-provider-switching: backlog

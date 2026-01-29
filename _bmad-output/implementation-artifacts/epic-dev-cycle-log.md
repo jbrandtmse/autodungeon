@@ -598,11 +598,41 @@
 
 | Story | Status | Phase |
 |-------|--------|-------|
-| 6-1-configuration-modal-structure | 🔄 in-progress | Create Story |
-| 6-2-api-key-management-ui | ⏳ backlog | - |
+| 6-1-configuration-modal-structure | ✅ done | Full Cycle |
+| 6-2-api-key-management-ui | 🔄 in-progress | Create Story |
 | 6-3-per-agent-model-selection | ⏳ backlog | - |
 | 6-4-context-limit-configuration | ⏳ backlog | - |
 | 6-5-mid-campaign-provider-switching | ⏳ backlog | - |
+
+---
+
+## Story: 6-1-configuration-modal-structure
+
+**Status:** ✅ Completed
+**Duration:** 2026-01-28
+
+### Files Touched
+- `app.py` - Configure button, modal handlers, render_config_modal(), snapshot/change detection
+- `styles/theme.css` - Config modal CSS (dialog, tabs, buttons, overlay)
+- `tests/test_story_6_1_config_modal.py` - 77 tests (35 initial + 42 testarch)
+
+### Key Design Decisions
+- Uses Streamlit `@st.dialog` decorator for modal rendering
+- Three tabs: "API Keys", "Models", "Settings" (placeholders for Stories 6.2-6.5)
+- Auto-pause on modal open leverages Story 3.5 pause infrastructure
+- Snapshot-based change detection for unsaved changes warning
+- CSS matches campfire aesthetic (#1A1612 bg, #2D2520 surfaces, amber accents)
+
+### Issues Auto-Resolved
+- **HIGH**: Unused variable `col1` → Renamed to `_col1`
+- **HIGH**: Missing type annotations on mock_session_state → Added `dict[str, Any]`
+- **MEDIUM**: Missing `from typing import Any` import → Added
+- **MEDIUM**: Duplicate assignment in test → Fixed
+- **MEDIUM**: Missing render_config_modal() tests → Added TestConfigModalRendering
+- **MEDIUM**: Missing edge case tests → Added TestConfigModalEdgeCases
+
+### User Input Required
+- None - all issues auto-resolved
 
 ---
 

@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 import yaml
 
 if TYPE_CHECKING:
-    from models import CharacterConfig, DMConfig
+    from models import CharacterConfig, DMConfig, ValidationResult
 from dotenv import load_dotenv
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -24,10 +24,17 @@ __all__ = [
     "AgentConfig",
     "AgentsConfig",
     "AppConfig",
+    "_sanitize_error_message",
+    "get_api_key_source",
     "get_config",
+    "get_effective_api_key",
     "load_character_configs",
     "load_dm_config",
+    "mask_api_key",
+    "validate_anthropic_api_key",
     "validate_api_keys",
+    "validate_google_api_key",
+    "validate_ollama_connection",
 ]
 
 # Load .env file if it exists
@@ -253,3 +260,323 @@ def get_config() -> AppConfig:
     if _config is None:
         _config = AppConfig.load()
     return _config
+
+
+# =============================================================================
+# API Key Management (Story 6.2)
+# =============================================================================
+
+
+def mask_api_key(key: str) -> str:
+    """Mask an API key, showing only last 4 characters.
+
+    For security, displays most of the key as asterisks with only
+    the last 4 characters visible for identification.
+
+    Args:
+        key: The API key to mask.
+
+    Returns:
+        Masked key string (e.g., "***************xyz9").
+
+    Example:
+        >>> mask_api_key("sk-abc123xyz789")
+        '**********x789'
+    """
+    if not key or len(key) < 8:
+        return "****"
+    return "*" * (len(key) - 4) + key[-4:]
+
+
+def get_api_key_source(provider: str, overrides: dict[str, str] | None = None) -> str:
+    """Determine the source of an API key for a provider.
+
+    Checks for UI override first, then environment variable, then empty.
+
+    Args:
+        provider: Provider name ("google", "anthropic", or "ollama").
+        overrides: Optional dict of UI override values.
+
+    Returns:
+        "ui_override" if set via UI, "environment" if set via env var,
+        or "empty" if not set.
+    """
+    overrides = overrides or {}
+
+    # Check UI override first
+    if provider in overrides and overrides[provider]:
+        return "ui_override"
+
+    # Check environment variable
+    config = get_config()
+    match provider:
+        case "google":
+            if config.google_api_key:
+                return "environment"
+        case "anthropic":
+            if config.anthropic_api_key:
+                return "environment"
+        case "ollama":
+            # Ollama always has a default URL, so check if it differs from default
+            if config.ollama_base_url != "http://localhost:11434":
+                return "environment"
+            # If using default, still consider it "environment" (always available)
+            return "environment"
+        case _:
+            pass  # Unknown provider
+
+    return "empty"
+
+
+def get_effective_api_key(
+    provider: str, overrides: dict[str, str] | None = None
+) -> str | None:
+    """Get the effective API key for a provider.
+
+    Priority:
+    1. UI override (if set)
+    2. Environment variable
+    3. None
+
+    Args:
+        provider: Provider name ("google", "anthropic", or "ollama").
+        overrides: Optional dict of UI override values.
+
+    Returns:
+        The effective API key or URL, or None if not available.
+    """
+    overrides = overrides or {}
+
+    # Check UI override first
+    if provider in overrides and overrides[provider]:
+        return overrides[provider]
+
+    # Fall back to environment
+    config = get_config()
+    match provider:
+        case "google":
+            return config.google_api_key
+        case "anthropic":
+            return config.anthropic_api_key
+        case "ollama":
+            return config.ollama_base_url
+        case _:
+            return None
+
+
+def validate_google_api_key(api_key: str) -> ValidationResult:
+    """Validate Google API key by making a minimal API call.
+
+    Uses the Gemini API's model list endpoint which is lightweight
+    and doesn't consume tokens.
+
+    Args:
+        api_key: The Google API key to validate.
+
+    Returns:
+        ValidationResult with valid status, message, and available models.
+    """
+    # Import here to avoid circular import and at runtime
+    from models import ValidationResult
+
+    if not api_key or not api_key.strip():
+        return ValidationResult(valid=False, message="API key is empty", models=None)
+
+    try:
+        import google.generativeai as genai
+
+        genai.configure(api_key=api_key)
+        # List models is a lightweight call that validates the key
+        models_list = list(genai.list_models())
+        # Filter to models that support content generation
+        available_models = [
+            m.name
+            for m in models_list
+            if hasattr(m, "supported_generation_methods")
+            and "generateContent" in m.supported_generation_methods
+        ]
+        return ValidationResult(
+            valid=True,
+            message=f"Valid - {len(available_models)} models available",
+            models=available_models[:10],  # Limit to first 10 for display
+        )
+    except Exception as e:
+        error_str = str(e).lower()
+        if (
+            "api_key" in error_str
+            or "api key" in error_str
+            or "401" in str(e)
+            or "403" in str(e)
+            or "invalid" in error_str
+        ):
+            return ValidationResult(valid=False, message="Invalid API key", models=None)
+        # Network or other error - sanitize to prevent key leakage
+        error_str_raw = str(e)
+        # Remove any potential API key patterns from error message
+        sanitized_msg = _sanitize_error_message(error_str_raw)
+        error_msg = sanitized_msg[:50] if len(sanitized_msg) > 50 else sanitized_msg
+        return ValidationResult(
+            valid=False, message=f"Connection error: {error_msg}", models=None
+        )
+
+
+def _sanitize_error_message(message: str) -> str:
+    """Sanitize error message to prevent API key leakage.
+
+    Removes any patterns that look like API keys from error messages
+    to prevent accidental exposure in the UI.
+
+    Args:
+        message: Raw error message that may contain sensitive data.
+
+    Returns:
+        Sanitized message safe for display.
+    """
+    import re
+
+    # Pattern for common API key formats (sk-, AIza, etc.)
+    # Remove anything that looks like it could be an API key
+    patterns = [
+        r"sk-[a-zA-Z0-9_-]{10,}",  # OpenAI/Anthropic style
+        r"AIza[a-zA-Z0-9_-]{30,}",  # Google style
+        r"key[=:\s]+['\"]?[a-zA-Z0-9_-]{20,}['\"]?",  # Generic key= pattern
+        r"api[_-]?key[=:\s]+['\"]?[a-zA-Z0-9_-]{10,}['\"]?",  # api_key= pattern
+    ]
+    result = message
+    for pattern in patterns:
+        result = re.sub(pattern, "[REDACTED]", result, flags=re.IGNORECASE)
+    return result
+
+
+def validate_anthropic_api_key(api_key: str) -> ValidationResult:
+    """Validate Anthropic API key by making a lightweight API call.
+
+    Uses the beta.messages.count_tokens endpoint which validates the key
+    with minimal cost. Note: This may incur small API usage charges.
+
+    Args:
+        api_key: The Anthropic API key to validate.
+
+    Returns:
+        ValidationResult with valid status and message.
+    """
+    # Import here to avoid circular import
+    from models import ValidationResult
+
+    if not api_key or not api_key.strip():
+        return ValidationResult(valid=False, message="API key is empty", models=None)
+
+    # Check key format - Anthropic keys typically start with "sk-ant-"
+    # But also allow other formats as they may change
+    api_key = api_key.strip()
+
+    # Basic format validation
+    if len(api_key) < 20:
+        return ValidationResult(
+            valid=False, message="API key appears too short", models=None
+        )
+
+    # Try to make a minimal API call to verify the key
+    try:
+        from anthropic import Anthropic
+
+        client = Anthropic(api_key=api_key)
+        # Use beta.messages.count_tokens which validates key without generating
+        # This validates the API key without consuming output tokens
+        client.beta.messages.count_tokens(  # type: ignore[attr-defined]
+            model="claude-3-haiku-20240307",
+            messages=[{"role": "user", "content": "Hi"}],
+        )
+        return ValidationResult(
+            valid=True,
+            message="Valid - Claude models available",
+            models=[
+                "claude-sonnet-4-20250514",
+                "claude-3-5-sonnet-20241022",
+                "claude-3-haiku-20240307",
+            ],
+        )
+    except Exception as e:
+        error_str = str(e).lower()
+        if (
+            "authentication" in error_str
+            or "api_key" in error_str
+            or "api key" in error_str
+            or "invalid" in error_str
+            or "401" in str(e)
+            or "403" in str(e)
+        ):
+            return ValidationResult(valid=False, message="Invalid API key", models=None)
+        # Network or other error - sanitize to prevent key leakage
+        sanitized_msg = _sanitize_error_message(str(e))
+        error_msg = sanitized_msg[:50] if len(sanitized_msg) > 50 else sanitized_msg
+        return ValidationResult(
+            valid=False, message=f"Connection error: {error_msg}", models=None
+        )
+
+
+def validate_ollama_connection(base_url: str) -> ValidationResult:
+    """Validate Ollama connection by checking the server and listing models.
+
+    No API key required - just needs network access to the Ollama server.
+
+    Args:
+        base_url: The Ollama server base URL.
+
+    Returns:
+        ValidationResult with valid status, message, and available models.
+    """
+    # Import here to avoid circular import
+    import httpx
+
+    from models import ValidationResult
+
+    if not base_url or not base_url.strip():
+        return ValidationResult(valid=False, message="Base URL is empty", models=None)
+
+    try:
+        # Use sync client with timeout
+        with httpx.Client(timeout=5.0) as client:
+            url = f"{base_url.rstrip('/')}/api/tags"
+            response = client.get(url)
+
+            if response.status_code == 200:
+                data = response.json()
+                models = [m["name"] for m in data.get("models", [])]
+                if models:
+                    return ValidationResult(
+                        valid=True,
+                        message=f"Connected - {len(models)} models available",
+                        models=models[:10],  # Limit for display
+                    )
+                else:
+                    return ValidationResult(
+                        valid=True,
+                        message="Connected - no models installed",
+                        models=[],
+                    )
+            else:
+                return ValidationResult(
+                    valid=False,
+                    message=f"Server error: HTTP {response.status_code}",
+                    models=None,
+                )
+    except httpx.ConnectError:
+        return ValidationResult(
+            valid=False,
+            message=f"Server not responding at {base_url}",
+            models=None,
+        )
+    except httpx.TimeoutException:
+        return ValidationResult(
+            valid=False,
+            message="Connection timed out",
+            models=None,
+        )
+    except Exception as e:
+        error_msg = str(e)[:50] if len(str(e)) > 50 else str(e)
+        return ValidationResult(
+            valid=False,
+            message=f"Connection error: {error_msg}",
+            models=None,
+        )
