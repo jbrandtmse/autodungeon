@@ -4452,3 +4452,694 @@ class TestInSessionMemoryEdgeCases:
         # Should still contain valid entries
         assert "First event" in context
         assert "Fourth event" in context
+
+
+# =============================================================================
+# Additional Story 5.3 Tests: Expanded Coverage
+# =============================================================================
+
+
+class TestStory53BufferStressTests:
+    """Stress tests for buffer mechanics under extreme conditions.
+
+    These tests verify the robustness of the buffer system when dealing
+    with edge cases like exact limit boundaries, rapid insertions, and
+    buffer overflow scenarios.
+    """
+
+    def test_buffer_exactly_at_10_entry_limit(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test buffer with exactly 10 entries (no overflow)."""
+        state = empty_game_state
+        events = [f"[DM]: EventExact{i:02d}" for i in range(1, 11)]
+        state["agent_memories"]["dm"] = AgentMemory(short_term_buffer=events)
+
+        manager = MemoryManager(state)
+        context = manager.get_context("dm")
+
+        # All 10 should be visible
+        for i in range(1, 11):
+            assert f"EventExact{i:02d}" in context
+
+    def test_buffer_with_11_entries_oldest_dropped(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test that 11th entry causes oldest to be excluded from context."""
+        state = empty_game_state
+        events = [f"[DM]: Event11Test{i:02d}" for i in range(1, 12)]
+        state["agent_memories"]["dm"] = AgentMemory(short_term_buffer=events)
+
+        manager = MemoryManager(state)
+        context = manager.get_context("dm")
+
+        # Entry 01 should NOT be in context
+        assert "Event11Test01" not in context
+        # Entries 02-11 should be in context
+        for i in range(2, 12):
+            assert f"Event11Test{i:02d}" in context
+
+    def test_buffer_with_100_entries_only_last_10_visible(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Stress test: 100 entries, only last 10 in context."""
+        state = empty_game_state
+        events = [f"[DM]: Stress100Entry{i:03d}" for i in range(1, 101)]
+        state["agent_memories"]["dm"] = AgentMemory(short_term_buffer=events)
+
+        manager = MemoryManager(state)
+        context = manager.get_context("dm")
+
+        # Entries 001-090 should NOT be in context
+        for i in range(1, 91):
+            assert f"Stress100Entry{i:03d}" not in context
+        # Entries 091-100 should be in context
+        for i in range(91, 101):
+            assert f"Stress100Entry{i:03d}" in context
+
+    def test_pc_buffer_rapid_additions(self, empty_game_state: GameState) -> None:
+        """Test rapid sequential additions to PC buffer."""
+        state = empty_game_state
+        state["agent_memories"]["rogue"] = AgentMemory(short_term_buffer=[])
+
+        manager = MemoryManager(state)
+
+        # Simulate rapid turn-by-turn additions
+        for i in range(1, 16):
+            manager.add_to_buffer("rogue", f"[Shadowmere]: Rapid action {i}")
+
+        context = manager.get_context("rogue")
+
+        # Only last 10 should be in context
+        assert "Rapid action 5" not in context
+        assert "Rapid action 6" in context
+        assert "Rapid action 15" in context
+
+    def test_dm_buffer_with_mixed_agent_attributions(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test DM buffer containing entries from multiple agents (from DM's perspective)."""
+        state = empty_game_state
+        # DM sees game events that include various agent actions
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=[
+                "[DM]: The party enters the dungeon.",
+                "[Shadowmere]: I scout ahead.",
+                "[DM]: Shadowmere spots a trap!",
+                "[Theron]: I draw my sword.",
+                "[DM]: Combat begins!",
+                "[Elara]: I cast shield.",
+                "[DM]: A magical barrier surrounds Elara.",
+            ]
+        )
+
+        manager = MemoryManager(state)
+        context = manager.get_context("dm")
+
+        # All entries should be in context with proper attribution
+        assert "[DM]:" in context
+        assert "[Shadowmere]:" in context
+        assert "[Theron]:" in context
+        assert "[Elara]:" in context
+
+
+class TestStory53UnicodeAndSpecialCharacters:
+    """Comprehensive Unicode and special character tests for callbacks.
+
+    Ensures buffer and context building handle international characters,
+    emoji, markdown, and other special content correctly.
+    """
+
+    def test_buffer_with_unicode_names_preserves_for_callback(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test that Unicode character names are preserved for callbacks."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=[
+                "[DM]: The elf queen Éowyn greets you warmly.",
+                "[DM]: Later, you meet Éowyn again at the palace.",
+            ]
+        )
+
+        manager = MemoryManager(state)
+        context = manager.get_context("dm")
+
+        # Unicode name should appear twice (callback opportunity)
+        assert context.count("Éowyn") == 2
+
+    def test_buffer_with_cjk_content_preserved(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test that CJK (Chinese/Japanese/Korean) content is preserved."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=[
+                "[DM]: The scroll reads: 龍の道",
+                "[DM]: Another scroll bears the same symbols: 龍の道",
+            ]
+        )
+
+        manager = MemoryManager(state)
+        context = manager.get_context("dm")
+
+        # CJK characters should be preserved and appear twice
+        assert context.count("龍の道") == 2
+
+    def test_buffer_with_emoji_preserves_for_callback(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test that emoji content is preserved for callbacks."""
+        state = empty_game_state
+        state["agent_memories"]["rogue"] = AgentMemory(
+            short_term_buffer=[
+                "[Shadowmere]: I mark the wall with my symbol: ⚔️",
+                "[Shadowmere]: I see my mark ⚔️ from earlier!",
+            ]
+        )
+
+        manager = MemoryManager(state)
+        context = manager.get_context("rogue")
+
+        # Emoji should appear twice
+        assert context.count("⚔️") == 2
+
+    def test_buffer_with_mathematical_symbols(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test buffer handles mathematical and arcane symbols."""
+        state = empty_game_state
+        state["agent_memories"]["wizard"] = AgentMemory(
+            short_term_buffer=[
+                "[Elara]: The formula uses the symbol: ∑ × ∞ = ω",
+                "[Elara]: I recognize this formula: ∑ × ∞ = ω",
+            ]
+        )
+
+        manager = MemoryManager(state)
+        context = manager.get_context("wizard")
+
+        # Mathematical symbols should be preserved
+        assert "∑ × ∞ = ω" in context
+
+    def test_buffer_with_mixed_unicode_scripts(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test buffer with multiple Unicode scripts in single entry."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=[
+                "[DM]: The ancient text mixes scripts: αβγ 中文 한글 العربية",
+            ]
+        )
+
+        manager = MemoryManager(state)
+        context = manager.get_context("dm")
+
+        # All scripts should be preserved
+        assert "αβγ" in context
+        assert "中文" in context
+        assert "한글" in context
+        assert "العربية" in context
+
+    def test_buffer_with_markdown_code_blocks(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test buffer preserves markdown code blocks for reference."""
+        state = empty_game_state
+        state["agent_memories"]["wizard"] = AgentMemory(
+            short_term_buffer=[
+                "[Elara]: The spell incantation is: ```arcane\nfireball(target)\n```",
+                "[Elara]: I recall the incantation from before.",
+            ]
+        )
+
+        manager = MemoryManager(state)
+        context = manager.get_context("wizard")
+
+        # Code block should be preserved
+        assert "```arcane" in context
+        assert "fireball(target)" in context
+
+    def test_buffer_with_html_like_content(self, empty_game_state: GameState) -> None:
+        """Test buffer handles HTML-like content without interpretation."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=[
+                "[DM]: The sign reads: <DANGER> Do not enter </DANGER>",
+            ]
+        )
+
+        manager = MemoryManager(state)
+        context = manager.get_context("dm")
+
+        # HTML-like content should be preserved as-is
+        assert "<DANGER>" in context
+        assert "</DANGER>" in context
+
+
+class TestStory53MultiAgentCallbackScenarios:
+    """Tests for callback scenarios involving multiple agents.
+
+    These tests verify that the DM can weave plot threads from
+    multiple agents' perspectives while PCs maintain isolation.
+    """
+
+    def test_dm_sees_callback_opportunities_from_multiple_pcs(
+        self, empty_game_state: GameState
+    ) -> None:
+        """DM can see similar events across different PC buffers for callbacks."""
+        state = empty_game_state
+        state["agent_memories"]["rogue"] = AgentMemory(
+            short_term_buffer=["[Shadowmere]: I find a strange red gem."]
+        )
+        state["agent_memories"]["fighter"] = AgentMemory(
+            short_term_buffer=["[Theron]: I notice a red gem in the merchant's wares."]
+        )
+        state["agent_memories"]["wizard"] = AgentMemory(
+            short_term_buffer=["[Elara]: My scrying shows a red gem of power."]
+        )
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=["[DM]: The adventure begins."]
+        )
+
+        manager = MemoryManager(state)
+        dm_context = manager.get_context("dm")
+
+        # DM should see all three "red gem" references in Player Knowledge
+        assert "red gem" in dm_context
+
+    def test_pcs_cannot_make_cross_character_callbacks(
+        self, empty_game_state: GameState
+    ) -> None:
+        """PCs cannot reference events only in other PC's buffers."""
+        state = empty_game_state
+        state["agent_memories"]["rogue"] = AgentMemory(
+            short_term_buffer=["[Shadowmere]: I discover the secret password: DRAGON."]
+        )
+        state["agent_memories"]["fighter"] = AgentMemory(
+            short_term_buffer=["[Theron]: I search for clues."]
+        )
+
+        manager = MemoryManager(state)
+
+        # Fighter should NOT know the password
+        fighter_context = manager.get_context("fighter")
+        assert "DRAGON" not in fighter_context
+        assert "password" not in fighter_context
+
+        # Rogue should know their own discovery
+        rogue_context = manager.get_context("rogue")
+        assert "DRAGON" in rogue_context
+
+    def test_dm_can_weave_plot_from_isolated_discoveries(
+        self, empty_game_state: GameState
+    ) -> None:
+        """DM has information to create dramatic irony from isolated PC knowledge."""
+        state = empty_game_state
+        state["agent_memories"]["rogue"] = AgentMemory(
+            short_term_buffer=[
+                "[Shadowmere]: I overhear the villain plans to attack at dawn."
+            ]
+        )
+        state["agent_memories"]["fighter"] = AgentMemory(
+            short_term_buffer=[
+                "[Theron]: The commander tells me we're safe until noon."
+            ]
+        )
+        state["agent_memories"]["dm"] = AgentMemory(short_term_buffer=[])
+
+        manager = MemoryManager(state)
+        dm_context = manager.get_context("dm")
+
+        # DM sees both pieces of information for dramatic irony
+        assert "dawn" in dm_context
+        assert "noon" in dm_context
+
+    def test_pc_buffer_entries_limited_to_3_in_dm_player_knowledge(
+        self, empty_game_state: GameState
+    ) -> None:
+        """DM's Player Knowledge section shows only last 3 entries per PC."""
+        state = empty_game_state
+        state["agent_memories"]["rogue"] = AgentMemory(
+            short_term_buffer=[
+                "[Shadowmere]: PC action Old1",
+                "[Shadowmere]: PC action Old2",
+                "[Shadowmere]: PC action Recent1",
+                "[Shadowmere]: PC action Recent2",
+                "[Shadowmere]: PC action Recent3",
+            ]
+        )
+
+        manager = MemoryManager(state)
+        dm_context = manager.get_context("dm")
+
+        # Older entries should not appear
+        assert "Old1" not in dm_context
+        assert "Old2" not in dm_context
+        # Recent entries should appear
+        assert "Recent1" in dm_context
+        assert "Recent2" in dm_context
+        assert "Recent3" in dm_context
+
+
+class TestStory53PCPromptEnhancementVerification:
+    """Tests verifying the PC system prompt enhancement for Story 5.3.
+
+    Story 5.3 added one line to PC_SYSTEM_PROMPT_TEMPLATE:
+    "- **Reference the past** - When something reminds you of earlier events, mention it naturally"
+    """
+
+    def test_pc_prompt_template_contains_reference_past_guidance(self) -> None:
+        """Verify PC system prompt template includes callback guidance."""
+        from agents import PC_SYSTEM_PROMPT_TEMPLATE
+
+        assert "Reference the past" in PC_SYSTEM_PROMPT_TEMPLATE
+        assert "earlier events" in PC_SYSTEM_PROMPT_TEMPLATE
+
+    def test_pc_prompt_template_callback_guidance_in_roleplay_section(self) -> None:
+        """Verify callback guidance is in the Roleplay Guidelines section."""
+        from agents import PC_SYSTEM_PROMPT_TEMPLATE
+
+        # Find the Roleplay Guidelines section
+        assert "## Roleplay Guidelines" in PC_SYSTEM_PROMPT_TEMPLATE
+
+        # The reference past bullet should be after Roleplay Guidelines
+        roleplay_idx = PC_SYSTEM_PROMPT_TEMPLATE.index("## Roleplay Guidelines")
+        reference_idx = PC_SYSTEM_PROMPT_TEMPLATE.index("Reference the past")
+        assert reference_idx > roleplay_idx
+
+    def test_build_pc_system_prompt_includes_callback_guidance(self) -> None:
+        """Verify built PC prompts include callback guidance."""
+        from agents import build_pc_system_prompt
+        from models import CharacterConfig
+
+        config = CharacterConfig(
+            name="TestChar",
+            character_class="Fighter",
+            personality="Brave and bold",
+            color="#FF5733",  # Required field
+            provider="gemini",
+            model="gemini-1.5-flash",
+        )
+
+        prompt = build_pc_system_prompt(config)
+
+        assert "Reference the past" in prompt
+        assert "earlier events" in prompt
+
+
+class TestStory53BufferChronologyEdgeCases:
+    """Edge cases for buffer chronology and insertion order."""
+
+    def test_buffer_maintains_fifo_order(self, empty_game_state: GameState) -> None:
+        """Test that buffer entries maintain FIFO (first-in-first-out) order."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(short_term_buffer=[])
+
+        manager = MemoryManager(state)
+
+        # Add entries in sequence
+        for i in range(1, 6):
+            manager.add_to_buffer("dm", f"[DM]: FIFO Entry {i}")
+
+        entries = manager.get_buffer_entries("dm")
+
+        # Verify FIFO order (oldest first)
+        assert entries[0] == "[DM]: FIFO Entry 1"
+        assert entries[4] == "[DM]: FIFO Entry 5"
+
+    def test_context_shows_events_oldest_to_newest(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Verify context orders events from oldest to newest (top to bottom)."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=[
+                "[DM]: OldestEvent happens first.",
+                "[DM]: MiddleEvent happens second.",
+                "[DM]: NewestEvent happens third.",
+            ]
+        )
+
+        manager = MemoryManager(state)
+        context = manager.get_context("dm")
+
+        # Find positions in context
+        oldest_pos = context.find("OldestEvent")
+        middle_pos = context.find("MiddleEvent")
+        newest_pos = context.find("NewestEvent")
+
+        # Verify chronological order (oldest appears first in text)
+        assert oldest_pos < middle_pos < newest_pos
+
+    def test_buffer_order_after_compression_preserved(
+        self, empty_game_state: GameState, mocker
+    ) -> None:
+        """Test that retained entries after compression maintain order."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=[
+                "[DM]: Old 1",
+                "[DM]: Old 2",
+                "[DM]: Old 3",
+                "[DM]: Keep 1",
+                "[DM]: Keep 2",
+                "[DM]: Keep 3",
+            ]
+        )
+
+        # Mock the summarizer to return a simple summary
+        mock_summarizer = mocker.MagicMock()
+        mock_summarizer.generate_summary.return_value = "Summary of old events."
+        mocker.patch.object(
+            memory_module,
+            "_summarizer_cache",
+            {("gemini", "gemini-1.5-flash"): mock_summarizer},
+        )
+
+        manager = MemoryManager(state)
+        manager.compress_buffer("dm", retain_count=3)
+
+        # Check retained entries maintain order
+        entries = manager.get_buffer_entries("dm")
+        assert len(entries) == 3
+        assert entries[0] == "[DM]: Keep 1"
+        assert entries[1] == "[DM]: Keep 2"
+        assert entries[2] == "[DM]: Keep 3"
+
+
+class TestStory53ContextFormattingForCallbacks:
+    """Tests ensuring context formatting supports LLM callback recognition."""
+
+    def test_context_recent_events_section_format(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Verify Recent Events section has consistent formatting."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=[
+                "[DM]: Event one.",
+                "[DM]: Event two.",
+            ]
+        )
+
+        manager = MemoryManager(state)
+        context = manager.get_context("dm")
+
+        # Should have markdown header
+        assert "## Recent Events" in context
+        # Events should be on separate lines
+        assert "\n" in context
+
+    def test_pc_context_has_what_you_remember_section(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Verify PC context uses 'What You Remember' header."""
+        state = empty_game_state
+        state["agent_memories"]["rogue"] = AgentMemory(
+            long_term_summary="Previously, the rogue found a treasure map.",
+            short_term_buffer=["[Shadowmere]: I continue the search."],
+        )
+
+        manager = MemoryManager(state)
+        context = manager.get_context("rogue")
+
+        # PC uses "What You Remember" not "Story So Far"
+        assert "## What You Remember" in context
+        assert "## Story So Far" not in context
+
+    def test_dm_context_has_story_so_far_section(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Verify DM context uses 'Story So Far' header."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            long_term_summary="The party began their quest in the village.",
+            short_term_buffer=["[DM]: The adventure continues."],
+        )
+
+        manager = MemoryManager(state)
+        context = manager.get_context("dm")
+
+        # DM uses "Story So Far"
+        assert "## Story So Far" in context
+
+    def test_player_knowledge_section_format(self, empty_game_state: GameState) -> None:
+        """Verify Player Knowledge section has proper formatting for callbacks."""
+        state = empty_game_state
+        state["agent_memories"]["rogue"] = AgentMemory(
+            short_term_buffer=["[Shadowmere]: Secret info here."]
+        )
+        state["agent_memories"]["fighter"] = AgentMemory(
+            short_term_buffer=["[Theron]: Another secret."]
+        )
+
+        manager = MemoryManager(state)
+        dm_context = manager.get_context("dm")
+
+        # Should have Player Knowledge header
+        assert "## Player Knowledge" in dm_context
+        # Should have agent attribution format
+        assert "[rogue knows]:" in dm_context
+        assert "[fighter knows]:" in dm_context
+
+
+class TestStory53BufferOverflowBehavior:
+    """Tests for buffer behavior when approaching or exceeding limits."""
+
+    def test_buffer_100kb_content_accepted(self, empty_game_state: GameState) -> None:
+        """Verify buffer accepts content up to 100KB."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(short_term_buffer=[])
+
+        manager = MemoryManager(state)
+
+        # Create exactly 100KB content
+        content = "[DM]: " + "x" * (100_000 - len("[DM]: "))
+        manager.add_to_buffer("dm", content)
+
+        entries = manager.get_buffer_entries("dm")
+        assert len(entries) == 1
+        assert len(entries[0]) == 100_000
+
+    def test_buffer_rejects_over_100kb_content(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Verify buffer rejects content over 100KB."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(short_term_buffer=[])
+
+        manager = MemoryManager(state)
+
+        # Create content over 100KB
+        content = "[DM]: " + "x" * 100_001
+
+        with pytest.raises(ValueError) as exc_info:
+            manager.add_to_buffer("dm", content)
+
+        assert "exceeds maximum size" in str(exc_info.value)
+
+    def test_multiple_large_entries_in_buffer(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test buffer with multiple large (but valid) entries."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(short_term_buffer=[])
+
+        manager = MemoryManager(state)
+
+        # Add 5 entries of 50KB each
+        for i in range(5):
+            content = f"[DM]: Entry{i} " + "y" * 50_000
+            manager.add_to_buffer("dm", content)
+
+        entries = manager.get_buffer_entries("dm")
+        assert len(entries) == 5
+
+        # Context should still be buildable
+        context = manager.get_context("dm")
+        assert "Recent Events" in context
+
+
+class TestStory53RealWorldCallbackScenarios:
+    """Real-world callback scenarios from actual D&D gameplay patterns."""
+
+    def test_foreshadowing_payoff_scenario(self, empty_game_state: GameState) -> None:
+        """Test scenario: DM foreshadows event, later resolves it."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=[
+                "[DM]: A raven watches you from the rooftop, its eyes glinting red.",
+                "[DM]: You travel for several hours through the forest.",
+                "[DM]: At the crossroads, you see the raven again, perched on a signpost.",
+                "[DM]: The raven caws and flies toward the eastern path.",
+            ]
+        )
+
+        manager = MemoryManager(state)
+        context = manager.get_context("dm")
+
+        # Both raven mentions should be in context
+        assert context.count("raven") >= 2
+
+    def test_npc_recurring_encounter_scenario(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test scenario: Party meets same NPC multiple times."""
+        state = empty_game_state
+        state["agent_memories"]["fighter"] = AgentMemory(
+            short_term_buffer=[
+                "[DM]: The blacksmith Grimgor offers to repair your sword.",
+                "[Theron]: I accept his offer gratefully.",
+                "[DM]: Days later in another town, you see Grimgor at the market!",
+                "[DM]: He waves and calls out 'Well met again, warrior!'",
+            ]
+        )
+
+        manager = MemoryManager(state)
+        context = manager.get_context("fighter")
+
+        # Grimgor should appear multiple times for recognition
+        assert context.count("Grimgor") >= 2
+
+    def test_item_quest_progression_scenario(self, empty_game_state: GameState) -> None:
+        """Test scenario: Collecting quest items over multiple turns."""
+        state = empty_game_state
+        state["agent_memories"]["wizard"] = AgentMemory(
+            short_term_buffer=[
+                "[DM]: The sage tells you to find the three Gems of Power.",
+                "[Elara]: I note this quest in my journal.",
+                "[DM]: In the dragon's lair, you find the Ruby of Flame.",
+                "[DM]: The haunted crypt yields the Sapphire of Ice.",
+                "[DM]: Finally, you claim the Emerald of Earth from the golem.",
+            ]
+        )
+
+        manager = MemoryManager(state)
+        context = manager.get_context("wizard")
+
+        # Quest context should be clear
+        assert "three Gems of Power" in context
+        assert "Ruby of Flame" in context
+        assert "Sapphire of Ice" in context
+        assert "Emerald of Earth" in context
+
+    def test_betrayal_revelation_scenario(self, empty_game_state: GameState) -> None:
+        """Test scenario: NPC betrayal with earlier friendly interactions."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=[
+                "[DM]: Your guide, Marcus, shares his waterskin with you.",
+                "[DM]: Marcus helps you navigate the treacherous path.",
+                "[DM]: At camp, Marcus stands watch while you sleep.",
+                "[DM]: You wake to find Marcus holding a dagger to your throat!",
+                "[DM]: 'The bounty on your heads is too tempting,' he sneers.",
+            ]
+        )
+
+        manager = MemoryManager(state)
+        context = manager.get_context("dm")
+
+        # All Marcus interactions should be visible for dramatic impact
+        assert context.count("Marcus") >= 4
