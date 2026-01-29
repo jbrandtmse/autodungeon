@@ -2163,3 +2163,53 @@ hr {
   background: var(--bg-secondary);
   color: var(--text-primary);
 }
+
+/* ==========================================================================
+   Mid-Campaign Provider Switching (Story 6.5)
+   ========================================================================== */
+
+/* Pending change badge - shows when agent has uncommitted override */
+.pending-change-badge {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--accent-warm);
+  background: rgba(232, 168, 73, 0.15);
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: var(--space-sm);
+}
+
+/* Provider unavailable warning - shows when current provider is down */
+.provider-unavailable-warning {
+  display: block;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--color-fighter);
+  background: rgba(196, 92, 74, 0.15);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: 4px;
+  margin-top: var(--space-xs);
+  border-left: 2px solid var(--color-fighter);
+}
+
+/* Provider status indicator - available (green checkmark) */
+.provider-status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: var(--space-sm);
+}
+
+.provider-status-indicator.available {
+  color: var(--color-rogue);
+  background: rgba(107, 142, 107, 0.15);
+}
+
+.provider-status-indicator.unavailable {
+  color: var(--color-fighter);
+  background: rgba(196, 92, 74, 0.15);
+}

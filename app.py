@@ -1744,6 +1744,28 @@ def render_status_badge(status: str) -> str:
     return f'<span class="agent-status-badge {css_class}">{escape_html(status)}</span>'
 
 
+def render_pending_change_badge() -> str:
+    """Generate HTML for pending change badge.
+
+    Story 6.5: Task 7 - Visual indicator for pending changes.
+
+    Returns:
+        HTML string for the pending change badge.
+    """
+    return '<span class="pending-change-badge">(pending)</span>'
+
+
+def render_provider_unavailable_warning() -> str:
+    """Generate HTML for provider unavailable warning.
+
+    Story 6.5: AC #4 - Show warning when provider unavailable.
+
+    Returns:
+        HTML string for the provider unavailable warning.
+    """
+    return '<span class="provider-unavailable-warning">Provider unavailable</span>'
+
+
 def render_agent_model_row(
     agent_key: str,
     agent_name: str,
@@ -1752,6 +1774,10 @@ def render_agent_model_row(
     is_summarizer: bool = False,
 ) -> None:
     """Render a single agent row in the Models tab.
+
+    Story 6.5 enhancements:
+    - Shows pending change badge when agent has uncommitted override
+    - Shows provider unavailable warning when current provider is down
 
     Args:
         agent_key: Agent key for state management.
@@ -1778,17 +1804,28 @@ def render_agent_model_row(
     # Get status (not applicable for summarizer)
     status = "" if is_summarizer else get_agent_status(agent_key)
 
+    # Story 6.5: Check for pending changes and provider availability
+    pending = has_pending_change(agent_key)
+    provider_unavailable = is_agent_provider_unavailable(agent_key)
+
     # Start row container
     st.markdown(
         f'<div class="agent-model-row {safe_css_class}">',
         unsafe_allow_html=True,
     )
 
-    # Agent name with status badge
+    # Agent name with status badge, pending indicator, and availability warning
     name_html = f'<span class="agent-model-name {safe_css_class}">{escape_html(agent_name)}</span>'
     if status:
         name_html += render_status_badge(status)
+    # Story 6.5: Add pending change badge
+    if pending:
+        name_html += render_pending_change_badge()
     st.markdown(name_html, unsafe_allow_html=True)
+
+    # Story 6.5: Show provider unavailable warning
+    if provider_unavailable:
+        st.markdown(render_provider_unavailable_warning(), unsafe_allow_html=True)
 
     # Provider and model dropdowns
     col1, col2 = st.columns([1, 2])
@@ -1917,6 +1954,170 @@ def apply_model_config_changes() -> None:
 
     st.session_state["game"] = game
     st.session_state["model_config_changed"] = True
+
+
+# =============================================================================
+# Mid-Campaign Provider Switching (Story 6.5)
+# =============================================================================
+
+
+def generate_model_change_messages() -> list[str]:
+    """Generate specific change messages for each agent that changed.
+
+    Story 6.5: AC #5 - Confirmation messages for provider switch.
+
+    Returns:
+        List of messages like "Dungeon Master will use Claude/claude-3-haiku starting next turn"
+    """
+    messages: list[str] = []
+    overrides = st.session_state.get("agent_model_overrides", {})
+    game: GameState | None = st.session_state.get("game")
+
+    if not game or not overrides:
+        return messages
+
+    for agent_key, override in overrides.items():
+        # Defensive: skip malformed overrides missing required keys
+        if not isinstance(override, dict):
+            continue
+        provider_val = override.get("provider")
+        model_val = override.get("model")
+        if not provider_val or not model_val:
+            continue
+        # Type narrowing: we know these are truthy strings at this point
+        provider: str = str(provider_val)
+        model: str = str(model_val)
+
+        # Get agent display name
+        if agent_key == "dm":
+            display_name = "Dungeon Master"
+        elif agent_key == "summarizer":
+            display_name = "Summarizer"
+        else:
+            char_config = game.get("characters", {}).get(agent_key)
+            display_name = char_config.name if char_config else agent_key.title()
+
+        provider_display = PROVIDER_DISPLAY.get(provider, provider)
+
+        messages.append(
+            f"{display_name} will use {provider_display}/{model} starting next turn"
+        )
+
+    return messages
+
+
+def get_provider_availability_status() -> dict[str, bool]:
+    """Get availability status for each provider.
+
+    Story 6.5: AC #4 - Handle provider unavailability gracefully.
+
+    Returns:
+        Dict mapping provider key to availability (True = available).
+    """
+    status: dict[str, bool] = {}
+
+    # Check Google/Gemini - has API key?
+    config = get_config()
+    status["gemini"] = bool(config.google_api_key)
+
+    # Check Anthropic/Claude - has API key?
+    status["claude"] = bool(config.anthropic_api_key)
+
+    # Check Ollama - attempt connection with short timeout
+    try:
+        import requests
+
+        resp = requests.get(f"{config.ollama_base_url}/api/tags", timeout=2)
+        status["ollama"] = resp.status_code == 200
+    except Exception:
+        status["ollama"] = False
+
+    return status
+
+
+def has_pending_change(agent_key: str) -> bool:
+    """Check if agent has uncommitted model override.
+
+    Story 6.5: Task 7 - Pending change visual indicator.
+
+    Args:
+        agent_key: Agent key to check.
+
+    Returns:
+        True if agent has pending override, False otherwise.
+    """
+    overrides = st.session_state.get("agent_model_overrides", {})
+    return agent_key in overrides
+
+
+def is_provider_available(provider: str) -> bool:
+    """Check if a specific provider is available.
+
+    Story 6.5: AC #4 - Handle provider unavailability.
+
+    Args:
+        provider: Provider key ("gemini", "claude", "ollama").
+
+    Returns:
+        True if provider is available, False otherwise.
+    """
+    # Use cached status if available and recent
+    cached_status = st.session_state.get("provider_availability", {})
+    if provider in cached_status:
+        return cached_status[provider]
+
+    # Otherwise check and cache
+    status = get_provider_availability_status()
+    st.session_state["provider_availability"] = status
+    return status.get(provider, False)
+
+
+def get_agent_current_provider(agent_key: str) -> str:
+    """Get the current provider for an agent from game state.
+
+    Args:
+        agent_key: Agent key to look up.
+
+    Returns:
+        Provider key or "gemini" as default.
+    """
+    game: GameState | None = st.session_state.get("game")
+    if not game:
+        return "gemini"
+
+    if agent_key == "dm":
+        dm_config = game.get("dm_config")
+        return dm_config.provider if dm_config else "gemini"
+
+    if agent_key == "summarizer":
+        game_config = game.get("game_config")
+        return game_config.summarizer_provider if game_config else "gemini"
+
+    # Character
+    characters = game.get("characters", {})
+    char_config = characters.get(agent_key)
+    return char_config.provider if char_config else "gemini"
+
+
+def is_agent_provider_unavailable(agent_key: str) -> bool:
+    """Check if agent's current provider is unavailable.
+
+    Story 6.5: AC #4 - Show warning when current provider unavailable.
+
+    Args:
+        agent_key: Agent key to check.
+
+    Returns:
+        True if agent's provider is unavailable, False if available.
+    """
+    # Check if there's an override - use override provider
+    overrides = st.session_state.get("agent_model_overrides", {})
+    if agent_key in overrides:
+        provider = overrides[agent_key].get("provider", "gemini")
+    else:
+        provider = get_agent_current_provider(agent_key)
+
+    return not is_provider_available(provider)
 
 
 # =============================================================================
@@ -2402,28 +2603,39 @@ def handle_config_save_click() -> None:
     Commits any pending config changes and closes the modal.
     Shows confirmation toast if model configs changed (Story 6.3 AC #7).
     Shows confirmation toast if token limits changed (Story 6.4 AC #5).
+    Story 6.5: Shows specific change messages per agent (AC #5).
     """
-    # Track if we need to show toast
-    show_toast = False
+    # Story 6.5: Generate specific change messages BEFORE applying
+    # (since applying clears the overrides for next time)
+    model_overrides = st.session_state.get("agent_model_overrides", {})
+    model_change_messages = generate_model_change_messages() if model_overrides else []
 
     # Apply model config changes (Story 6.3)
-    model_overrides = st.session_state.get("agent_model_overrides", {})
     if model_overrides:
         apply_model_config_changes()
-        show_toast = True
 
     # Apply token limit changes (Story 6.4)
     token_limit_overrides = st.session_state.get("token_limit_overrides", {})
     if token_limit_overrides:
         apply_token_limit_changes()
-        show_toast = True
 
     # Apply API key overrides (Story 6.2)
     apply_api_key_overrides()
 
-    # Show toast if any config changes were applied
-    if show_toast:
-        st.toast("Changes will apply on next turn", icon="\u2705")
+    # Story 6.5: Show specific change messages (AC #5)
+    # Format: "[Character] will use [Provider/Model] starting next turn"
+    if model_change_messages:
+        # Show each change message as a separate toast for visibility
+        for msg in model_change_messages:
+            st.toast(msg, icon="\u2705")
+        # Store messages for potential future use
+        st.session_state["last_model_change_messages"] = model_change_messages
+    elif token_limit_overrides:
+        # Fallback: show generic message for token limit changes only
+        st.toast("Token limits updated - changes will apply on next turn", icon="\u2705")
+
+    # Clear provider availability cache after save (fresh check on next modal open)
+    st.session_state["provider_availability"] = {}
 
     handle_config_modal_close(save_changes=True)
     st.rerun()

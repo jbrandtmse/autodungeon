@@ -601,8 +601,8 @@
 | 6-1-configuration-modal-structure | ✅ done | Full Cycle |
 | 6-2-api-key-management-ui | ✅ done | Full Cycle |
 | 6-3-per-agent-model-selection | ✅ done | Full Cycle |
-| 6-4-context-limit-configuration | 🔄 in-progress | Create Story |
-| 6-5-mid-campaign-provider-switching | ⏳ backlog | - |
+| 6-4-context-limit-configuration | ✅ done | Full Cycle |
+| 6-5-mid-campaign-provider-switching | 🔄 in-progress | Create Story |
 
 ---
 
@@ -693,6 +693,38 @@
 - **MEDIUM**: HTML injection risk in render_agent_model_row() → Added CSS class sanitization
 - **MEDIUM**: Missing edge case tests → Added TestEdgeCases (7 tests)
 - **MEDIUM**: Missing docstrings for PROVIDER constants → Added documentation
+
+### User Input Required
+- None - all issues auto-resolved
+
+---
+
+## Story: 6-4-context-limit-configuration
+
+**Status:** ✅ Completed
+**Duration:** 2026-01-28
+
+### Files Touched
+- `app.py` - Settings tab, token limit UI, validation, handlers
+- `config.py` - MODEL_MAX_CONTEXT dict, get_model_max_context()
+- `styles/theme.css` - Token limit field CSS (rows, hints, warnings)
+- `tests/test_story_6_4_context_limits.py` - 74 tests (41 initial + 33 testarch)
+
+### Key Design Decisions
+- Settings tab populated with per-agent token limit fields
+- Model maximum context hints (e.g., "Max: 1M for gemini-1.5-flash")
+- Warning for low limits (below 1000) with visual indicator
+- Clamping to model maximum with info message
+- Non-retroactive: existing memories not compressed on limit change
+- Per-agent limits stored in session state token_limit_overrides
+
+### Issues Auto-Resolved
+- **HIGH**: Warning text missing indicator → Added Unicode emoji with escape_html()
+- **HIGH**: Test file coverage gaps → Added TestEdgeCases (5 tests)
+- **HIGH**: Dev Agent Record missing → Added comprehensive section
+- **MEDIUM**: Missing model change after token limit test → Added
+- **MEDIUM**: Missing summarizer token limit tests → Added
+- **MEDIUM**: Inconsistent HTML escaping → Fixed
 
 ### User Input Required
 - None - all issues auto-resolved
