@@ -350,7 +350,7 @@
 | 5-2-session-summary-generation | ✅ done | Full Cycle |
 | 5-3-in-session-memory-references | ✅ done | Full Cycle |
 | 5-4-cross-session-memory-character-facts | ✅ done | Full Cycle |
-| 5-5-memory-compression-system | ⏳ backlog | Queued |
+| 5-5-memory-compression-system | ✅ done | Full Cycle |
 
 ---
 
@@ -481,6 +481,104 @@
 
 ### User Input Required
 - None - all issues auto-resolved
+
+---
+
+## Story: 5-5-memory-compression-system
+
+**Status:** ✅ Completed
+**Duration:** 2026-01-28
+
+### Files Touched
+- `memory.py` - get_total_context_tokens(), is_total_context_over_limit(), compress_long_term_summary()
+- `graph.py` - context_manager with MAX_COMPRESSION_PASSES, multi-pass compression
+- `tests/test_story_5_5_memory_compression.py` - 75 tests (36 dev + 39 testarch)
+- `_bmad-output/implementation-artifacts/5-5-memory-compression-system.md` - Story file
+
+### Key Design Decisions
+- get_total_context_tokens() calculates full context (summary + buffer + facts)
+- is_total_context_over_limit() validates post-compression fit
+- compress_long_term_summary() for extreme cases needing multi-pass
+- MAX_COMPRESSION_PASSES = 2 prevents infinite loops
+- Warning log when agent still exceeds limit after max passes
+- Per-agent compression isolation maintained
+
+### Issues Auto-Resolved
+- **HIGH**: MAX_COMPRESSION_PASSES inside function → Moved to module level
+- **HIGH**: Silent failure in compress_long_term_summary() → Added warning log
+- **HIGH**: Missing summarizer failure test → Added test with log verification
+- **MEDIUM**: Redundant imports in test file → Consolidated
+- **MEDIUM**: Duplicate cache clearing → Created autouse fixture
+- **MEDIUM**: Thread safety risk → Added documentation comment
+
+### User Input Required
+- None - all issues auto-resolved
+
+---
+
+# Epic 5 - Cycle Complete
+
+**Completion Time:** 2026-01-28
+**Total Stories Processed:** 5
+**Epic Status:** ✅ DONE
+
+## Overall Statistics
+- Total files touched: 18 unique files
+- Total design decisions: 30
+- Total issues auto-resolved: 27
+- Total user interventions: 0
+
+## Stories Completed This Cycle
+| Story | Tests Added | Issues Fixed |
+|-------|-------------|--------------|
+| 5-1-short-term-context-buffer | 126 | 4 |
+| 5-2-session-summary-generation | 294 | 6 |
+| 5-3-in-session-memory-references | 60 | 4 |
+| 5-4-cross-session-memory-character-facts | 49 | 6 |
+| 5-5-memory-compression-system | 75 | 6 |
+
+**Total Tests Added:** 604
+**Total Test Count:** 1982
+
+## Key Features Delivered
+
+1. **Short-Term Context Buffer (5.1)**
+   - MemoryManager class with get_context()
+   - PC isolation, DM asymmetric access
+   - Token estimation with CJK support
+
+2. **Session Summary Generation (5.2)**
+   - Summarizer with Janitor prompt
+   - context_manager node runs before DM turn
+   - Automatic compression at 80% threshold
+
+3. **In-Session Memory References (5.3)**
+   - Verified existing callback mechanics
+   - Enhanced PC prompt with "Reference the past"
+   - LLMs naturally make callbacks with context
+
+4. **Cross-Session Memory (5.4)**
+   - CharacterFacts model for persistent identity
+   - Memory carries over between sessions
+   - Enhanced "While you were away" recap
+
+5. **Memory Compression System (5.5)**
+   - Post-compression validation
+   - Multi-pass compression for edge cases
+   - Total context fits within token_limit
+
+## FR Coverage Complete
+- FR11: Short-term context window per agent ✅
+- FR12: Generate session summaries ✅
+- FR13: Reference previous turns in session ✅
+- FR14: Reference previous sessions via summaries ✅
+- FR15: Character facts persist across sessions ✅
+- FR16: Compress memory at context limits ✅
+
+## Recommendations
+- Run epic retrospective: `/bmad-bmm-retrospective`
+- Check sprint status: `/bmad-bmm-sprint-status`
+- Continue with Epic 6: LLM Configuration UI
 
 ---
 
