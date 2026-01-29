@@ -70,6 +70,9 @@ __all__ = [
 RETAIN_AFTER_COMPRESSION = 3
 
 # Module-level cache for Summarizer instance to avoid re-creating LLM clients
+# NOTE: This cache is not thread-safe. Streamlit runs single-threaded by design,
+# so this is acceptable for MVP. If async/multi-threaded compression is needed,
+# consider using threading.Lock or functools.lru_cache.
 _summarizer_cache: dict[tuple[str, str], "Summarizer"] = {}
 
 # Janitor System Prompt for memory compression (Story 5.2, AC #2, #3)
@@ -450,6 +453,111 @@ class MemoryManager:
         """
         memory = self._state["agent_memories"].get(agent_name)
         return memory.character_facts if memory else None
+
+    def get_total_context_tokens(self, agent_name: str) -> int:
+        """Calculate total tokens for agent's full context.
+
+        Story 5.5: Memory Compression System (FR16, AC #5).
+
+        Includes:
+        - long_term_summary tokens
+        - short_term_buffer tokens (all entries)
+        - character_facts tokens (if present)
+
+        Args:
+            agent_name: The agent to calculate for.
+
+        Returns:
+            Estimated total token count for the agent's context.
+        """
+        memory = self._state["agent_memories"].get(agent_name)
+        if not memory:
+            return 0
+
+        total = 0
+
+        # Long-term summary
+        if memory.long_term_summary:
+            total += estimate_tokens(memory.long_term_summary)
+
+        # Short-term buffer
+        if memory.short_term_buffer:
+            buffer_text = "\n".join(memory.short_term_buffer)
+            total += estimate_tokens(buffer_text)
+
+        # Character facts (Story 5.4)
+        if memory.character_facts:
+            facts_text = format_character_facts(memory.character_facts)
+            total += estimate_tokens(facts_text)
+
+        return total
+
+    def is_total_context_over_limit(self, agent_name: str) -> bool:
+        """Check if agent's total context exceeds their token limit.
+
+        Story 5.5: Memory Compression System (FR16, AC #5).
+
+        This method is used for post-compression validation to ensure
+        the agent's total context fits within their token_limit.
+
+        Args:
+            agent_name: The agent to check.
+
+        Returns:
+            True if total context > token_limit.
+        """
+        memory = self._state["agent_memories"].get(agent_name)
+        if not memory:
+            return False
+
+        total_tokens = self.get_total_context_tokens(agent_name)
+        return total_tokens > memory.token_limit
+
+    def compress_long_term_summary(self, agent_name: str) -> str:
+        """Re-compress the long_term_summary if it's grown too large.
+
+        Story 5.5: Memory Compression System (FR16, AC #5).
+
+        Uses Summarizer to create a more condensed version of the
+        existing summary. This is a second-pass compression for
+        extreme cases where buffer compression alone is insufficient.
+
+        Args:
+            agent_name: The agent whose summary to compress.
+
+        Returns:
+            New compressed summary, or empty string on failure.
+        """
+        memory = self._state["agent_memories"].get(agent_name)
+        if not memory or not memory.long_term_summary:
+            return ""
+
+        # Get summarizer configuration from config (cached for efficiency)
+        config = get_config()
+        cache_key = (config.agents.summarizer.provider, config.agents.summarizer.model)
+        if cache_key not in _summarizer_cache:
+            _summarizer_cache[cache_key] = Summarizer(
+                provider=config.agents.summarizer.provider,
+                model=config.agents.summarizer.model,
+            )
+        summarizer = _summarizer_cache[cache_key]
+
+        # Use Summarizer to compress the summary itself
+        compressed = summarizer.generate_summary(
+            agent_name,
+            [memory.long_term_summary],
+        )
+
+        if compressed:
+            memory.long_term_summary = compressed
+        else:
+            # Log warning when summarization fails (graceful degradation)
+            logger.warning(
+                "Long-term summary compression failed for agent %s, summary unchanged",
+                agent_name,
+            )
+
+        return compressed
 
     def get_cross_session_summary(self, agent_name: str) -> str:
         """Get an agent's cross-session summary (alias for long_term_summary).

@@ -82,12 +82,12 @@ development_status:
   epic-4-retrospective: optional
 
   # Epic 5: Memory & Narrative Continuity (5 stories)
-  epic-5: in-progress
+  epic-5: done
   5-1-short-term-context-buffer: done
   5-2-session-summary-generation: done
   5-3-in-session-memory-references: done
-  5-4-cross-session-memory-character-facts: review
-  5-5-memory-compression-system: backlog
+  5-4-cross-session-memory-character-facts: done
+  5-5-memory-compression-system: done
   epic-5-retrospective: optional
 
   # Epic 6: LLM Configuration UI (5 stories)

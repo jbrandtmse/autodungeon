@@ -349,7 +349,7 @@
 | 5-1-short-term-context-buffer | ✅ done | Full Cycle |
 | 5-2-session-summary-generation | ✅ done | Full Cycle |
 | 5-3-in-session-memory-references | ✅ done | Full Cycle |
-| 5-4-cross-session-memory-character-facts | ⏳ backlog | Queued |
+| 5-4-cross-session-memory-character-facts | ✅ done | Full Cycle |
 | 5-5-memory-compression-system | ⏳ backlog | Queued |
 
 ---
@@ -443,6 +443,41 @@
 - **MEDIUM**: Weak test assertion → Fixed crystal key count test
 - **MEDIUM**: Missing cross-character mention test → Added isolation test
 - **MEDIUM**: Documentation missing constant references → Added to memory.py
+
+### User Input Required
+- None - all issues auto-resolved
+
+---
+
+## Story: 5-4-cross-session-memory-character-facts
+
+**Status:** ✅ Completed
+**Duration:** 2026-01-28
+
+### Files Touched
+- `models.py` - CharacterFacts model, factory functions, AgentMemory update
+- `persistence.py` - initialize_session_with_previous_memories(), enhanced recap
+- `agents.py` - format_character_facts(), context building, summarization_in_progress fixes
+- `memory.py` - MemoryManager fact methods (get_character_facts, update_character_facts)
+- `app.py` - Session continuation with cross-session recap
+- `tests/test_story_5_4_acceptance.py` - 16 acceptance tests
+- `tests/test_story_5_4_expanded.py` - 33 expanded tests
+
+### Key Design Decisions
+- CharacterFacts model with size limits (10 traits, 20 relationships, 20 events)
+- Cross-session memory loads long_term_summary and character_facts from previous session
+- Empty short_term_buffer on new session (fresh start for current session)
+- CharacterFacts included in both DM and PC context building
+- Enhanced recap with include_cross_session=True for "While you were away"
+- Factory function creates CharacterFacts from character configs
+
+### Issues Auto-Resolved
+- **HIGH**: Missing summarization_in_progress in dm_turn() → Added field
+- **HIGH**: Missing summarization_in_progress in pc_turn() → Added field
+- **HIGH**: Missing summarization_in_progress in deserialize_game_state() → Added field
+- **MEDIUM**: CharacterFacts unbounded growth risk → Added ClassVar size limits
+- **MEDIUM**: Missing summarization_in_progress in serialize_game_state() → Added field
+- **MEDIUM**: Missing corrupted session test → Added edge case test
 
 ### User Input Required
 - None - all issues auto-resolved

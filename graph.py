@@ -23,12 +23,18 @@ from models import GameState, create_user_error
 
 __all__ = [
     "GameStateWithError",
+    "MAX_COMPRESSION_PASSES",
     "context_manager",
     "create_game_workflow",
     "human_intervention_node",
     "route_to_next_agent",
     "run_single_round",
 ]
+
+# Maximum compression passes to prevent infinite loops (Story 5.5)
+# After buffer compression, if total context still exceeds limit,
+# the system will re-compress long_term_summary up to this many times.
+MAX_COMPRESSION_PASSES = 2
 
 
 # Type alias for GameState that may include an error field
@@ -46,6 +52,11 @@ def context_manager(state: GameState) -> GameState:
     Per architecture: compression runs synchronously (blocking) to
     ensure memory is compressed before the DM acts.
 
+    Story 5.5 additions (FR16, AC #5):
+    - Post-compression validation ensures total context fits within limit
+    - Multi-pass compression: if still over limit, re-compress long_term_summary
+    - MAX_COMPRESSION_PASSES limits compression attempts to prevent infinite loops
+
     Args:
         state: Current game state with agent_memories.
 
@@ -53,6 +64,10 @@ def context_manager(state: GameState) -> GameState:
         Updated game state with compressed memories if needed.
         Sets summarization_in_progress flag during operation.
     """
+    import logging
+
+    logger = logging.getLogger("autodungeon")
+
     # Create a typed copy to avoid mutating original state
     updated_state: GameState = {
         **state,
@@ -65,9 +80,29 @@ def context_manager(state: GameState) -> GameState:
     # Check each agent's memory and compress if near limit
     agent_memories = updated_state["agent_memories"]
     for agent_name in agent_memories:
+        passes = 0
+
+        # Pass 1: Compress buffer if near limit
         if memory_manager.is_near_limit(agent_name):
-            # Compress buffer (modifies state in place through manager)
             memory_manager.compress_buffer(agent_name)
+            passes += 1
+
+            # Post-compression validation (Story 5.5, AC #5)
+            # Pass 2: If still over limit, re-compress summary
+            while (
+                passes < MAX_COMPRESSION_PASSES
+                and memory_manager.is_total_context_over_limit(agent_name)
+            ):
+                memory_manager.compress_long_term_summary(agent_name)
+                passes += 1
+
+            # Log warning if still over limit after max passes
+            if memory_manager.is_total_context_over_limit(agent_name):
+                logger.warning(
+                    "Agent %s still over token limit after %d compression passes",
+                    agent_name,
+                    passes,
+                )
 
     # Clear the summarization flag after completion
     updated_state["summarization_in_progress"] = False
