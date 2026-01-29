@@ -1025,6 +1025,11 @@ def initialize_session_state() -> None:
         # Config modal auto-pause state (Story 3.5)
         st.session_state["modal_open"] = False
         st.session_state["pre_modal_pause_state"] = False
+        # Config modal state (Story 6.1)
+        st.session_state["config_modal_open"] = False
+        st.session_state["config_has_changes"] = False
+        st.session_state["config_original_values"] = None
+        st.session_state["show_discard_confirmation"] = False
         # Error handling state (Story 4.5)
         st.session_state["error"] = None
         st.session_state["error_retry_count"] = 0
@@ -1064,28 +1069,225 @@ def handle_pause_toggle() -> None:
     st.session_state["is_paused"] = not st.session_state.get("is_paused", False)
 
 
-def handle_modal_open() -> None:
-    """Handle config modal opening - auto-pause game.
+def handle_config_modal_open() -> None:
+    """Handle config modal opening - auto-pause game (Story 6.1 AC #3).
 
-    Stores current pause state to restore on close (Story 3.5 AC #6).
-    This is a placeholder for future Epic 6 config modal integration.
+    Stores current pause state to restore on close.
+    Stops autopilot if running.
+    Takes a snapshot of current config values for change detection.
     """
     # Store current pause state before auto-pausing
     st.session_state["pre_modal_pause_state"] = st.session_state.get("is_paused", False)
     st.session_state["is_paused"] = True
+    st.session_state["config_modal_open"] = True
+
+    # Stop autopilot if running (Story 6.1 Task 4.3)
+    st.session_state["is_autopilot_running"] = False
+
+    # Take snapshot of config values for change detection (Story 6.1 Task 6.2)
+    st.session_state["config_original_values"] = snapshot_config_values()
+    st.session_state["config_has_changes"] = False
+    st.session_state["show_discard_confirmation"] = False
+
+
+def handle_config_modal_close(save_changes: bool = False) -> None:
+    """Handle config modal closing - restore previous pause state (Story 6.1 AC #4).
+
+    Restores the pause state from before modal was opened.
+    Applies changes if save_changes is True.
+
+    Args:
+        save_changes: If True, apply any pending config changes before closing.
+    """
+    st.session_state["config_modal_open"] = False
+    st.session_state["show_discard_confirmation"] = False
+
+    # Restore previous pause state
+    prev_state = st.session_state.get("pre_modal_pause_state", False)
+    st.session_state["is_paused"] = prev_state
+
+    # Clear change tracking state
+    st.session_state["config_has_changes"] = False
+    st.session_state["config_original_values"] = None
+
+
+def snapshot_config_values() -> dict[str, dict[str, str]]:
+    """Take snapshot of current config values when modal opens.
+
+    Returns:
+        Dict containing current config values for change detection.
+        Placeholder structure - will be populated in Stories 6.2-6.5.
+    """
+    return {
+        "api_keys": {},  # Story 6.2
+        "models": {},  # Story 6.3
+        "settings": {},  # Story 6.4/6.5
+    }
+
+
+def has_unsaved_changes() -> bool:
+    """Check if config modal has unsaved changes (Story 6.1 Task 6.1).
+
+    Compares current config values against snapshot taken when modal opened.
+
+    Returns:
+        True if there are unsaved changes, False otherwise.
+    """
+    return st.session_state.get("config_has_changes", False)
+
+
+def mark_config_changed() -> None:
+    """Mark that config has unsaved changes (Story 6.1 Task 6.2).
+
+    Call this when any config field is modified in the modal.
+    """
+    st.session_state["config_has_changes"] = True
+
+
+# Legacy aliases for backward compatibility
+def handle_modal_open() -> None:
+    """Legacy alias for handle_config_modal_open.
+
+    Also sets modal_open for backward compatibility with existing code/tests.
+    """
+    handle_config_modal_open()
+    # Set legacy key for backward compatibility
     st.session_state["modal_open"] = True
 
 
 def handle_modal_close() -> None:
-    """Handle config modal closing - restore previous pause state.
+    """Legacy alias for handle_config_modal_close.
 
-    Restores the pause state from before modal was opened (Story 3.5 AC #6).
-    This is a placeholder for future Epic 6 config modal integration.
+    Also clears modal_open for backward compatibility with existing code/tests.
     """
+    handle_config_modal_close()
+    # Clear legacy key for backward compatibility
     st.session_state["modal_open"] = False
-    # Restore previous pause state
-    prev_state = st.session_state.get("pre_modal_pause_state", False)
-    st.session_state["is_paused"] = prev_state
+
+
+# =============================================================================
+# Configuration Modal (Story 6.1)
+# =============================================================================
+
+
+@st.dialog("Configuration", width="large")
+def render_config_modal() -> None:
+    """Render the configuration modal with tabs for API Keys, Models, and Settings.
+
+    Uses st.dialog decorator for modal container.
+    Implements Story 6.1 AC #2: three tabs with campfire theme styling.
+    """
+    # Tab structure (Story 6.1 Task 3)
+    tab1, tab2, tab3 = st.tabs(["API Keys", "Models", "Settings"])
+
+    with tab1:
+        st.markdown(
+            '<p class="config-tab-placeholder">'
+            "API key configuration coming in Story 6.2"
+            "</p>",
+            unsafe_allow_html=True,
+        )
+
+    with tab2:
+        st.markdown(
+            '<p class="config-tab-placeholder">Model selection coming in Story 6.3</p>',
+            unsafe_allow_html=True,
+        )
+
+    with tab3:
+        st.markdown(
+            '<p class="config-tab-placeholder">'
+            "Settings (context limits) coming in Stories 6.4, 6.5"
+            "</p>",
+            unsafe_allow_html=True,
+        )
+
+    # Show discard confirmation if needed (Story 6.1 AC #5)
+    if st.session_state.get("show_discard_confirmation"):
+        render_discard_confirmation()
+    else:
+        # Footer buttons (Story 6.1 Task 8)
+        st.markdown("---")
+        col1, col2 = st.columns([1, 1])
+
+        with col1:
+            if st.button("Cancel", key="config_cancel_btn", use_container_width=True):
+                handle_config_cancel_click()
+
+        with col2:
+            if st.button(
+                "Save", key="config_save_btn", type="primary", use_container_width=True
+            ):
+                handle_config_save_click()
+
+
+def render_discard_confirmation() -> None:
+    """Render confirmation dialog when closing with unsaved changes (Story 6.1 AC #5).
+
+    Shows a warning message with Discard and Keep Editing buttons.
+    """
+    st.markdown(
+        '<div class="discard-confirmation">'
+        '<p class="discard-confirmation-text">'
+        "You have unsaved changes. Discard them?"
+        "</p>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    col1, col2 = st.columns([1, 1])
+
+    with col1:
+        if st.button("Discard", key="discard_btn", use_container_width=True):
+            handle_config_discard_click()
+
+    with col2:
+        if st.button("Keep Editing", key="keep_editing_btn", use_container_width=True):
+            st.session_state["show_discard_confirmation"] = False
+            st.rerun()
+
+
+def handle_config_save_click() -> None:
+    """Handle Save button click in config modal (Story 6.1 Task 8.4).
+
+    Commits any pending config changes and closes the modal.
+    """
+    # TODO: Apply config changes (Stories 6.2-6.5)
+    handle_config_modal_close(save_changes=True)
+    st.rerun()
+
+
+def handle_config_cancel_click() -> None:
+    """Handle Cancel button click in config modal (Story 6.1 Task 8.5).
+
+    If there are unsaved changes, shows confirmation dialog.
+    Otherwise, closes the modal directly.
+    """
+    if has_unsaved_changes():
+        st.session_state["show_discard_confirmation"] = True
+        st.rerun()
+    else:
+        handle_config_modal_close(save_changes=False)
+        st.rerun()
+
+
+def handle_config_discard_click() -> None:
+    """Handle Discard button click in confirmation dialog.
+
+    Discards any unsaved changes and closes the modal.
+    """
+    handle_config_modal_close(save_changes=False)
+    st.rerun()
+
+
+def render_configure_button() -> None:
+    """Render the Configure button in the sidebar (Story 6.1 Task 1).
+
+    Opens the configuration modal when clicked.
+    """
+    if st.button("Configure", key="configure_btn", use_container_width=True):
+        handle_config_modal_open()
+        st.rerun()
 
 
 def handle_autopilot_toggle() -> None:
@@ -1889,6 +2091,9 @@ def render_sidebar(config: AppConfig) -> None:
                 for warning in warnings:
                     st.warning(warning, icon="⚠️")
 
+        # Configure button (Story 6.1 Task 1)
+        render_configure_button()
+
         st.markdown("---")
 
         # Back to Sessions button (Story 4.3)
@@ -2205,7 +2410,7 @@ def render_session_browser() -> None:
             has_checkpoints = latest_turn is not None
 
             # Continue button
-            col1, col2 = st.columns([3, 1])
+            _col1, col2 = st.columns([3, 1])
             with col2:
                 if st.button(
                     "Continue",
@@ -2290,6 +2495,10 @@ def main() -> None:
 
             # Inject keyboard shortcut script (Story 3.6)
             inject_keyboard_shortcut_script()
+
+            # Show config modal if open (Story 6.1)
+            if st.session_state.get("config_modal_open"):
+                render_config_modal()
 
             # Run autopilot step if active (Story 3.1)
             # This executes at end of render to trigger next turn

@@ -582,3 +582,27 @@
 
 ---
 
+# Epic 6 - LLM Configuration UI
+
+**Project:** autodungeon
+**Epic:** 6 - LLM Configuration UI
+**Started:** 2026-01-28
+
+**Goal:** User can customize which AI models power each character through a settings interface.
+
+**User Outcome:** "I can open settings and choose different models for each character - maybe Claude for the DM, Gemini for the wizard, Ollama for local testing."
+
+**FRs Covered:** FR42-FR45, FR47 (5 FRs)
+
+## Cycle Overview
+
+| Story | Status | Phase |
+|-------|--------|-------|
+| 6-1-configuration-modal-structure | 🔄 in-progress | Create Story |
+| 6-2-api-key-management-ui | ⏳ backlog | - |
+| 6-3-per-agent-model-selection | ⏳ backlog | - |
+| 6-4-context-limit-configuration | ⏳ backlog | - |
+| 6-5-mid-campaign-provider-switching | ⏳ backlog | - |
+
+---
+

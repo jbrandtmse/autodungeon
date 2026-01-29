@@ -1552,3 +1552,162 @@ hr {
   background: var(--bg-message);
   border-color: var(--text-primary);
 }
+
+/* ==========================================================================
+   Configuration Modal (Story 6.1)
+   ========================================================================== */
+
+/* Streamlit dialog overrides for theme consistency */
+[data-testid="stDialog"] > div {
+  background: var(--bg-primary) !important;
+  border: 1px solid var(--bg-secondary) !important;
+  border-radius: 12px !important;
+  max-width: 600px !important;
+}
+
+[data-testid="stDialog"] [data-testid="stVerticalBlock"] {
+  background: transparent !important;
+}
+
+/* Modal overlay - dark backdrop */
+[data-testid="stModal"] > div:first-child {
+  background: rgba(0, 0, 0, 0.6) !important;
+}
+
+/* Tab styling within config modal */
+[data-testid="stDialog"] .stTabs [data-baseweb="tab-list"] {
+  background: transparent;
+  border-bottom: 1px solid var(--bg-secondary);
+  gap: 0;
+}
+
+[data-testid="stDialog"] .stTabs [data-baseweb="tab"] {
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 500;
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 2px solid transparent;
+  background: transparent;
+}
+
+[data-testid="stDialog"] .stTabs [data-baseweb="tab"]:hover {
+  color: var(--text-primary);
+}
+
+[data-testid="stDialog"] .stTabs [aria-selected="true"] {
+  color: var(--accent-warm) !important;
+  border-bottom: 2px solid var(--accent-warm) !important;
+}
+
+/* Config modal header styling */
+.config-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: var(--space-md);
+  border-bottom: 1px solid var(--bg-secondary);
+  margin-bottom: var(--space-md);
+}
+
+.config-modal-title {
+  font-family: var(--font-ui);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-dm);
+  margin: 0;
+}
+
+/* Close button styling */
+.config-modal-close {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 20px;
+  padding: var(--space-xs);
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.config-modal-close:hover {
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+}
+
+/* Config modal footer */
+.config-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-md);
+  padding-top: var(--space-lg);
+  border-top: 1px solid var(--bg-secondary);
+  margin-top: var(--space-lg);
+}
+
+/* Tab content placeholder styling */
+.config-tab-placeholder {
+  padding: var(--space-lg);
+  text-align: center;
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: var(--text-ui);
+  font-style: italic;
+}
+
+/* Discard confirmation dialog */
+.discard-confirmation {
+  background: rgba(232, 168, 73, 0.1);
+  border: 1px solid var(--accent-warm);
+  border-radius: 8px;
+  padding: var(--space-md);
+  margin: var(--space-md) 0;
+}
+
+.discard-confirmation-text {
+  font-family: var(--font-ui);
+  font-size: var(--text-ui);
+  color: var(--accent-warm);
+  margin-bottom: var(--space-sm);
+}
+
+/* Config modal buttons - Save (primary) */
+[data-testid="stDialog"] .stButton > button[data-testid="config_save_btn"] {
+  background: var(--accent-warm);
+  border: none;
+  color: var(--bg-primary);
+  font-weight: 500;
+}
+
+[data-testid="stDialog"] .stButton > button[data-testid="config_save_btn"]:hover {
+  background: #D49A3D;
+}
+
+/* Config modal buttons - Cancel (secondary) */
+[data-testid="stDialog"] .stButton > button[data-testid="config_cancel_btn"] {
+  background: transparent;
+  border: 1px solid var(--text-secondary);
+  color: var(--text-primary);
+}
+
+[data-testid="stDialog"] .stButton > button[data-testid="config_cancel_btn"]:hover {
+  background: var(--bg-message);
+  border-color: var(--text-primary);
+}
+
+/* Configure button in sidebar - secondary outline style */
+[data-testid="stSidebar"] .stButton > button[data-testid="configure_btn"] {
+  background: transparent;
+  border: 1px solid var(--text-secondary);
+  color: var(--text-secondary);
+  width: 100%;
+  font-family: var(--font-ui);
+  font-size: var(--text-system);
+  transition: all 0.15s ease;
+}
+
+[data-testid="stSidebar"] .stButton > button[data-testid="configure_btn"]:hover {
+  background: var(--bg-message);
+  border-color: var(--text-primary);
+  color: var(--text-primary);
+}
