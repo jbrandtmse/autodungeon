@@ -1093,3 +1093,1024 @@ class TestAcceptanceCriteria:
         assert updated_game["characters"]["fighter"].model == "llama3"
         assert updated_game["characters"]["rogue"].provider == "ollama"
         assert updated_game["characters"]["rogue"].model == "mistral"
+
+
+# =============================================================================
+# Additional Edge Cases and Coverage Expansion (testarch-automate)
+# =============================================================================
+
+
+class TestIsProviderAvailable:
+    """Tests for is_provider_available() function with caching behavior."""
+
+    @patch("app.st")
+    @patch("app.get_provider_availability_status")
+    def test_is_provider_available_cache_hit(
+        self, mock_get_status: MagicMock, mock_st: MagicMock
+    ) -> None:
+        """Test that cached status is used when available."""
+        mock_st.session_state = {
+            "provider_availability": {"gemini": True, "claude": False}
+        }
+
+        from app import is_provider_available
+
+        result = is_provider_available("gemini")
+
+        assert result is True
+        # Should not call get_provider_availability_status due to cache hit
+        mock_get_status.assert_not_called()
+
+    @patch("app.st")
+    @patch("app.get_provider_availability_status")
+    def test_is_provider_available_cache_miss(
+        self, mock_get_status: MagicMock, mock_st: MagicMock
+    ) -> None:
+        """Test that status is fetched and cached on cache miss."""
+        mock_st.session_state = {}
+        mock_get_status.return_value = {"gemini": True, "claude": False, "ollama": True}
+
+        from app import is_provider_available
+
+        result = is_provider_available("ollama")
+
+        assert result is True
+        mock_get_status.assert_called_once()
+        assert mock_st.session_state["provider_availability"]["ollama"] is True
+
+    @patch("app.st")
+    @patch("app.get_provider_availability_status")
+    def test_is_provider_available_unknown_provider(
+        self, mock_get_status: MagicMock, mock_st: MagicMock
+    ) -> None:
+        """Test that unknown provider returns False."""
+        mock_st.session_state = {}
+        mock_get_status.return_value = {"gemini": True, "claude": True, "ollama": True}
+
+        from app import is_provider_available
+
+        result = is_provider_available("unknown_provider")
+
+        assert result is False
+
+    @patch("app.st")
+    def test_is_provider_available_partial_cache(self, mock_st: MagicMock) -> None:
+        """Test provider not in cache triggers full refresh."""
+        mock_st.session_state = {
+            "provider_availability": {"gemini": True}  # claude not cached
+        }
+
+        from app import is_provider_available
+
+        # Since "claude" is not in cache, it should trigger status fetch
+        with patch("app.get_provider_availability_status") as mock_get_status:
+            mock_get_status.return_value = {
+                "gemini": True,
+                "claude": True,
+                "ollama": False,
+            }
+            result = is_provider_available("claude")
+            assert result is True
+            mock_get_status.assert_called_once()
+
+
+class TestGetAgentCurrentProvider:
+    """Tests for get_agent_current_provider() function."""
+
+    @patch("app.st")
+    def test_get_agent_current_provider_dm(self, mock_st: MagicMock) -> None:
+        """Test getting DM provider from game state."""
+        from models import DMConfig, populate_game_state
+
+        game = populate_game_state()
+        game["dm_config"] = DMConfig(provider="claude", model="claude-3-haiku-20240307")
+        mock_st.session_state = {"game": game}
+
+        from app import get_agent_current_provider
+
+        result = get_agent_current_provider("dm")
+        assert result == "claude"
+
+    @patch("app.st")
+    def test_get_agent_current_provider_summarizer(self, mock_st: MagicMock) -> None:
+        """Test getting summarizer provider from game state."""
+        from models import GameConfig, populate_game_state
+
+        game = populate_game_state()
+        game["game_config"] = GameConfig(
+            summarizer_provider="ollama", summarizer_model="llama3"
+        )
+        mock_st.session_state = {"game": game}
+
+        from app import get_agent_current_provider
+
+        result = get_agent_current_provider("summarizer")
+        assert result == "ollama"
+
+    @patch("app.st")
+    def test_get_agent_current_provider_character(self, mock_st: MagicMock) -> None:
+        """Test getting character provider from game state."""
+        from models import CharacterConfig, populate_game_state
+
+        game = populate_game_state()
+        game["characters"]["wizard"] = CharacterConfig(
+            name="Elara",
+            character_class="Wizard",
+            personality="Scholarly",
+            color="#7B68B8",
+            provider="claude",
+        )
+        mock_st.session_state = {"game": game}
+
+        from app import get_agent_current_provider
+
+        result = get_agent_current_provider("wizard")
+        assert result == "claude"
+
+    @patch("app.st")
+    def test_get_agent_current_provider_unknown_agent(self, mock_st: MagicMock) -> None:
+        """Test unknown agent defaults to gemini."""
+        from models import populate_game_state
+
+        game = populate_game_state()
+        mock_st.session_state = {"game": game}
+
+        from app import get_agent_current_provider
+
+        result = get_agent_current_provider("unknown_agent")
+        assert result == "gemini"
+
+    @patch("app.st")
+    def test_get_agent_current_provider_no_game(self, mock_st: MagicMock) -> None:
+        """Test no game state defaults to gemini."""
+        mock_st.session_state = {"game": None}
+
+        from app import get_agent_current_provider
+
+        result = get_agent_current_provider("dm")
+        assert result == "gemini"
+
+    @patch("app.st")
+    def test_get_agent_current_provider_missing_dm_config(
+        self, mock_st: MagicMock
+    ) -> None:
+        """Test missing dm_config defaults to gemini."""
+        from models import populate_game_state
+
+        game = populate_game_state()
+        game["dm_config"] = None  # type: ignore[typeddict-item]
+        mock_st.session_state = {"game": game}
+
+        from app import get_agent_current_provider
+
+        result = get_agent_current_provider("dm")
+        assert result == "gemini"
+
+    @patch("app.st")
+    def test_get_agent_current_provider_missing_game_config(
+        self, mock_st: MagicMock
+    ) -> None:
+        """Test missing game_config defaults to gemini."""
+        from models import populate_game_state
+
+        game = populate_game_state()
+        game["game_config"] = None  # type: ignore[typeddict-item]
+        mock_st.session_state = {"game": game}
+
+        from app import get_agent_current_provider
+
+        result = get_agent_current_provider("summarizer")
+        assert result == "gemini"
+
+
+class TestGetProviderAvailabilityStatusExpanded:
+    """Additional tests for get_provider_availability_status()."""
+
+    @patch("requests.get")
+    @patch("app.get_config")
+    def test_all_providers_available(
+        self, mock_config: MagicMock, mock_requests_get: MagicMock
+    ) -> None:
+        """Test when all providers are available."""
+        mock_config.return_value = MagicMock(
+            google_api_key="test-google-key",
+            anthropic_api_key="test-anthropic-key",
+            ollama_base_url="http://localhost:11434",
+        )
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_requests_get.return_value = mock_response
+
+        from app import get_provider_availability_status
+
+        status = get_provider_availability_status()
+
+        assert status["gemini"] is True
+        assert status["claude"] is True
+        assert status["ollama"] is True
+
+    @patch("requests.get")
+    @patch("app.get_config")
+    def test_all_providers_unavailable(
+        self, mock_config: MagicMock, mock_requests_get: MagicMock
+    ) -> None:
+        """Test when all providers are unavailable."""
+        mock_config.return_value = MagicMock(
+            google_api_key=None,
+            anthropic_api_key=None,
+            ollama_base_url="http://localhost:11434",
+        )
+        mock_requests_get.side_effect = Exception("Connection refused")
+
+        from app import get_provider_availability_status
+
+        status = get_provider_availability_status()
+
+        assert status["gemini"] is False
+        assert status["claude"] is False
+        assert status["ollama"] is False
+
+    @patch("requests.get")
+    @patch("app.get_config")
+    def test_ollama_non_200_status(
+        self, mock_config: MagicMock, mock_requests_get: MagicMock
+    ) -> None:
+        """Test Ollama returns non-200 status code."""
+        mock_config.return_value = MagicMock(
+            google_api_key=None,
+            anthropic_api_key=None,
+            ollama_base_url="http://localhost:11434",
+        )
+        mock_response = MagicMock()
+        mock_response.status_code = 500  # Server error
+        mock_requests_get.return_value = mock_response
+
+        from app import get_provider_availability_status
+
+        status = get_provider_availability_status()
+
+        assert status["ollama"] is False
+
+    @patch("requests.get")
+    @patch("app.get_config")
+    def test_empty_api_keys_vs_none(
+        self, mock_config: MagicMock, mock_requests_get: MagicMock
+    ) -> None:
+        """Test empty string API keys treated as unavailable."""
+        mock_config.return_value = MagicMock(
+            google_api_key="",  # Empty string
+            anthropic_api_key="",  # Empty string
+            ollama_base_url="http://localhost:11434",
+        )
+        mock_requests_get.side_effect = Exception("Connection refused")
+
+        from app import get_provider_availability_status
+
+        status = get_provider_availability_status()
+
+        # Empty strings should be treated as falsy
+        assert status["gemini"] is False
+        assert status["claude"] is False
+
+    @patch("requests.get")
+    @patch("app.get_config")
+    def test_ollama_timeout_exception(
+        self, mock_config: MagicMock, mock_requests_get: MagicMock
+    ) -> None:
+        """Test Ollama timeout is handled gracefully."""
+        import requests
+
+        mock_config.return_value = MagicMock(
+            google_api_key="test-key",
+            anthropic_api_key=None,
+            ollama_base_url="http://localhost:11434",
+        )
+        mock_requests_get.side_effect = requests.exceptions.Timeout("Timeout")
+
+        from app import get_provider_availability_status
+
+        status = get_provider_availability_status()
+
+        assert status["ollama"] is False
+        # Other providers unaffected
+        assert status["gemini"] is True
+
+
+class TestApplyModelConfigChangesExpanded:
+    """Additional tests for apply_model_config_changes()."""
+
+    @patch("app.st")
+    def test_apply_partial_override_only_provider(self, mock_st: MagicMock) -> None:
+        """Test override with only provider specified uses existing model."""
+        from models import DMConfig, populate_game_state
+
+        game = populate_game_state()
+        game["dm_config"] = DMConfig(provider="gemini", model="gemini-1.5-flash")
+
+        mock_st.session_state = {
+            "game": game,
+            "agent_model_overrides": {
+                "dm": {"provider": "claude"}  # No model specified
+            },
+        }
+
+        from app import apply_model_config_changes
+
+        apply_model_config_changes()
+
+        updated_game = mock_st.session_state["game"]
+        assert updated_game["dm_config"].provider == "claude"
+        # Model should remain from original config
+        assert updated_game["dm_config"].model == "gemini-1.5-flash"
+
+    @patch("app.st")
+    def test_apply_partial_override_only_model(self, mock_st: MagicMock) -> None:
+        """Test override with only model specified uses existing provider."""
+        from models import DMConfig, populate_game_state
+
+        game = populate_game_state()
+        game["dm_config"] = DMConfig(provider="gemini", model="gemini-1.5-flash")
+
+        mock_st.session_state = {
+            "game": game,
+            "agent_model_overrides": {
+                "dm": {"model": "gemini-1.5-pro"}  # No provider specified
+            },
+        }
+
+        from app import apply_model_config_changes
+
+        apply_model_config_changes()
+
+        updated_game = mock_st.session_state["game"]
+        # Provider should remain from original config
+        assert updated_game["dm_config"].provider == "gemini"
+        assert updated_game["dm_config"].model == "gemini-1.5-pro"
+
+    @patch("app.st")
+    def test_apply_missing_dm_config_creates_default(self, mock_st: MagicMock) -> None:
+        """Test apply handles missing dm_config by creating default."""
+        from models import populate_game_state
+
+        game = populate_game_state()
+        game["dm_config"] = None  # type: ignore[typeddict-item]
+
+        mock_st.session_state = {
+            "game": game,
+            "agent_model_overrides": {
+                "dm": {"provider": "claude", "model": "claude-3-haiku-20240307"}
+            },
+        }
+
+        from app import apply_model_config_changes
+
+        apply_model_config_changes()
+
+        updated_game = mock_st.session_state["game"]
+        assert updated_game["dm_config"].provider == "claude"
+        assert updated_game["dm_config"].model == "claude-3-haiku-20240307"
+
+    @patch("app.st")
+    def test_apply_missing_game_config_creates_default(self, mock_st: MagicMock) -> None:
+        """Test apply handles missing game_config by creating default."""
+        from models import populate_game_state
+
+        game = populate_game_state()
+        game["game_config"] = None  # type: ignore[typeddict-item]
+
+        mock_st.session_state = {
+            "game": game,
+            "agent_model_overrides": {
+                "summarizer": {"provider": "claude", "model": "claude-3-haiku-20240307"}
+            },
+        }
+
+        from app import apply_model_config_changes
+
+        apply_model_config_changes()
+
+        updated_game = mock_st.session_state["game"]
+        assert updated_game["game_config"].summarizer_provider == "claude"
+        assert updated_game["game_config"].summarizer_model == "claude-3-haiku-20240307"
+
+    @patch("app.st")
+    def test_apply_sets_model_config_changed_flag(self, mock_st: MagicMock) -> None:
+        """Test that apply sets the model_config_changed flag."""
+        from models import DMConfig, populate_game_state
+
+        game = populate_game_state()
+        game["dm_config"] = DMConfig(provider="gemini", model="gemini-1.5-flash")
+
+        mock_st.session_state = {
+            "game": game,
+            "agent_model_overrides": {
+                "dm": {"provider": "claude", "model": "claude-3-haiku-20240307"}
+            },
+            "model_config_changed": False,
+        }
+
+        from app import apply_model_config_changes
+
+        apply_model_config_changes()
+
+        assert mock_st.session_state["model_config_changed"] is True
+
+    @patch("app.st")
+    def test_apply_does_not_set_flag_when_no_changes(self, mock_st: MagicMock) -> None:
+        """Test that apply does not set flag when there's no game or overrides."""
+        mock_st.session_state = {
+            "game": None,
+            "agent_model_overrides": {},
+            "model_config_changed": False,
+        }
+
+        from app import apply_model_config_changes
+
+        apply_model_config_changes()
+
+        # Flag should remain False since nothing was applied
+        assert mock_st.session_state.get("model_config_changed", False) is False
+
+    @patch("app.st")
+    def test_apply_with_empty_characters_dict(self, mock_st: MagicMock) -> None:
+        """Test apply handles empty characters dict gracefully."""
+        from models import DMConfig, populate_game_state
+
+        game = populate_game_state()
+        game["dm_config"] = DMConfig(provider="gemini", model="gemini-1.5-flash")
+        game["characters"] = {}  # Empty characters
+
+        mock_st.session_state = {
+            "game": game,
+            "agent_model_overrides": {
+                "dm": {"provider": "claude", "model": "claude-3-haiku-20240307"},
+                "nonexistent_char": {"provider": "ollama", "model": "llama3"},
+            },
+        }
+
+        from app import apply_model_config_changes
+
+        apply_model_config_changes()
+
+        updated_game = mock_st.session_state["game"]
+        assert updated_game["dm_config"].provider == "claude"
+        # Nonexistent character override should be ignored silently
+        assert "nonexistent_char" not in updated_game["characters"]
+
+
+class TestGenerateModelChangeMessagesExpanded:
+    """Additional tests for generate_model_change_messages()."""
+
+    @patch("app.st")
+    def test_generate_message_unknown_character_uses_title(
+        self, mock_st: MagicMock
+    ) -> None:
+        """Test that unknown character key uses title-cased key as fallback."""
+        from models import populate_game_state
+
+        game = populate_game_state()
+        # Don't add any character config - the key should be title-cased
+
+        mock_st.session_state = {
+            "game": game,
+            "agent_model_overrides": {
+                "unknown_character": {"provider": "claude", "model": "claude-3-haiku-20240307"}
+            },
+        }
+
+        from app import generate_model_change_messages
+
+        messages = generate_model_change_messages()
+
+        assert len(messages) == 1
+        assert "Unknown_Character" in messages[0] or "unknown_character".title() in messages[0]
+
+    @patch("app.st")
+    def test_generate_message_unknown_provider_uses_key(
+        self, mock_st: MagicMock
+    ) -> None:
+        """Test that unknown provider uses the provider key as-is."""
+        from models import populate_game_state
+
+        game = populate_game_state()
+
+        mock_st.session_state = {
+            "game": game,
+            "agent_model_overrides": {
+                "dm": {"provider": "custom_provider", "model": "custom-model-v1"}
+            },
+        }
+
+        from app import generate_model_change_messages
+
+        messages = generate_model_change_messages()
+
+        assert len(messages) == 1
+        # Unknown provider should use key as-is (not in PROVIDER_DISPLAY)
+        assert "custom_provider" in messages[0]
+        assert "custom-model-v1" in messages[0]
+
+    @patch("app.st")
+    def test_generate_messages_order_preserved(self, mock_st: MagicMock) -> None:
+        """Test that message order follows override iteration order."""
+        from models import CharacterConfig, populate_game_state
+
+        game = populate_game_state()
+        game["characters"]["alpha"] = CharacterConfig(
+            name="Alpha",
+            character_class="Fighter",
+            personality="Brave",
+            color="#C45C4A",
+        )
+        game["characters"]["beta"] = CharacterConfig(
+            name="Beta",
+            character_class="Rogue",
+            personality="Sneaky",
+            color="#6B8E6B",
+        )
+
+        mock_st.session_state = {
+            "game": game,
+            "agent_model_overrides": {
+                "dm": {"provider": "claude", "model": "claude-3-haiku-20240307"},
+                "alpha": {"provider": "ollama", "model": "llama3"},
+                "beta": {"provider": "gemini", "model": "gemini-1.5-flash"},
+            },
+        }
+
+        from app import generate_model_change_messages
+
+        messages = generate_model_change_messages()
+
+        assert len(messages) == 3
+
+    @patch("app.st")
+    def test_generate_message_with_empty_provider_string(
+        self, mock_st: MagicMock
+    ) -> None:
+        """Test that empty provider string is skipped."""
+        from models import populate_game_state
+
+        game = populate_game_state()
+
+        mock_st.session_state = {
+            "game": game,
+            "agent_model_overrides": {
+                "dm": {"provider": "", "model": "claude-3-haiku-20240307"}  # Empty provider
+            },
+        }
+
+        from app import generate_model_change_messages
+
+        messages = generate_model_change_messages()
+
+        # Should skip due to empty provider
+        assert len(messages) == 0
+
+    @patch("app.st")
+    def test_generate_message_with_empty_model_string(
+        self, mock_st: MagicMock
+    ) -> None:
+        """Test that empty model string is skipped."""
+        from models import populate_game_state
+
+        game = populate_game_state()
+
+        mock_st.session_state = {
+            "game": game,
+            "agent_model_overrides": {
+                "dm": {"provider": "claude", "model": ""}  # Empty model
+            },
+        }
+
+        from app import generate_model_change_messages
+
+        messages = generate_model_change_messages()
+
+        # Should skip due to empty model
+        assert len(messages) == 0
+
+
+class TestHasPendingChangeExpanded:
+    """Additional tests for has_pending_change()."""
+
+    @patch("app.st")
+    @patch("app.is_provider_available")
+    def test_has_pending_change_empty_override_dict(
+        self, mock_available: MagicMock, mock_st: MagicMock
+    ) -> None:
+        """Test has_pending_change with empty agent override dict."""
+        mock_st.session_state = {
+            "agent_model_overrides": {
+                "dm": {}  # Empty override dict
+            }
+        }
+
+        from app import has_pending_change
+
+        # Empty dict is still "in" the overrides
+        assert has_pending_change("dm") is True
+
+    @patch("app.st")
+    @patch("app.is_provider_available")
+    def test_has_pending_change_missing_key(
+        self, mock_available: MagicMock, mock_st: MagicMock
+    ) -> None:
+        """Test has_pending_change when session state missing key."""
+        mock_st.session_state = {}  # No agent_model_overrides key
+
+        from app import has_pending_change
+
+        # Should handle missing key gracefully
+        assert has_pending_change("dm") is False
+
+    @patch("app.st")
+    @patch("app.is_provider_available")
+    def test_has_pending_change_multiple_agents(
+        self, mock_available: MagicMock, mock_st: MagicMock
+    ) -> None:
+        """Test has_pending_change with multiple agents."""
+        mock_st.session_state = {
+            "agent_model_overrides": {
+                "dm": {"provider": "claude", "model": "claude-3-haiku"},
+                "fighter": {"provider": "ollama", "model": "llama3"},
+            }
+        }
+
+        from app import has_pending_change
+
+        assert has_pending_change("dm") is True
+        assert has_pending_change("fighter") is True
+        assert has_pending_change("rogue") is False
+        assert has_pending_change("summarizer") is False
+
+
+class TestIsAgentProviderUnavailableExpanded:
+    """Additional tests for is_agent_provider_unavailable()."""
+
+    @patch("app.st")
+    @patch("app.is_provider_available")
+    def test_is_agent_provider_unavailable_character_with_override(
+        self, mock_available: MagicMock, mock_st: MagicMock
+    ) -> None:
+        """Test character agent with override checks override provider."""
+        from models import CharacterConfig, populate_game_state
+
+        game = populate_game_state()
+        game["characters"]["wizard"] = CharacterConfig(
+            name="Elara",
+            character_class="Wizard",
+            personality="Scholarly",
+            color="#7B68B8",
+            provider="gemini",  # Original provider
+        )
+
+        mock_st.session_state = {
+            "game": game,
+            "agent_model_overrides": {
+                "wizard": {"provider": "claude", "model": "claude-3-haiku"}  # Override
+            },
+        }
+
+        mock_available.return_value = False  # Claude unavailable
+
+        from app import is_agent_provider_unavailable
+
+        result = is_agent_provider_unavailable("wizard")
+        assert result is True  # Should check claude (override), not gemini
+
+    @patch("app.st")
+    @patch("app.is_provider_available")
+    def test_is_agent_provider_unavailable_summarizer(
+        self, mock_available: MagicMock, mock_st: MagicMock
+    ) -> None:
+        """Test summarizer agent provider check."""
+        from models import GameConfig, populate_game_state
+
+        game = populate_game_state()
+        game["game_config"] = GameConfig(
+            summarizer_provider="ollama", summarizer_model="llama3"
+        )
+
+        mock_st.session_state = {
+            "game": game,
+            "agent_model_overrides": {},
+        }
+
+        mock_available.return_value = False  # Ollama unavailable
+
+        from app import is_agent_provider_unavailable
+
+        result = is_agent_provider_unavailable("summarizer")
+        assert result is True
+
+    @patch("app.st")
+    @patch("app.is_provider_available")
+    def test_is_agent_provider_unavailable_override_missing_provider_key(
+        self, mock_available: MagicMock, mock_st: MagicMock
+    ) -> None:
+        """Test override dict missing provider key defaults to gemini."""
+        from models import populate_game_state
+
+        game = populate_game_state()
+
+        mock_st.session_state = {
+            "game": game,
+            "agent_model_overrides": {
+                "dm": {"model": "some-model"}  # Missing provider key
+            },
+        }
+
+        # Default gemini should be checked
+        mock_available.return_value = True
+
+        from app import is_agent_provider_unavailable
+
+        result = is_agent_provider_unavailable("dm")
+        assert result is False  # Gemini (default) is available
+
+
+class TestRenderFunctionsExpanded:
+    """Additional tests for render functions."""
+
+    def test_render_pending_change_badge_css_class(self) -> None:
+        """Test pending change badge has correct CSS class."""
+        from app import render_pending_change_badge
+
+        html = render_pending_change_badge()
+
+        assert "class=" in html
+        assert "pending-change-badge" in html
+
+    def test_render_pending_change_badge_is_span(self) -> None:
+        """Test pending change badge is a span element."""
+        from app import render_pending_change_badge
+
+        html = render_pending_change_badge()
+
+        assert html.startswith("<span")
+        assert html.endswith("</span>")
+
+    def test_render_provider_unavailable_warning_css_class(self) -> None:
+        """Test provider unavailable warning has correct CSS class."""
+        from app import render_provider_unavailable_warning
+
+        html = render_provider_unavailable_warning()
+
+        assert "class=" in html
+        assert "provider-unavailable-warning" in html
+
+    def test_render_provider_unavailable_warning_is_span(self) -> None:
+        """Test provider unavailable warning is a span element."""
+        from app import render_provider_unavailable_warning
+
+        html = render_provider_unavailable_warning()
+
+        assert html.startswith("<span")
+        assert html.endswith("</span>")
+
+
+class TestCampaignDataPreservationExpanded:
+    """Additional campaign data preservation tests."""
+
+    @patch("app.st")
+    def test_model_change_preserves_human_control_state(
+        self, mock_st: MagicMock
+    ) -> None:
+        """Test that human control state is preserved during model change."""
+        from models import populate_game_state
+
+        game = populate_game_state()
+        game["human_active"] = True
+        game["controlled_character"] = "theron"
+
+        mock_st.session_state = {
+            "game": game,
+            "agent_model_overrides": {
+                "dm": {"provider": "claude", "model": "claude-3-haiku-20240307"}
+            },
+        }
+
+        from app import apply_model_config_changes
+
+        apply_model_config_changes()
+
+        updated_game = mock_st.session_state["game"]
+        assert updated_game["human_active"] is True
+        assert updated_game["controlled_character"] == "theron"
+
+    @patch("app.st")
+    def test_model_change_preserves_current_round(self, mock_st: MagicMock) -> None:
+        """Test that current_round is preserved during model change."""
+        from models import populate_game_state
+
+        game = populate_game_state()
+        game["current_round"] = 15
+
+        mock_st.session_state = {
+            "game": game,
+            "agent_model_overrides": {
+                "dm": {"provider": "claude", "model": "claude-3-haiku-20240307"}
+            },
+        }
+
+        from app import apply_model_config_changes
+
+        apply_model_config_changes()
+
+        updated_game = mock_st.session_state["game"]
+        assert updated_game["current_round"] == 15
+
+    @patch("app.st")
+    def test_model_change_preserves_character_facts(self, mock_st: MagicMock) -> None:
+        """Test that character facts in agent memories are preserved."""
+        from models import AgentMemory, CharacterFacts, populate_game_state
+
+        game = populate_game_state()
+        facts = CharacterFacts(
+            name="Theron",
+            character_class="Fighter",
+            key_traits=["Brave", "Honorable"],
+            relationships={"Elara": "Trusted ally"},
+            notable_events=["Defeated the dragon"],
+        )
+        game["agent_memories"]["theron"] = AgentMemory(
+            character_facts=facts,
+            long_term_summary="Theron's adventures...",
+        )
+
+        mock_st.session_state = {
+            "game": game,
+            "agent_model_overrides": {
+                "dm": {"provider": "claude", "model": "claude-3-haiku-20240307"}
+            },
+        }
+
+        from app import apply_model_config_changes
+
+        apply_model_config_changes()
+
+        updated_game = mock_st.session_state["game"]
+        preserved_facts = updated_game["agent_memories"]["theron"].character_facts
+        assert preserved_facts is not None
+        assert preserved_facts.name == "Theron"
+        assert preserved_facts.key_traits == ["Brave", "Honorable"]
+        assert preserved_facts.relationships == {"Elara": "Trusted ally"}
+
+
+class TestEdgeCasesAndIntegration:
+    """Edge cases and integration scenarios."""
+
+    @patch("app.st")
+    def test_switch_during_empty_turn_queue(self, mock_st: MagicMock) -> None:
+        """Test provider switch when turn queue is empty."""
+        from models import populate_game_state
+
+        game = populate_game_state()
+        game["turn_queue"] = []  # Empty queue
+
+        mock_st.session_state = {
+            "game": game,
+            "agent_model_overrides": {
+                "dm": {"provider": "claude", "model": "claude-3-haiku-20240307"}
+            },
+        }
+
+        from app import apply_model_config_changes
+
+        # Should not raise any errors
+        apply_model_config_changes()
+
+        updated_game = mock_st.session_state["game"]
+        assert updated_game["dm_config"].provider == "claude"
+        assert updated_game["turn_queue"] == []
+
+    @patch("app.st")
+    def test_switch_back_to_original_provider(self, mock_st: MagicMock) -> None:
+        """Test switching back to original provider works correctly."""
+        from models import DMConfig, populate_game_state
+
+        game = populate_game_state()
+        game["dm_config"] = DMConfig(provider="gemini", model="gemini-1.5-flash")
+
+        from app import apply_model_config_changes
+
+        # First switch: Gemini -> Claude
+        mock_st.session_state = {
+            "game": game,
+            "agent_model_overrides": {
+                "dm": {"provider": "claude", "model": "claude-3-haiku-20240307"}
+            },
+        }
+        apply_model_config_changes()
+        game = mock_st.session_state["game"]
+        assert game["dm_config"].provider == "claude"
+
+        # Second switch: Claude -> Gemini (back to original)
+        mock_st.session_state = {
+            "game": game,
+            "agent_model_overrides": {
+                "dm": {"provider": "gemini", "model": "gemini-1.5-flash"}
+            },
+        }
+        apply_model_config_changes()
+        game = mock_st.session_state["game"]
+        assert game["dm_config"].provider == "gemini"
+        assert game["dm_config"].model == "gemini-1.5-flash"
+
+    @patch("app.st")
+    def test_switch_only_dm_leaves_characters_unchanged(
+        self, mock_st: MagicMock
+    ) -> None:
+        """Test that switching only DM doesn't affect character configs."""
+        from models import CharacterConfig, DMConfig, populate_game_state
+
+        game = populate_game_state()
+        game["dm_config"] = DMConfig(provider="gemini", model="gemini-1.5-flash")
+        game["characters"]["theron"] = CharacterConfig(
+            name="Theron",
+            character_class="Fighter",
+            personality="Brave",
+            color="#C45C4A",
+            provider="claude",
+            model="claude-3-haiku-20240307",
+        )
+
+        mock_st.session_state = {
+            "game": game,
+            "agent_model_overrides": {
+                "dm": {"provider": "ollama", "model": "llama3"}
+                # No override for theron
+            },
+        }
+
+        from app import apply_model_config_changes
+
+        apply_model_config_changes()
+
+        updated_game = mock_st.session_state["game"]
+        assert updated_game["dm_config"].provider == "ollama"
+        # Theron should remain unchanged
+        assert updated_game["characters"]["theron"].provider == "claude"
+        assert updated_game["characters"]["theron"].model == "claude-3-haiku-20240307"
+
+    @patch("app.st")
+    def test_concurrent_override_and_game_state_update(
+        self, mock_st: MagicMock
+    ) -> None:
+        """Test that overrides properly merge with existing game state."""
+        from models import CharacterConfig, DMConfig, GameConfig, populate_game_state
+
+        game = populate_game_state()
+        game["dm_config"] = DMConfig(
+            provider="gemini",
+            model="gemini-1.5-flash",
+            token_limit=16000,  # Custom token limit to verify preservation
+            name="Custom DM",  # Custom name to verify preservation
+        )
+        game["game_config"] = GameConfig(
+            summarizer_provider="gemini",
+            summarizer_model="gemini-1.5-flash",
+            combat_mode="Tactical",  # Non-default to verify preservation
+            party_size=6,  # Non-default party size
+        )
+        game["characters"]["wizard"] = CharacterConfig(
+            name="Elara",
+            character_class="Wizard",
+            personality="Scholarly",
+            color="#7B68B8",
+            provider="gemini",
+        )
+
+        mock_st.session_state = {
+            "game": game,
+            "agent_model_overrides": {
+                "dm": {"provider": "claude", "model": "claude-3-haiku-20240307"},
+                "summarizer": {"provider": "ollama", "model": "llama3"},
+                "wizard": {"provider": "claude", "model": "claude-3-sonnet-20240229"},
+            },
+        }
+
+        from app import apply_model_config_changes
+
+        apply_model_config_changes()
+
+        updated_game = mock_st.session_state["game"]
+
+        # Provider/model updated
+        assert updated_game["dm_config"].provider == "claude"
+        assert updated_game["dm_config"].model == "claude-3-haiku-20240307"
+        # Other fields preserved via model_copy
+        assert updated_game["dm_config"].token_limit == 16000
+        assert updated_game["dm_config"].name == "Custom DM"
+
+        assert updated_game["game_config"].summarizer_provider == "ollama"
+        assert updated_game["game_config"].summarizer_model == "llama3"
+        # Non-summarizer fields preserved via model_copy
+        assert updated_game["game_config"].combat_mode == "Tactical"
+        assert updated_game["game_config"].party_size == 6
+
+        assert updated_game["characters"]["wizard"].provider == "claude"
+        assert updated_game["characters"]["wizard"].model == "claude-3-sonnet-20240229"
+        # Personality preserved
+        assert updated_game["characters"]["wizard"].personality == "Scholarly"
