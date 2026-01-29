@@ -595,7 +595,7 @@ class TestPerAgentIsolation:
             token_limit=100,
         )
 
-        compressed_agents = []
+        compressed_agents: list[str] = []
 
         def track_compression(agent_name: str) -> str:
             compressed_agents.append(agent_name)
@@ -978,3 +978,885 @@ class TestMemoryCompressionIntegration:
         # DM should have been compressed
         assert len(result["agent_memories"]["dm"].short_term_buffer) == 3
         assert "Compressed summary" in result["agent_memories"]["dm"].long_term_summary
+
+
+# =============================================================================
+# Additional Test Coverage: Stress Testing with Very Large Buffers
+# =============================================================================
+
+
+class TestStressTestingLargeBuffers:
+    """Stress tests for memory compression with very large buffers."""
+
+    def test_very_large_buffer_entries(self, empty_game_state: GameState) -> None:
+        """Test compression with hundreds of buffer entries."""
+        state = empty_game_state
+        # Create 500 buffer entries
+        large_buffer = [
+            f"Event {i}: The party encountered something." for i in range(500)
+        ]
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=large_buffer,
+            token_limit=100,
+        )
+
+        manager = MemoryManager(state)
+
+        # Verify initially near limit
+        assert manager.is_near_limit("dm") is True
+
+        with patch("memory.Summarizer") as MockSummarizer:
+            mock_instance = MagicMock()
+            mock_instance.generate_summary.return_value = "Summary of 497 events."
+            MockSummarizer.return_value = mock_instance
+
+            manager.compress_buffer("dm")
+
+        # Only last 3 retained
+        assert len(state["agent_memories"]["dm"].short_term_buffer) == 3
+        assert (
+            state["agent_memories"]["dm"].short_term_buffer[0]
+            == "Event 497: The party encountered something."
+        )
+
+    def test_very_large_individual_entries(self, empty_game_state: GameState) -> None:
+        """Test compression with very large individual buffer entries."""
+        state = empty_game_state
+        # Each entry is ~1000 characters
+        large_entry = "A " * 500  # ~1000 chars, ~500 tokens
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=[large_entry for _ in range(10)],
+            token_limit=100,
+        )
+
+        manager = MemoryManager(state)
+
+        with patch("memory.Summarizer") as MockSummarizer:
+            mock_instance = MagicMock()
+            mock_instance.generate_summary.return_value = "Compressed large entries."
+            MockSummarizer.return_value = mock_instance
+
+            result = manager.compress_buffer("dm")
+
+        assert result == "Compressed large entries."
+        assert len(state["agent_memories"]["dm"].short_term_buffer) == 3
+
+    def test_buffer_at_100kb_protection_limit(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test that add_to_buffer rejects entries exceeding 100KB."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(token_limit=100000)
+
+        manager = MemoryManager(state)
+
+        # Create entry just over 100KB
+        huge_entry = "x" * 100_001
+
+        with pytest.raises(ValueError, match="exceeds maximum size"):
+            manager.add_to_buffer("dm", huge_entry)
+
+    def test_large_summary_combined_with_large_buffer(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test compression when both summary and buffer are large."""
+        state = empty_game_state
+        large_summary = " ".join(["word"] * 1000)  # ~1300 tokens
+        large_buffer = [" ".join(["event"] * 100) for _ in range(20)]  # ~2600 tokens
+
+        state["agent_memories"]["dm"] = AgentMemory(
+            long_term_summary=large_summary,
+            short_term_buffer=large_buffer,
+            token_limit=500,
+        )
+
+        manager = MemoryManager(state)
+
+        # Total should be way over limit
+        assert manager.is_total_context_over_limit("dm") is True
+
+        total_tokens = manager.get_total_context_tokens("dm")
+        assert total_tokens > 3000  # Verify we're testing a truly large case
+
+
+# =============================================================================
+# Additional Test Coverage: Edge Cases at MAX_COMPRESSION_PASSES
+# =============================================================================
+
+
+class TestMaxCompressionPassesEdgeCases:
+    """Edge case tests for MAX_COMPRESSION_PASSES boundary conditions."""
+
+    def test_exactly_at_max_passes_limit(self, empty_game_state: GameState) -> None:
+        """Test behavior when exactly MAX_COMPRESSION_PASSES are used."""
+        from graph import MAX_COMPRESSION_PASSES, context_manager
+
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=["Event " + str(i) for i in range(50)],
+            long_term_summary="Very long summary " * 100,
+            token_limit=100,
+        )
+
+        call_count = {"compress_buffer": 0, "compress_summary": 0}
+
+        def mock_compress_buffer(agent_name: str) -> str:
+            call_count["compress_buffer"] += 1
+            return "Summary"
+
+        def mock_compress_summary(agent_name: str) -> str:
+            call_count["compress_summary"] += 1
+            return "Shorter summary"
+
+        with patch("graph.MemoryManager") as MockManager:
+            mock_instance = MagicMock()
+            mock_instance.is_near_limit.return_value = True
+            mock_instance.compress_buffer.side_effect = mock_compress_buffer
+            # Returns True for MAX_COMPRESSION_PASSES-1 times, then True on final check
+            mock_instance.is_total_context_over_limit.return_value = True
+            mock_instance.compress_long_term_summary.side_effect = mock_compress_summary
+            MockManager.return_value = mock_instance
+
+            context_manager(state)
+
+        # compress_buffer called once, then compress_summary at most MAX_COMPRESSION_PASSES-1 times
+        assert call_count["compress_buffer"] == 1
+        assert call_count["compress_summary"] <= MAX_COMPRESSION_PASSES - 1
+
+    def test_passes_variable_used_correctly(self, empty_game_state: GameState) -> None:
+        """Test that passes counter increments correctly during compression."""
+        from graph import context_manager
+
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=["Event " + str(i) for i in range(50)],
+            token_limit=100,
+        )
+
+        over_limit_responses = [True, False]  # First check over, second under
+
+        with patch("graph.MemoryManager") as MockManager:
+            mock_instance = MagicMock()
+            mock_instance.is_near_limit.return_value = True
+            mock_instance.compress_buffer.return_value = "Summary"
+            mock_instance.is_total_context_over_limit.side_effect = over_limit_responses
+            mock_instance.compress_long_term_summary.return_value = "Shorter"
+            MockManager.return_value = mock_instance
+
+            context_manager(state)
+
+            # Should stop after first successful compression brings under limit
+            assert mock_instance.compress_long_term_summary.call_count == 1
+
+    def test_zero_passes_when_not_near_limit(self, empty_game_state: GameState) -> None:
+        """Test that no compression passes occur when agent is not near limit."""
+        from graph import context_manager
+
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=["Short event"],
+            token_limit=10000,  # Very high limit
+        )
+
+        with patch("graph.MemoryManager") as MockManager:
+            mock_instance = MagicMock()
+            mock_instance.is_near_limit.return_value = False
+            MockManager.return_value = mock_instance
+
+            context_manager(state)
+
+            # No compression should be attempted
+            mock_instance.compress_buffer.assert_not_called()
+            mock_instance.compress_long_term_summary.assert_not_called()
+
+
+# =============================================================================
+# Additional Test Coverage: Multiple Agents Near Limit (Concurrent-like)
+# =============================================================================
+
+
+class TestMultipleAgentsNearLimit:
+    """Tests for scenarios where multiple agents are near their limits simultaneously."""
+
+    def test_three_agents_all_near_limit(self, empty_game_state: GameState) -> None:
+        """Test compression when three agents are all near their limits."""
+        from graph import context_manager
+
+        state = empty_game_state
+        # All three agents near limit
+        for agent in ["dm", "fighter", "rogue"]:
+            state["agent_memories"][agent] = AgentMemory(
+                short_term_buffer=[f"{agent} event {i}" for i in range(30)],
+                token_limit=50,
+            )
+
+        compressed_agents: list[str] = []
+
+        def track_compression(agent_name: str) -> str:
+            compressed_agents.append(agent_name)
+            return f"{agent_name} summary"
+
+        with patch("graph.MemoryManager") as MockManager:
+            mock_instance = MagicMock()
+            mock_instance.is_near_limit.return_value = True
+            mock_instance.compress_buffer.side_effect = track_compression
+            mock_instance.is_total_context_over_limit.return_value = False
+            MockManager.return_value = mock_instance
+
+            context_manager(state)
+
+        # All three should have been compressed
+        assert len(compressed_agents) == 3  # type: ignore[arg-type]
+        assert "dm" in compressed_agents
+        assert "fighter" in compressed_agents
+        assert "rogue" in compressed_agents
+
+    def test_agents_compressed_in_deterministic_order(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test that agents are compressed in deterministic (dict) order."""
+        from graph import context_manager
+
+        state = empty_game_state
+        # Add agents in specific order
+        state["agent_memories"]["zulu"] = AgentMemory(
+            short_term_buffer=["event"] * 20,
+            token_limit=10,
+        )
+        state["agent_memories"]["alpha"] = AgentMemory(
+            short_term_buffer=["event"] * 20,
+            token_limit=10,
+        )
+        state["agent_memories"]["beta"] = AgentMemory(
+            short_term_buffer=["event"] * 20,
+            token_limit=10,
+        )
+
+        compressed_order: list[str] = []
+
+        def track_order(agent_name: str) -> str:
+            compressed_order.append(agent_name)
+            return "summary"
+
+        with patch("graph.MemoryManager") as MockManager:
+            mock_instance = MagicMock()
+            mock_instance.is_near_limit.return_value = True
+            mock_instance.compress_buffer.side_effect = track_order
+            mock_instance.is_total_context_over_limit.return_value = False
+            MockManager.return_value = mock_instance
+
+            context_manager(state)
+
+        # Order should match dict iteration order (insertion order in Python 3.7+)
+        assert compressed_order == ["zulu", "alpha", "beta"]
+
+    def test_some_agents_need_multi_pass_others_dont(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test mixed scenario: some agents need multi-pass, others don't."""
+        from graph import context_manager
+
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=["event"] * 50,
+            long_term_summary="large " * 500,
+            token_limit=100,
+        )
+        state["agent_memories"]["fighter"] = AgentMemory(
+            short_term_buffer=["event"] * 30,
+            token_limit=100,  # Will be under after single pass
+        )
+
+        multi_pass_calls: dict[str, int] = {"dm": 0, "fighter": 0}
+
+        def mock_is_over(agent_name: str) -> bool:
+            # DM needs multi-pass, fighter doesn't
+            if agent_name == "dm":
+                multi_pass_calls["dm"] += 1
+                return multi_pass_calls["dm"] < 2  # Over limit first time
+            return False  # Fighter under limit after first pass
+
+        with patch("graph.MemoryManager") as MockManager:
+            mock_instance = MagicMock()
+            mock_instance.is_near_limit.return_value = True
+            mock_instance.compress_buffer.return_value = "summary"
+            mock_instance.is_total_context_over_limit.side_effect = mock_is_over
+            mock_instance.compress_long_term_summary.return_value = "shorter"
+            MockManager.return_value = mock_instance
+
+            context_manager(state)
+
+            # DM should have needed multi-pass
+            assert multi_pass_calls["dm"] >= 2
+
+
+# =============================================================================
+# Additional Test Coverage: Unicode and Special Characters
+# =============================================================================
+
+
+class TestUnicodeAndSpecialCharacters:
+    """Tests for Unicode and special character handling in compression."""
+
+    def test_unicode_buffer_entries_preserved(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test that Unicode characters in buffer entries are handled correctly."""
+        state = empty_game_state
+        unicode_entries = [
+            "[DM]: The dragon speaks in 日本語",
+            "[Fighter]: *draws the sword of \u2694\ufe0f*",
+            "[Wizard]: Casts spell with runes: \u16a0\u16a2\u16a8\u16b1",
+            '[Rogue]: "I\'ll steal the \u2728 jewel!"',
+            "Recent 1",
+            "Recent 2",
+            "Recent 3",
+        ]
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=unicode_entries,
+            token_limit=100,
+        )
+
+        manager = MemoryManager(state)
+
+        with patch("memory.Summarizer") as MockSummarizer:
+            mock_instance = MagicMock()
+            mock_instance.generate_summary.return_value = "Summary with \u2694\ufe0f"
+            MockSummarizer.return_value = mock_instance
+
+            result = manager.compress_buffer("dm")
+
+        # Summary should contain Unicode
+        assert "\u2694\ufe0f" in result
+        # Recent entries should be retained
+        assert state["agent_memories"]["dm"].short_term_buffer[-1] == "Recent 3"
+
+    def test_emoji_in_compression(self, empty_game_state: GameState) -> None:
+        """Test that emojis are handled in compression."""
+        state = empty_game_state
+        emoji_entries = [
+            "[DM]: The fire \U0001f525 spreads!",
+            "[Fighter]: I attack with my sword \u2694\ufe0f",
+            "[Wizard]: Magic missile \u2728\u2728\u2728",
+            "Recent \U0001f389",
+            "Recent \U0001f3af",
+            "Recent \U0001f4a5",
+        ]
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=emoji_entries,
+            token_limit=100,
+        )
+
+        manager = MemoryManager(state)
+
+        with patch("memory.Summarizer") as MockSummarizer:
+            mock_instance = MagicMock()
+            mock_instance.generate_summary.return_value = "Summary \U0001f525"
+            MockSummarizer.return_value = mock_instance
+
+            manager.compress_buffer("dm")
+
+        # Verify emojis preserved in retained entries
+        assert "\U0001f4a5" in state["agent_memories"]["dm"].short_term_buffer[-1]
+
+    def test_cjk_characters_token_estimation(self) -> None:
+        """Test that CJK characters get different token estimation."""
+        # Pure CJK text (no spaces)
+        cjk_text = "\u4e2d\u6587\u6587\u672c\u6d4b\u8bd5\u793a\u4f8b\u5185\u5bb9\u975e\u5e38\u957f\u7684\u6587\u672c\u5b57\u7b26\u4e32\u6d4b\u8bd5"  # Chinese characters
+
+        tokens = estimate_tokens(cjk_text)
+
+        # CJK uses character-based estimate (~0.5 tokens per char)
+        # 24 chars * 0.5 = ~12 tokens
+        assert tokens > 0
+        assert tokens < len(cjk_text)  # Should be less than char count
+
+    def test_mixed_script_text_estimation(self) -> None:
+        """Test token estimation with mixed scripts."""
+        mixed_text = "Hello \u4e16\u754c World \u3053\u3093\u306b\u3061\u306f End"
+
+        tokens = estimate_tokens(mixed_text)
+
+        # Should use word-based heuristic (has spaces)
+        assert tokens > 0
+
+    def test_special_characters_in_long_term_summary(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test special characters in long-term summary compression."""
+        state = empty_game_state
+        special_summary = (
+            "The party found the \u2620\ufe0f Skull of Doom. "
+            "Quest markers: \u2610 \u2611 \u2612. "
+            "Gold: \u221e pieces. Formula: E=mc\u00b2"
+        )
+        state["agent_memories"]["dm"] = AgentMemory(
+            long_term_summary=special_summary,
+            short_term_buffer=["event"],
+            token_limit=100,
+        )
+
+        manager = MemoryManager(state)
+
+        with patch("memory.Summarizer") as MockSummarizer:
+            mock_instance = MagicMock()
+            mock_instance.generate_summary.return_value = (
+                "Condensed \u2620\ufe0f summary"
+            )
+            MockSummarizer.return_value = mock_instance
+
+            result = manager.compress_long_term_summary("dm")
+
+        assert "\u2620\ufe0f" in result
+
+
+# =============================================================================
+# Additional Test Coverage: Recovery After Failed Compression
+# =============================================================================
+
+
+class TestRecoveryAfterFailedCompression:
+    """Tests for system behavior after compression failures."""
+
+    def test_buffer_unchanged_on_summarizer_failure(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test that buffer remains unchanged when summarizer fails."""
+        state = empty_game_state
+        original_buffer = ["Event 1", "Event 2", "Event 3", "Event 4", "Event 5"]
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=original_buffer.copy(),
+            long_term_summary="",
+            token_limit=100,
+        )
+
+        manager = MemoryManager(state)
+
+        with patch("memory.Summarizer") as MockSummarizer:
+            mock_instance = MagicMock()
+            mock_instance.generate_summary.return_value = ""  # Failure
+            MockSummarizer.return_value = mock_instance
+
+            result = manager.compress_buffer("dm")
+
+        # Buffer should be unchanged
+        assert state["agent_memories"]["dm"].short_term_buffer == original_buffer
+        assert result == ""
+
+    def test_summary_unchanged_on_recompression_failure(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test that summary remains unchanged when re-compression fails."""
+        state = empty_game_state
+        original_summary = "This is the original long-term summary."
+        state["agent_memories"]["dm"] = AgentMemory(
+            long_term_summary=original_summary,
+            short_term_buffer=["event"],
+            token_limit=100,
+        )
+
+        manager = MemoryManager(state)
+
+        with patch("memory.Summarizer") as MockSummarizer:
+            mock_instance = MagicMock()
+            mock_instance.generate_summary.return_value = ""  # Failure
+            MockSummarizer.return_value = mock_instance
+
+            manager.compress_long_term_summary("dm")
+
+        # Summary should be unchanged
+        assert state["agent_memories"]["dm"].long_term_summary == original_summary
+
+    def test_context_manager_continues_after_single_agent_failure(
+        self, empty_game_state: GameState, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Test that context_manager continues processing after one agent fails."""
+        import logging
+
+        from graph import context_manager
+
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=["event"] * 30,
+            token_limit=50,
+        )
+        state["agent_memories"]["fighter"] = AgentMemory(
+            short_term_buffer=["event"] * 30,
+            token_limit=50,
+        )
+
+        call_count = {"dm": 0, "fighter": 0}
+
+        def mock_compress(agent_name: str) -> str:
+            call_count[agent_name] = call_count.get(agent_name, 0) + 1
+            if agent_name == "dm":
+                return ""  # DM compression fails
+            return "Fighter summary"
+
+        with (
+            patch("graph.MemoryManager") as MockManager,
+            caplog.at_level(logging.WARNING),
+        ):
+            mock_instance = MagicMock()
+            mock_instance.is_near_limit.return_value = True
+            mock_instance.compress_buffer.side_effect = mock_compress
+            mock_instance.is_total_context_over_limit.return_value = False
+            MockManager.return_value = mock_instance
+
+            context_manager(state)
+
+        # Both agents should have had compression attempted
+        assert call_count.get("dm", 0) >= 1
+        assert call_count.get("fighter", 0) >= 1
+
+    def test_graceful_degradation_with_empty_return(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test graceful degradation when summarizer returns empty (simulating error)."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=["event"] * 10,
+            token_limit=100,
+        )
+
+        manager = MemoryManager(state)
+
+        with patch("memory.Summarizer") as MockSummarizer:
+            mock_instance = MagicMock()
+            # Summarizer returns empty string on error (graceful degradation)
+            mock_instance.generate_summary.return_value = ""
+            MockSummarizer.return_value = mock_instance
+
+            result = manager.compress_buffer("dm")
+
+        # Should return empty string, buffer unchanged
+        assert result == ""
+        assert len(state["agent_memories"]["dm"].short_term_buffer) == 10
+
+
+# =============================================================================
+# Additional Test Coverage: Token Estimation Edge Cases
+# =============================================================================
+
+
+class TestTokenEstimationEdgeCases:
+    """Edge case tests for the estimate_tokens function."""
+
+    def test_empty_string_returns_zero(self) -> None:
+        """Test that empty string returns 0 tokens."""
+        assert estimate_tokens("") == 0
+
+    def test_single_word(self) -> None:
+        """Test token estimation for a single word."""
+        result = estimate_tokens("hello")
+        # 1 word * 1.3 = 1.3 -> 1 token
+        assert result == 1
+
+    def test_whitespace_only(self) -> None:
+        """Test token estimation for whitespace-only string."""
+        result = estimate_tokens("   \t\n   ")
+        # No words, should return 0
+        assert result == 0
+
+    def test_very_long_word(self) -> None:
+        """Test token estimation for a very long single word.
+
+        When text has very few words but many characters (>20), the
+        estimate_tokens function uses character-based estimation (~0.5 per char)
+        to handle potential CJK or non-space-delimited text.
+        """
+        long_word = "a" * 1000
+        result = estimate_tokens(long_word)
+        # 1 word but 1000 chars triggers character-based estimate
+        # 1000 * 0.5 = 500 tokens
+        assert result == 500
+
+    def test_mixed_whitespace_delimiters(self) -> None:
+        """Test token estimation with mixed whitespace."""
+        text = "word1\tword2\nword3   word4"
+        result = estimate_tokens(text)
+        # 4 words * 1.3 = 5.2 -> 5 tokens
+        assert result == 5
+
+    def test_numbers_treated_as_words(self) -> None:
+        """Test that numbers are treated as words."""
+        text = "1 2 3 4 5"
+        result = estimate_tokens(text)
+        # 5 words * 1.3 = 6.5 -> 6 tokens
+        assert result == 6
+
+    def test_punctuation_attached_to_words(self) -> None:
+        """Test that punctuation attached to words is counted."""
+        text = "Hello, world! How are you?"
+        result = estimate_tokens(text)
+        # 5 words * 1.3 = 6.5 -> 6 tokens
+        assert result == 6
+
+    def test_newlines_as_delimiters(self) -> None:
+        """Test that newlines properly delimit words."""
+        text = "line1\nline2\nline3"
+        result = estimate_tokens(text)
+        # 3 words * 1.3 = 3.9 -> 3 tokens
+        assert result == 3
+
+    def test_realistic_dnd_narration(self) -> None:
+        """Test token estimation with realistic D&D narration."""
+        text = (
+            "The ancient dragon unfurls its massive wings, sending gusts of "
+            "wind that nearly knock you off your feet. Its scales shimmer with "
+            "an otherworldly iridescence as it regards you with intelligent, "
+            "calculating eyes."
+        )
+        result = estimate_tokens(text)
+        # 32 words * 1.3 = ~41.6 -> 41 tokens
+        assert 35 <= result <= 50
+
+
+# =============================================================================
+# Additional Test Coverage: Boundary and Edge Conditions
+# =============================================================================
+
+
+class TestBoundaryConditions:
+    """Tests for boundary conditions in compression logic."""
+
+    def test_buffer_with_exactly_retain_count_entries(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test buffer with exactly RETAIN_AFTER_COMPRESSION entries."""
+        from memory import RETAIN_AFTER_COMPRESSION
+
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=[
+                "Event " + str(i) for i in range(RETAIN_AFTER_COMPRESSION)
+            ],
+            token_limit=100,
+        )
+
+        manager = MemoryManager(state)
+        result = manager.compress_buffer("dm")
+
+        # Should return empty (nothing to compress)
+        assert result == ""
+        # Buffer unchanged
+        assert (
+            len(state["agent_memories"]["dm"].short_term_buffer)
+            == RETAIN_AFTER_COMPRESSION
+        )
+
+    def test_buffer_with_one_more_than_retain_count(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test buffer with exactly one more than retain count."""
+        from memory import RETAIN_AFTER_COMPRESSION
+
+        state = empty_game_state
+        entries = [f"Event {i}" for i in range(RETAIN_AFTER_COMPRESSION + 1)]
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=entries,
+            token_limit=100,
+        )
+
+        manager = MemoryManager(state)
+
+        with patch("memory.Summarizer") as MockSummarizer:
+            mock_instance = MagicMock()
+            mock_instance.generate_summary.return_value = "One event summary"
+            MockSummarizer.return_value = mock_instance
+
+            result = manager.compress_buffer("dm")
+
+        # Should compress the one extra entry
+        assert result == "One event summary"
+        assert (
+            len(state["agent_memories"]["dm"].short_term_buffer)
+            == RETAIN_AFTER_COMPRESSION
+        )
+
+    def test_token_limit_of_one(self, empty_game_state: GameState) -> None:
+        """Test behavior with minimal token limit of 1."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=["Event"],
+            token_limit=1,
+        )
+
+        manager = MemoryManager(state)
+
+        # Almost any content will be near/over this limit
+        assert manager.get_buffer_token_count("dm") >= 1
+
+    def test_threshold_exactly_at_80_percent(self, empty_game_state: GameState) -> None:
+        """Test is_near_limit at exactly 80% threshold."""
+        state = empty_game_state
+        # 100 tokens limit, need 80 tokens to trigger at 0.8 threshold
+        # 62 words * 1.3 = 80.6 tokens
+        buffer_text = " ".join(["word"] * 62)
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=[buffer_text],
+            token_limit=100,
+        )
+
+        manager = MemoryManager(state)
+
+        # At 80% threshold (80 tokens), 80.6 tokens should trigger
+        assert manager.is_near_limit("dm", threshold=0.8) is True
+        # At 81% threshold (81 tokens), 80.6 tokens should NOT trigger
+        assert manager.is_near_limit("dm", threshold=0.81) is False
+
+    def test_custom_retain_count(self, empty_game_state: GameState) -> None:
+        """Test compress_buffer with custom retain_count."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=["Event " + str(i) for i in range(10)],
+            token_limit=100,
+        )
+
+        manager = MemoryManager(state)
+
+        with patch("memory.Summarizer") as MockSummarizer:
+            mock_instance = MagicMock()
+            mock_instance.generate_summary.return_value = "Summary"
+            MockSummarizer.return_value = mock_instance
+
+            # Retain 5 instead of default 3
+            manager.compress_buffer("dm", retain_count=5)
+
+        assert len(state["agent_memories"]["dm"].short_term_buffer) == 5
+        assert state["agent_memories"]["dm"].short_term_buffer[0] == "Event 5"
+
+
+# =============================================================================
+# Additional Test Coverage: Summary Merging
+# =============================================================================
+
+
+class TestSummaryMerging:
+    """Tests for the _merge_summaries helper function."""
+
+    def test_merge_with_empty_existing(self) -> None:
+        """Test merging when existing summary is empty."""
+        from memory import _merge_summaries
+
+        result = _merge_summaries("", "New summary content")
+        assert result == "New summary content"
+
+    def test_merge_with_existing_summary(self) -> None:
+        """Test merging with existing summary content."""
+        from memory import _merge_summaries
+
+        result = _merge_summaries("Old summary", "New summary")
+        assert "Old summary" in result
+        assert "New summary" in result
+        assert "---" in result  # Separator
+
+    def test_merge_preserves_formatting(self) -> None:
+        """Test that merge preserves newlines in summaries."""
+        from memory import _merge_summaries
+
+        existing = "Line 1\nLine 2"
+        new = "Line 3\nLine 4"
+        result = _merge_summaries(existing, new)
+
+        assert "Line 1" in result
+        assert "Line 2" in result
+        assert "Line 3" in result
+        assert "Line 4" in result
+
+    def test_multiple_merges_accumulate(self, empty_game_state: GameState) -> None:
+        """Test that multiple compress_buffer calls accumulate summaries."""
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=["Event " + str(i) for i in range(10)],
+            long_term_summary="Initial summary",
+            token_limit=100,
+        )
+
+        manager = MemoryManager(state)
+
+        with patch("memory.Summarizer") as MockSummarizer:
+            mock_instance = MagicMock()
+            mock_instance.generate_summary.return_value = "New events summary"
+            MockSummarizer.return_value = mock_instance
+
+            manager.compress_buffer("dm")
+
+        final_summary = state["agent_memories"]["dm"].long_term_summary
+        assert "Initial summary" in final_summary
+        assert "New events summary" in final_summary
+        assert "---" in final_summary
+
+
+# =============================================================================
+# Additional Test Coverage: Summarizer Cache Behavior
+# =============================================================================
+
+
+class TestSummarizerCache:
+    """Tests for the module-level Summarizer cache."""
+
+    def test_cache_reuses_summarizer_instance(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test that cache reuses Summarizer instances."""
+        import memory as memory_module
+
+        state = empty_game_state
+        state["agent_memories"]["dm"] = AgentMemory(
+            short_term_buffer=["Event " + str(i) for i in range(10)],
+            token_limit=100,
+        )
+        state["agent_memories"]["fighter"] = AgentMemory(
+            short_term_buffer=["Action " + str(i) for i in range(10)],
+            token_limit=100,
+        )
+
+        manager = MemoryManager(state)
+
+        with (
+            patch("memory.Summarizer") as MockSummarizer,
+            patch("memory.get_config") as mock_config,
+        ):
+            mock_config.return_value.agents.summarizer.provider = "test"
+            mock_config.return_value.agents.summarizer.model = "test-model"
+            mock_instance = MagicMock()
+            mock_instance.generate_summary.return_value = "Summary"
+            MockSummarizer.return_value = mock_instance
+
+            # Clear cache first
+            memory_module._summarizer_cache.clear()
+
+            manager.compress_buffer("dm")
+            manager.compress_buffer("fighter")
+
+        # Summarizer should only be created once (cached)
+        assert MockSummarizer.call_count == 1
+
+    def test_different_configs_create_different_instances(
+        self, empty_game_state: GameState
+    ) -> None:
+        """Test that different provider/model configs create different instances."""
+        import memory as memory_module
+
+        # Clear cache
+        memory_module._summarizer_cache.clear()
+
+        # Create two instances with different configs
+        cache_key_1 = ("provider1", "model1")
+        cache_key_2 = ("provider2", "model2")
+
+        with patch("memory.Summarizer") as MockSummarizer:
+            mock_instance = MagicMock()
+            MockSummarizer.return_value = mock_instance
+
+            memory_module._summarizer_cache[cache_key_1] = MockSummarizer(
+                "provider1", "model1"
+            )
+            memory_module._summarizer_cache[cache_key_2] = MockSummarizer(
+                "provider2", "model2"
+            )
+
+        assert len(memory_module._summarizer_cache) == 2
+        assert cache_key_1 in memory_module._summarizer_cache
+        assert cache_key_2 in memory_module._summarizer_cache
