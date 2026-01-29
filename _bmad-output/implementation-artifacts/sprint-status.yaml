@@ -91,10 +91,10 @@ development_status:
   epic-5-retrospective: optional
 
   # Epic 6: LLM Configuration UI (5 stories)
-  epic-6: in-progress
+  epic-6: done
   6-1-configuration-modal-structure: done
   6-2-api-key-management-ui: done
   6-3-per-agent-model-selection: done
   6-4-context-limit-configuration: done
-  6-5-mid-campaign-provider-switching: ready-for-dev
+  6-5-mid-campaign-provider-switching: done
   epic-6-retrospective: optional

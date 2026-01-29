@@ -45,12 +45,12 @@ This project has completed comprehensive planning and architecture design. Imple
 
 | Epic | Description | Status |
 |------|-------------|--------|
-| 1 | Core Game Engine | 🟡 In Progress |
-| 2 | Streamlit Viewer Experience | ⚪ Backlog |
-| 3 | Human Participation | ⚪ Backlog |
-| 4 | Session Persistence & Recovery | ⚪ Backlog |
-| 5 | Memory & Narrative Continuity | ⚪ Backlog |
-| 6 | LLM Configuration UI | ⚪ Backlog |
+| 1 | Core Game Engine | ✅ Complete |
+| 2 | Streamlit Viewer Experience | ✅ Complete |
+| 3 | Human Participation | ✅ Complete |
+| 4 | Session Persistence & Recovery | ✅ Complete |
+| 5 | Memory & Narrative Continuity | ✅ Complete |
+| 6 | LLM Configuration UI | ✅ Complete |
 
 See the [planning artifacts](_bmad-output/planning-artifacts/) for:
 

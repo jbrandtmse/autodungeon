@@ -602,7 +602,7 @@
 | 6-2-api-key-management-ui | ✅ done | Full Cycle |
 | 6-3-per-agent-model-selection | ✅ done | Full Cycle |
 | 6-4-context-limit-configuration | ✅ done | Full Cycle |
-| 6-5-mid-campaign-provider-switching | 🔄 in-progress | Create Story |
+| 6-5-mid-campaign-provider-switching | ✅ done | Full Cycle |
 
 ---
 
@@ -728,6 +728,106 @@
 
 ### User Input Required
 - None - all issues auto-resolved
+
+---
+
+## Story: 6-5-mid-campaign-provider-switching
+
+**Status:** ✅ Completed
+**Duration:** 2026-01-28
+
+### Files Touched
+- `app.py` - Provider switching functions, confirmation messages, availability status, pending badges
+- `styles/theme.css` - Pending change badge, provider unavailable warning CSS
+- `tests/test_story_6_5_mid_campaign_switch.py` - 86 tests (41 initial + 45 testarch)
+
+### Key Design Decisions
+- Confirmation messages: "[Character] will use [Provider/Model] starting next turn"
+- Provider availability status checks API keys and Ollama server health
+- Pending change badges show uncommitted model overrides in Models tab
+- Provider unavailable warnings when current provider is down
+- Campaign data preservation verified (ground_truth_log, agent_memories, etc.)
+- Memory continuity maintained across provider switches
+
+### Issues Auto-Resolved
+- **MEDIUM**: Missing defensive validation in generate_model_change_messages() → Added isinstance and .get() checks
+- **MEDIUM**: Missing edge case tests for is_agent_provider_unavailable → Added 3 tests
+- **LOW**: Missing malformed override handling tests → Added 2 tests
+- **LOW**: Pyright type narrowing → Added str() conversion
+
+### User Input Required
+- None - all issues auto-resolved
+
+---
+
+# Epic 6 - Cycle Complete
+
+**Completion Time:** 2026-01-28
+**Total Stories Processed:** 5
+**Epic Status:** ✅ DONE
+
+## Overall Statistics
+- Total files touched: 18 unique files
+- Total design decisions: 28
+- Total issues auto-resolved: 28
+- Total user interventions: 0
+
+## Stories Completed This Cycle
+| Story | Tests Added | Issues Fixed |
+|-------|-------------|--------------|
+| 6-1-configuration-modal-structure | 77 | 6 |
+| 6-2-api-key-management-ui | 138 | 5 |
+| 6-3-per-agent-model-selection | 91 | 5 |
+| 6-4-context-limit-configuration | 74 | 6 |
+| 6-5-mid-campaign-provider-switching | 86 | 4 |
+
+**Total Tests Added:** 466
+**Total Test Count:** 2448
+
+## Key Features Delivered
+
+1. **Configuration Modal Structure (6.1)**
+   - Configure button in sidebar
+   - Three-tab modal: API Keys, Models, Settings
+   - Auto-pause/resume on modal open/close
+   - Unsaved changes detection
+
+2. **API Key Management UI (6.2)**
+   - Entry fields for Gemini, Claude, Ollama
+   - Environment variable detection with badges
+   - Async validation with status indicators
+   - Error message sanitization for security
+
+3. **Per-Agent Model Selection (6.3)**
+   - Models tab grid with all agents
+   - Provider/model dropdowns per agent
+   - Quick actions: Copy DM to all, Reset to defaults
+   - Status indicators (Active/AI/You)
+
+4. **Context Limit Configuration (6.4)**
+   - Token limit fields per agent in Settings tab
+   - Model maximum context hints
+   - Low limit warnings, maximum clamping
+   - Non-retroactive memory changes
+
+5. **Mid-Campaign Provider Switching (6.5)**
+   - Specific change confirmation messages
+   - Provider availability status checks
+   - Pending change badges
+   - Campaign data preservation (NFR8)
+
+## FR Coverage Complete
+- FR42: Select DM LLM provider (UI) ✅
+- FR43: Select PC LLM providers (UI) ✅
+- FR44: Select summarization model (UI) ✅
+- FR45: Configure context limits (UI) ✅
+- FR47: Override API keys in UI ✅
+- NFR8: Provider switching without data loss ✅
+
+## Recommendations
+- Run epic retrospective: `/bmad-bmm-retrospective`
+- Check sprint status: `/bmad-bmm-sprint-status`
+- All 6 Epics are now COMPLETE! 🎉
 
 ---
 
