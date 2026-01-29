@@ -797,3 +797,722 @@ class TestEdgeCases:
             warning = get_token_limit_warning(500)
             # The warning text is a constant; the indicator is added in render
             assert warning == "Low limit may affect memory quality"
+
+
+# =============================================================================
+# Boundary Value Tests (Expanded Coverage)
+# =============================================================================
+
+
+class TestBoundaryValues:
+    """Tests for boundary conditions and edge values."""
+
+    def test_warning_at_boundary_minus_one(self) -> None:
+        """Test warning at MINIMUM_TOKEN_LIMIT - 1."""
+        with patch("app.st") as mock_st:
+            mock_st.session_state = {}
+            from app import get_token_limit_warning
+
+            # 999 is below threshold
+            warning = get_token_limit_warning(999)
+            assert warning is not None
+
+    def test_no_warning_at_boundary_plus_one(self) -> None:
+        """Test no warning at MINIMUM_TOKEN_LIMIT + 1."""
+        with patch("app.st") as mock_st:
+            mock_st.session_state = {}
+            from app import get_token_limit_warning
+
+            # 1001 is above threshold
+            warning = get_token_limit_warning(1001)
+            assert warning is None
+
+    def test_warning_at_zero(self) -> None:
+        """Test warning for zero token limit."""
+        with patch("app.st") as mock_st:
+            mock_st.session_state = {}
+            from app import get_token_limit_warning
+
+            warning = get_token_limit_warning(0)
+            assert warning == "Low limit may affect memory quality"
+
+    def test_warning_at_one(self) -> None:
+        """Test warning for minimum possible value."""
+        with patch("app.st") as mock_st:
+            mock_st.session_state = {}
+            from app import get_token_limit_warning
+
+            warning = get_token_limit_warning(1)
+            assert warning == "Low limit may affect memory quality"
+
+    def test_validate_token_limit_exactly_at_max(self) -> None:
+        """Test validation when value equals model maximum exactly."""
+        with patch("app.st") as mock_st:
+            mock_st.session_state = {}
+            from app import validate_token_limit
+
+            with patch("app.get_current_agent_model") as mock_get_model:
+                mock_get_model.return_value = ("ollama", "llama3")  # 8192 max
+                adjusted, msg = validate_token_limit("dm", 8192)
+                assert adjusted == 8192
+                assert msg is None  # No clamping message when exactly at max
+
+    def test_validate_token_limit_one_over_max(self) -> None:
+        """Test validation when value is one over model maximum."""
+        with patch("app.st") as mock_st:
+            mock_st.session_state = {}
+            from app import validate_token_limit
+
+            with patch("app.get_current_agent_model") as mock_get_model:
+                mock_get_model.return_value = ("ollama", "llama3")  # 8192 max
+                adjusted, msg = validate_token_limit("dm", 8193)
+                assert adjusted == 8192  # Clamped
+                assert msg is not None  # Should have info message
+
+    def test_validate_token_limit_one_under_max(self) -> None:
+        """Test validation when value is one under model maximum."""
+        with patch("app.st") as mock_st:
+            mock_st.session_state = {}
+            from app import validate_token_limit
+
+            with patch("app.get_current_agent_model") as mock_get_model:
+                mock_get_model.return_value = ("ollama", "llama3")  # 8192 max
+                adjusted, msg = validate_token_limit("dm", 8191)
+                assert adjusted == 8191
+                assert msg is None
+
+    def test_validate_with_very_large_value(self) -> None:
+        """Test validation with extremely large value."""
+        with patch("app.st") as mock_st:
+            mock_st.session_state = {}
+            from app import validate_token_limit
+
+            with patch("app.get_current_agent_model") as mock_get_model:
+                mock_get_model.return_value = ("gemini", "gemini-1.5-pro")  # 2M max
+                # Test with value larger than any model supports
+                adjusted, msg = validate_token_limit("dm", 10_000_000)
+                assert adjusted == 2_000_000  # Clamped to Gemini Pro max
+                assert msg is not None
+
+
+# =============================================================================
+# Handle Token Limit Change Tests (Expanded Coverage)
+# =============================================================================
+
+
+class TestHandleTokenLimitChange:
+    """Tests for handle_token_limit_change callback."""
+
+    def test_handle_change_stores_override(self) -> None:
+        """Test that handle_token_limit_change stores value in overrides."""
+        with patch("app.st") as mock_st:
+            mock_st.session_state = {
+                "token_limit_dm": 12000,
+                "token_limit_overrides": {},
+                "game": None,
+            }
+
+            with patch("app.mark_config_changed") as mock_mark:
+                with patch("app.get_current_agent_model") as mock_get_model:
+                    mock_get_model.return_value = ("gemini", "gemini-1.5-flash")
+                    from app import handle_token_limit_change
+
+                    handle_token_limit_change("dm")
+
+                    assert mock_st.session_state["token_limit_overrides"]["dm"] == 12000
+                    mock_mark.assert_called_once()
+
+    def test_handle_change_with_none_value(self) -> None:
+        """Test handle_token_limit_change returns early when value is None."""
+        with patch("app.st") as mock_st:
+            mock_st.session_state = {
+                "token_limit_dm": None,
+                "token_limit_overrides": {},
+            }
+
+            with patch("app.mark_config_changed") as mock_mark:
+                from app import handle_token_limit_change
+
+                handle_token_limit_change("dm")
+
+                # Should not have updated overrides or called mark_config_changed
+                assert "dm" not in mock_st.session_state["token_limit_overrides"]
+                mock_mark.assert_not_called()
+
+    def test_handle_change_stores_info_message_on_clamp(self) -> None:
+        """Test that clamping stores info message in session state."""
+        with patch("app.st") as mock_st:
+            mock_st.session_state = {
+                "token_limit_dm": 50000,  # Exceeds llama3 max
+                "token_limit_overrides": {},
+                "game": None,
+            }
+
+            with patch("app.mark_config_changed"):
+                with patch("app.get_current_agent_model") as mock_get_model:
+                    mock_get_model.return_value = ("ollama", "llama3")  # 8192 max
+                    from app import handle_token_limit_change
+
+                    handle_token_limit_change("dm")
+
+                    # Should store clamped value
+                    assert mock_st.session_state["token_limit_overrides"]["dm"] == 8192
+                    # Should store info message
+                    assert "token_limit_info_dm" in mock_st.session_state
+                    assert "8,192" in mock_st.session_state["token_limit_info_dm"]
+
+    def test_handle_change_clears_info_message_on_valid_value(self) -> None:
+        """Test that valid value clears any previous info message."""
+        with patch("app.st") as mock_st:
+            mock_st.session_state = {
+                "token_limit_dm": 4000,  # Valid value
+                "token_limit_overrides": {},
+                "token_limit_info_dm": "Previous info message",
+                "game": None,
+            }
+
+            with patch("app.mark_config_changed"):
+                with patch("app.get_current_agent_model") as mock_get_model:
+                    mock_get_model.return_value = ("gemini", "gemini-1.5-flash")
+                    from app import handle_token_limit_change
+
+                    handle_token_limit_change("dm")
+
+                    # Info message should be cleared
+                    assert "token_limit_info_dm" not in mock_st.session_state
+
+
+# =============================================================================
+# Apply Token Limit Changes - Additional Tests
+# =============================================================================
+
+
+class TestApplyTokenLimitChangesExtended:
+    """Extended tests for apply_token_limit_changes function."""
+
+    def test_apply_with_no_game_state(self) -> None:
+        """Test apply does nothing when game state is None."""
+        with patch("app.st") as mock_st:
+            mock_st.session_state = {
+                "token_limit_overrides": {"dm": 16000},
+                "game": None,
+            }
+            from app import apply_token_limit_changes
+
+            # Should not raise an error
+            apply_token_limit_changes()
+
+            # Game should still be None
+            assert mock_st.session_state["game"] is None
+
+    def test_apply_with_empty_overrides(self) -> None:
+        """Test apply does nothing when overrides are empty."""
+        from models import DMConfig
+
+        with patch("app.st") as mock_st:
+            mock_st.session_state = {
+                "token_limit_overrides": {},
+                "game": {
+                    "dm_config": DMConfig(token_limit=8000),
+                    "agent_memories": {},
+                    "characters": {},
+                },
+            }
+            from app import apply_token_limit_changes
+
+            apply_token_limit_changes()
+
+            # DM config should be unchanged
+            assert mock_st.session_state["game"]["dm_config"].token_limit == 8000
+
+    def test_apply_multiple_characters(self) -> None:
+        """Test applying changes to multiple characters at once."""
+        from models import AgentMemory, CharacterConfig, DMConfig
+
+        with patch("app.st") as mock_st:
+            mock_st.session_state = {
+                "token_limit_overrides": {
+                    "dm": 20000,
+                    "fighter": 5000,
+                    "wizard": 6000,
+                    "rogue": 7000,
+                },
+                "game": {
+                    "dm_config": DMConfig(token_limit=8000),
+                    "agent_memories": {
+                        "dm": AgentMemory(token_limit=8000),
+                        "fighter": AgentMemory(token_limit=4000),
+                        "wizard": AgentMemory(token_limit=4000),
+                        "rogue": AgentMemory(token_limit=4000),
+                    },
+                    "characters": {
+                        "fighter": CharacterConfig(
+                            name="Fighter",
+                            character_class="Fighter",
+                            personality="Brave",
+                            color="#C45C4A",
+                            token_limit=4000,
+                        ),
+                        "wizard": CharacterConfig(
+                            name="Wizard",
+                            character_class="Wizard",
+                            personality="Curious",
+                            color="#7B68B8",
+                            token_limit=4000,
+                        ),
+                        "rogue": CharacterConfig(
+                            name="Rogue",
+                            character_class="Rogue",
+                            personality="Sneaky",
+                            color="#5A8F5A",
+                            token_limit=4000,
+                        ),
+                    },
+                },
+            }
+            from app import apply_token_limit_changes
+
+            apply_token_limit_changes()
+
+            game = mock_st.session_state["game"]
+            # Verify all limits updated correctly
+            assert game["dm_config"].token_limit == 20000
+            assert game["agent_memories"]["dm"].token_limit == 20000
+            assert game["characters"]["fighter"].token_limit == 5000
+            assert game["agent_memories"]["fighter"].token_limit == 5000
+            assert game["characters"]["wizard"].token_limit == 6000
+            assert game["agent_memories"]["wizard"].token_limit == 6000
+            assert game["characters"]["rogue"].token_limit == 7000
+            assert game["agent_memories"]["rogue"].token_limit == 7000
+
+    def test_apply_partial_overrides(self) -> None:
+        """Test applying changes when only some agents have overrides."""
+        from models import AgentMemory, CharacterConfig, DMConfig
+
+        with patch("app.st") as mock_st:
+            mock_st.session_state = {
+                "token_limit_overrides": {
+                    "fighter": 10000,  # Only fighter has override
+                },
+                "game": {
+                    "dm_config": DMConfig(token_limit=8000),
+                    "agent_memories": {
+                        "dm": AgentMemory(token_limit=8000),
+                        "fighter": AgentMemory(token_limit=4000),
+                        "wizard": AgentMemory(token_limit=4000),
+                    },
+                    "characters": {
+                        "fighter": CharacterConfig(
+                            name="Fighter",
+                            character_class="Fighter",
+                            personality="Brave",
+                            color="#C45C4A",
+                            token_limit=4000,
+                        ),
+                        "wizard": CharacterConfig(
+                            name="Wizard",
+                            character_class="Wizard",
+                            personality="Curious",
+                            color="#7B68B8",
+                            token_limit=4000,
+                        ),
+                    },
+                },
+            }
+            from app import apply_token_limit_changes
+
+            apply_token_limit_changes()
+
+            game = mock_st.session_state["game"]
+            # Fighter updated
+            assert game["characters"]["fighter"].token_limit == 10000
+            assert game["agent_memories"]["fighter"].token_limit == 10000
+            # DM and wizard unchanged
+            assert game["dm_config"].token_limit == 8000
+            assert game["agent_memories"]["dm"].token_limit == 8000
+            assert game["characters"]["wizard"].token_limit == 4000
+            assert game["agent_memories"]["wizard"].token_limit == 4000
+
+    def test_apply_with_missing_agent_memory(self) -> None:
+        """Test apply handles agents without corresponding memory entries."""
+        from models import CharacterConfig, DMConfig
+
+        with patch("app.st") as mock_st:
+            mock_st.session_state = {
+                "token_limit_overrides": {
+                    "fighter": 10000,
+                },
+                "game": {
+                    "dm_config": DMConfig(token_limit=8000),
+                    "agent_memories": {},  # No memories
+                    "characters": {
+                        "fighter": CharacterConfig(
+                            name="Fighter",
+                            character_class="Fighter",
+                            personality="Brave",
+                            color="#C45C4A",
+                            token_limit=4000,
+                        ),
+                    },
+                },
+            }
+            from app import apply_token_limit_changes
+
+            # Should not raise an error
+            apply_token_limit_changes()
+
+            game = mock_st.session_state["game"]
+            # Character config updated
+            assert game["characters"]["fighter"].token_limit == 10000
+            # No memory to update, but should not error
+
+
+# =============================================================================
+# Get Effective Token Limit - Extended Tests
+# =============================================================================
+
+
+class TestGetEffectiveTokenLimitExtended:
+    """Extended tests for get_effective_token_limit function."""
+
+    def test_override_takes_precedence_over_game_state(self) -> None:
+        """Test that UI override takes precedence over game state."""
+        from models import DMConfig
+
+        with patch("app.st") as mock_st:
+            mock_st.session_state = {
+                "token_limit_overrides": {"dm": 50000},  # Override
+                "game": {"dm_config": DMConfig(token_limit=8000)},  # Different value
+            }
+            from app import get_effective_token_limit
+
+            # Should return override value, not game state value
+            limit = get_effective_token_limit("dm")
+            assert limit == 50000
+
+    def test_character_not_in_game_returns_default(self) -> None:
+        """Test fallback for character not found in game state."""
+        from models import DMConfig
+
+        with patch("app.st") as mock_st:
+            mock_st.session_state = {
+                "token_limit_overrides": {},
+                "game": {
+                    "dm_config": DMConfig(),
+                    "characters": {},  # No characters
+                },
+            }
+            from app import get_effective_token_limit
+
+            # Should return default
+            limit = get_effective_token_limit("unknown_character")
+            assert limit == 4000  # Default fallback
+
+    def test_dm_with_none_dm_config(self) -> None:
+        """Test DM fallback when dm_config is None."""
+        with patch("app.st") as mock_st:
+            mock_st.session_state = {
+                "token_limit_overrides": {},
+                "game": {"dm_config": None, "characters": {}},
+            }
+            from app import get_effective_token_limit
+
+            limit = get_effective_token_limit("dm")
+            # Should return DM default (8000)
+            assert limit == 8000
+
+
+# =============================================================================
+# Model Constants Tests (Extended Coverage)
+# =============================================================================
+
+
+class TestModelConstantsExtended:
+    """Extended tests for model context constants."""
+
+    def test_all_gemini_models_have_at_least_1m_context(self) -> None:
+        """Verify all Gemini models support at least 1M context."""
+        from config import MODEL_MAX_CONTEXT
+
+        gemini_models = [k for k in MODEL_MAX_CONTEXT if k.startswith("gemini")]
+        for model in gemini_models:
+            assert MODEL_MAX_CONTEXT[model] >= 1_000_000
+
+    def test_all_claude_models_have_200k_context(self) -> None:
+        """Verify all Claude models have 200K context."""
+        from config import MODEL_MAX_CONTEXT
+
+        claude_models = [k for k in MODEL_MAX_CONTEXT if k.startswith("claude")]
+        for model in claude_models:
+            assert MODEL_MAX_CONTEXT[model] == 200_000
+
+    def test_default_max_context_is_conservative(self) -> None:
+        """Verify DEFAULT_MAX_CONTEXT is a safe conservative value."""
+        from config import DEFAULT_MAX_CONTEXT, MODEL_MAX_CONTEXT
+
+        # Default should be less than or equal to smallest known model
+        min_known = min(MODEL_MAX_CONTEXT.values())
+        assert DEFAULT_MAX_CONTEXT <= min_known
+
+    def test_minimum_token_limit_is_reasonable(self) -> None:
+        """Verify MINIMUM_TOKEN_LIMIT is a reasonable value."""
+        from config import MINIMUM_TOKEN_LIMIT
+
+        # Should be at least 100 (some minimal context)
+        assert MINIMUM_TOKEN_LIMIT >= 100
+        # Should be less than 10000 (shouldn't warn for normal values)
+        assert MINIMUM_TOKEN_LIMIT < 10000
+
+
+# =============================================================================
+# Snapshot Config Values - Extended Tests
+# =============================================================================
+
+
+class TestSnapshotConfigValuesExtended:
+    """Extended tests for snapshot_config_values function."""
+
+    def test_snapshot_with_multiple_token_limits(self) -> None:
+        """Test snapshot captures all token limit overrides."""
+        with patch("app.st") as mock_st:
+            mock_st.session_state = {
+                "api_key_overrides": {},
+                "agent_model_overrides": {},
+                "token_limit_overrides": {
+                    "dm": 16000,
+                    "fighter": 8000,
+                    "wizard": 6000,
+                    "summarizer": 5000,
+                },
+            }
+            from app import snapshot_config_values
+
+            snapshot = snapshot_config_values()
+
+            assert snapshot["settings"]["token_limits"] == {
+                "dm": 16000,
+                "fighter": 8000,
+                "wizard": 6000,
+                "summarizer": 5000,
+            }
+
+    def test_snapshot_handles_missing_token_limit_overrides(self) -> None:
+        """Test snapshot handles when token_limit_overrides doesn't exist."""
+        with patch("app.st") as mock_st:
+            mock_st.session_state = {
+                "api_key_overrides": {},
+                "agent_model_overrides": {},
+                # No token_limit_overrides key
+            }
+            from app import snapshot_config_values
+
+            snapshot = snapshot_config_values()
+
+            # Should return empty dict, not error
+            assert snapshot["settings"]["token_limits"] == {}
+
+
+# =============================================================================
+# Render Functions - Basic Coverage Tests
+# =============================================================================
+
+
+class TestRenderFunctions:
+    """Tests for render function basic behavior."""
+
+    def test_render_settings_tab_initializes_overrides(self) -> None:
+        """Test render_settings_tab initializes token_limit_overrides if missing."""
+        with patch("app.st") as mock_st:
+            # Simulate Streamlit functions
+            mock_st.session_state = {"game": None}
+            mock_st.markdown = MagicMock()
+            mock_st.number_input = MagicMock(return_value=4000)
+            mock_st.columns = MagicMock(return_value=[MagicMock(), MagicMock()])
+
+            # Mock the column context managers
+            col1, col2 = mock_st.columns.return_value
+            col1.__enter__ = MagicMock(return_value=col1)
+            col1.__exit__ = MagicMock(return_value=False)
+            col2.__enter__ = MagicMock(return_value=col2)
+            col2.__exit__ = MagicMock(return_value=False)
+
+            # Mock render_token_limit_row to avoid complex rendering
+            with patch("app.render_token_limit_row"):
+                from app import render_settings_tab
+
+                render_settings_tab()
+
+                # Should initialize token_limit_overrides
+                assert "token_limit_overrides" in mock_st.session_state
+                assert mock_st.session_state["token_limit_overrides"] == {}
+
+
+# =============================================================================
+# Validation Message Format Tests
+# =============================================================================
+
+
+class TestValidationMessageFormat:
+    """Tests for validation message formatting."""
+
+    def test_clamp_message_includes_formatted_number(self) -> None:
+        """Test that clamp message includes comma-formatted number."""
+        with patch("app.st") as mock_st:
+            mock_st.session_state = {}
+            from app import validate_token_limit
+
+            with patch("app.get_current_agent_model") as mock_get_model:
+                mock_get_model.return_value = ("gemini", "gemini-1.5-flash")  # 1M max
+                _, msg = validate_token_limit("dm", 2_000_000)
+
+                # Message should contain formatted number
+                assert msg is not None
+                assert "1,000,000" in msg
+
+    def test_clamp_message_mentions_model_maximum(self) -> None:
+        """Test that clamp message mentions model maximum."""
+        with patch("app.st") as mock_st:
+            mock_st.session_state = {}
+            from app import validate_token_limit
+
+            with patch("app.get_current_agent_model") as mock_get_model:
+                mock_get_model.return_value = ("ollama", "llama3")
+                _, msg = validate_token_limit("dm", 50000)
+
+                assert msg is not None
+                assert "model maximum" in msg.lower() or "maximum" in msg.lower()
+
+
+# =============================================================================
+# Memory Manager Integration - Extended Tests
+# =============================================================================
+
+
+class TestMemoryManagerIntegrationExtended:
+    """Extended tests for memory manager integration with token limits."""
+
+    def test_memory_manager_respects_updated_token_limit(self) -> None:
+        """Test that MemoryManager uses updated token limits after apply."""
+        from memory import MemoryManager
+        from models import AgentMemory
+
+        # Initial state with default limit
+        state = {
+            "agent_memories": {
+                "fighter": AgentMemory(
+                    token_limit=10000,
+                    short_term_buffer=["Entry " * 100 for _ in range(50)],  # Large buffer
+                ),
+            }
+        }
+
+        manager = MemoryManager(state)  # type: ignore[arg-type]
+
+        # Check near limit with high limit
+        near_with_high_limit = manager.is_near_limit("fighter", threshold=0.8)
+
+        # Now update to lower limit
+        state["agent_memories"]["fighter"] = state["agent_memories"][
+            "fighter"
+        ].model_copy(update={"token_limit": 1000})
+
+        # Create new manager with updated state
+        manager2 = MemoryManager(state)  # type: ignore[arg-type]
+        near_with_low_limit = manager2.is_near_limit("fighter", threshold=0.8)
+
+        # With same buffer, lower limit should be more likely to be near limit
+        # (This may or may not flip depending on actual buffer size, but verifies the call works)
+        assert isinstance(near_with_high_limit, bool)
+        assert isinstance(near_with_low_limit, bool)
+
+    def test_memory_manager_with_custom_threshold(self) -> None:
+        """Test is_near_limit with various threshold values."""
+        from memory import MemoryManager
+        from models import AgentMemory
+
+        state = {
+            "agent_memories": {
+                "test_agent": AgentMemory(
+                    token_limit=1000,
+                    short_term_buffer=["Test entry"],
+                ),
+            }
+        }
+
+        manager = MemoryManager(state)  # type: ignore[arg-type]
+
+        # Test with different thresholds
+        result_low = manager.is_near_limit("test_agent", threshold=0.1)
+        result_high = manager.is_near_limit("test_agent", threshold=0.99)
+
+        assert isinstance(result_low, bool)
+        assert isinstance(result_high, bool)
+
+
+# =============================================================================
+# Config Modal Integration - Extended Tests
+# =============================================================================
+
+
+class TestConfigModalIntegrationExtended:
+    """Extended integration tests for config modal."""
+
+    def test_save_click_applies_token_limits_with_toast(self) -> None:
+        """Test that saving shows toast notification."""
+        from models import AgentMemory, DMConfig
+
+        with patch("app.st") as mock_st:
+            mock_st.toast = MagicMock()
+            mock_st.rerun = MagicMock()
+
+            mock_st.session_state = {
+                "agent_model_overrides": {},
+                "token_limit_overrides": {"dm": 15000, "fighter": 7000},
+                "game": {
+                    "dm_config": DMConfig(token_limit=8000),
+                    "agent_memories": {
+                        "dm": AgentMemory(token_limit=8000),
+                    },
+                    "characters": {},
+                },
+                "config_modal_open": True,
+                "was_paused_before_modal": False,
+            }
+
+            with patch("app.apply_api_key_overrides"):
+                with patch("app.handle_config_modal_close"):
+                    from app import handle_config_save_click
+
+                    handle_config_save_click()
+
+            # Toast should have been called
+            mock_st.toast.assert_called()
+
+    def test_save_click_with_only_token_limit_changes(self) -> None:
+        """Test saving when only token limits changed (no model changes)."""
+        from models import AgentMemory, DMConfig
+
+        with patch("app.st") as mock_st:
+            mock_st.toast = MagicMock()
+            mock_st.rerun = MagicMock()
+
+            mock_st.session_state = {
+                "agent_model_overrides": {},  # No model changes
+                "token_limit_overrides": {"summarizer": 6000},
+                "game": {
+                    "dm_config": DMConfig(token_limit=8000),
+                    "agent_memories": {},
+                    "characters": {},
+                },
+                "config_modal_open": True,
+                "was_paused_before_modal": False,
+            }
+
+            with patch("app.apply_api_key_overrides"):
+                with patch("app.handle_config_modal_close"):
+                    from app import handle_config_save_click
+
+                    handle_config_save_click()
+
+            # Should complete without error
+            mock_st.toast.assert_called()

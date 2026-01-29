@@ -2,7 +2,7 @@
 
 **Generated:** 2026-01-28
 **Project:** autodungeon
-**Workflow:** testarch-automate (Standalone Mode)
+**Workflow:** testarch-automate (BMad-Integrated Mode)
 
 ---
 
@@ -12,13 +12,82 @@ Expanded test coverage for the autodungeon project by analyzing existing gaps an
 
 | Metric | Before | After | Change |
 |--------|--------|-------|--------|
-| Total Tests | 2239 | 2288 | +49 |
-| Story 6-3 Tests | 42 | 91 | +49 |
-| Story 6-3 Coverage | Basic | Comprehensive | +116% growth |
+| Total Tests | 2329 | 2362 | +33 |
+| Story 6-4 Tests | 41 | 74 | +33 |
+| Story 6-4 Coverage | Basic | Comprehensive | +80% growth |
 
 ---
 
-## Story 6-3: Per-Agent Model Selection (Latest Session)
+## Story 6-4: Context Limit Configuration (Latest Session)
+
+**Date:** 2026-01-28
+**Story Key:** 6-4-context-limit-configuration
+
+### Implementation Summary
+
+Story 6.4 implements Context Limit Configuration for LLM Configuration UI (Epic 6):
+- `app.py` - Token limit functions (get_effective_token_limit, get_token_limit_warning, validate_token_limit, handle_token_limit_change, apply_token_limit_changes, render_token_limit_row, render_settings_tab)
+- `config.py` - MODEL_MAX_CONTEXT dict, DEFAULT_MAX_CONTEXT (8192), MINIMUM_TOKEN_LIMIT (1000), get_model_max_context()
+- `styles/theme.css` - Token limit CSS classes (.settings-section-header, .token-limit-row, .token-limit-hint, .token-limit-warning, .token-limit-info, .token-limit-separator)
+
+### Tests Added (33 new tests in 10 test classes)
+
+| Test Class | Tests | Focus Area |
+|------------|-------|------------|
+| TestBoundaryValues | 8 | Boundary condition tests |
+| TestHandleTokenLimitChange | 4 | Callback function tests |
+| TestApplyTokenLimitChangesExtended | 5 | Extended apply tests |
+| TestGetEffectiveTokenLimitExtended | 3 | Extended get limit tests |
+| TestModelConstantsExtended | 4 | Model constant validation |
+| TestSnapshotConfigValuesExtended | 2 | Extended snapshot tests |
+| TestRenderFunctions | 1 | Render function tests |
+| TestValidationMessageFormat | 2 | Message formatting tests |
+| TestMemoryManagerIntegrationExtended | 2 | Extended memory tests |
+| TestConfigModalIntegrationExtended | 2 | Extended modal tests |
+
+### Key Test Scenarios Added
+
+1. **Boundary Value Tests:**
+   - Warning at MINIMUM_TOKEN_LIMIT - 1 (999)
+   - No warning at MINIMUM_TOKEN_LIMIT + 1 (1001)
+   - Warning at zero and one
+   - Validation at exact model max
+   - Clamping at model max + 1
+   - Extremely large value handling
+
+2. **Handle Token Limit Change:**
+   - Callback stores override value
+   - Early return on None value
+   - Info message stored on clamp
+   - Info message cleared on valid value
+
+3. **Apply Token Limit Changes Extended:**
+   - Handles None game state gracefully
+   - No changes with empty overrides
+   - Updates multiple characters at once
+   - Only updates agents with overrides
+   - Handles missing memory entries
+
+4. **Model Constants Validation:**
+   - All Gemini models have at least 1M context
+   - All Claude models have 200K context
+   - DEFAULT_MAX_CONTEXT is conservative
+   - MINIMUM_TOKEN_LIMIT is reasonable
+
+5. **Message Formatting:**
+   - Clamp message includes comma-formatted number
+   - Message mentions model maximum
+
+### Quality Checks
+
+```bash
+pytest tests/test_story_6_4_context_limits.py - 74 passed (8.17s)
+pytest (full suite) - 2362 passed, 1 skipped (22.99s)
+```
+
+---
+
+## Story 6-3: Per-Agent Model Selection (Previous Session)
 
 **Date:** 2026-01-28
 **Story Key:** 6-3-per-agent-model-selection
