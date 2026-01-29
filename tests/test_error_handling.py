@@ -162,9 +162,7 @@ class TestCreateUserError:
 
     def test_create_user_error_with_checkpoint(self) -> None:
         """Test factory preserves last_checkpoint_turn."""
-        error = create_user_error(
-            error_type="timeout", last_checkpoint_turn=10
-        )
+        error = create_user_error(error_type="timeout", last_checkpoint_turn=10)
 
         assert error.last_checkpoint_turn == 10
 
@@ -203,9 +201,7 @@ class TestLLMError:
 
     def test_llm_error_message(self) -> None:
         """Test LLMError has descriptive message."""
-        error = LLMError(
-            provider="ollama", agent="fighter", error_type="network_error"
-        )
+        error = LLMError(provider="ollama", agent="fighter", error_type="network_error")
 
         message = str(error)
         assert "network_error" in message
@@ -502,9 +498,7 @@ class TestErrorPanelHTML:
         """Test retry button is disabled when max retries reached."""
         from app import MAX_RETRY_ATTEMPTS, render_error_panel_html
 
-        error = create_user_error(
-            error_type="timeout", retry_count=MAX_RETRY_ATTEMPTS
-        )
+        error = create_user_error(error_type="timeout", retry_count=MAX_RETRY_ATTEMPTS)
         html = render_error_panel_html(error)
 
         # Should have disabled attribute
@@ -575,9 +569,7 @@ class TestRetryFunctionality:
         """Test retry stops after MAX_RETRY_ATTEMPTS."""
         from app import MAX_RETRY_ATTEMPTS, handle_retry_click
 
-        error = create_user_error(
-            error_type="timeout", retry_count=MAX_RETRY_ATTEMPTS
-        )
+        error = create_user_error(error_type="timeout", retry_count=MAX_RETRY_ATTEMPTS)
         mock_session_state: dict[str, Any] = {
             "error": error,
             "error_retry_count": MAX_RETRY_ATTEMPTS,
@@ -603,9 +595,7 @@ class TestRestoreFromError:
         """Test restore button loads last successful checkpoint."""
         from app import handle_error_restore_click
 
-        error = create_user_error(
-            error_type="timeout", last_checkpoint_turn=5
-        )
+        error = create_user_error(error_type="timeout", last_checkpoint_turn=5)
         state = create_initial_game_state()
         state["session_id"] = "001"
 
@@ -628,9 +618,7 @@ class TestRestoreFromError:
         """Test restore clears error state after success."""
         from app import handle_error_restore_click
 
-        error = create_user_error(
-            error_type="timeout", last_checkpoint_turn=3
-        )
+        error = create_user_error(error_type="timeout", last_checkpoint_turn=3)
         state = create_initial_game_state()
         state["session_id"] = "001"
 
@@ -683,9 +671,7 @@ class TestErrorHandlingIntegration:
     """Integration tests for error handling."""
 
     @patch("agents.create_dm_agent")
-    def test_dm_turn_raises_llm_error(
-        self, mock_create_dm_agent: MagicMock
-    ) -> None:
+    def test_dm_turn_raises_llm_error(self, mock_create_dm_agent: MagicMock) -> None:
         """Test dm_turn raises LLMError on API failure."""
         mock_model = MagicMock()
         mock_model.invoke.side_effect = Exception("Request timed out")
@@ -703,9 +689,7 @@ class TestErrorHandlingIntegration:
         assert exc_info.value.agent == "dm"
 
     @patch("agents.create_pc_agent")
-    def test_pc_turn_raises_llm_error(
-        self, mock_create_pc_agent: MagicMock
-    ) -> None:
+    def test_pc_turn_raises_llm_error(self, mock_create_pc_agent: MagicMock) -> None:
         """Test pc_turn raises LLMError on API failure."""
         mock_model = MagicMock()
         mock_model.invoke.side_effect = Exception("Rate limit exceeded")
@@ -946,9 +930,7 @@ class TestCreateUserErrorEdgeCases:
 
     def test_create_user_error_empty_strings_preserved(self) -> None:
         """Test factory preserves empty string parameters."""
-        error = create_user_error(
-            error_type="timeout", provider="", agent=""
-        )
+        error = create_user_error(error_type="timeout", provider="", agent="")
         assert error.provider == ""
         assert error.agent == ""
 
@@ -1231,9 +1213,7 @@ class TestErrorDuringErrorHandling:
         """Test error panel handles None checkpoint gracefully."""
         from app import render_error_panel_html
 
-        error = create_user_error(
-            error_type="timeout", last_checkpoint_turn=None
-        )
+        error = create_user_error(error_type="timeout", last_checkpoint_turn=None)
         html = render_error_panel_html(error)
         # Should still render without crashing
         assert "error-panel" in html
@@ -1326,7 +1306,10 @@ class TestErrorStateCorruption:
         # Agent memories should be preserved
         assert "dm" in result["agent_memories"]
         assert result["agent_memories"]["dm"].long_term_summary == "Previous story"
-        assert result["agent_memories"]["dm"].short_term_buffer == ["Event 1", "Event 2"]
+        assert result["agent_memories"]["dm"].short_term_buffer == [
+            "Event 1",
+            "Event 2",
+        ]
 
 
 # =============================================================================
@@ -1461,7 +1444,16 @@ class TestErrorTypeMessages:
         that users understand when configuring their LLM providers.
         """
         # Tech terms not allowed in title or message (user-facing narrative)
-        tech_terms_narrative = ["http", "json", "ssl", "tcp", "dns", "500", "502", "503"]
+        tech_terms_narrative = [
+            "http",
+            "json",
+            "ssl",
+            "tcp",
+            "dns",
+            "500",
+            "502",
+            "503",
+        ]
 
         for error_type, info in ERROR_TYPES.items():
             for field in ["title", "message"]:

@@ -11689,3 +11689,125 @@ class TestSummarizationIndicatorStreamlitIntegration:
 
         # Should return empty string (same as False)
         assert html == ""
+
+
+# =============================================================================
+# Story 5.4: Cross-Session Memory Integration Tests
+# =============================================================================
+
+
+class TestSessionContinueWithCrossSessionMemory:
+    """Tests for session continuation with cross-session memory (Story 5.4)."""
+
+    def test_handle_session_continue_generates_enhanced_recap(self) -> None:
+        """Test handle_session_continue generates recap with cross-session content."""
+        from models import (
+            AgentMemory,
+            CharacterConfig,
+            CharacterFacts,
+            DMConfig,
+            GameConfig,
+            GameState,
+        )
+
+        facts = CharacterFacts(
+            name="Shadowmere",
+            character_class="Rogue",
+            relationships={"Theros": "Trusted ally"},
+        )
+
+        state: GameState = {
+            "ground_truth_log": ["[dm] The adventure continues."],
+            "turn_queue": ["dm", "rogue"],
+            "current_turn": "dm",
+            "agent_memories": {
+                "dm": AgentMemory(
+                    long_term_summary="Last session: The party found the treasure."
+                ),
+                "rogue": AgentMemory(character_facts=facts),
+            },
+            "game_config": GameConfig(),
+            "dm_config": DMConfig(),
+            "characters": {
+                "rogue": CharacterConfig(
+                    name="Shadowmere",
+                    character_class="Rogue",
+                    personality="Test",
+                    color="#123456",
+                ),
+            },
+            "whisper_queue": [],
+            "human_active": False,
+            "controlled_character": None,
+            "session_number": 1,
+            "session_id": "001",
+        }
+
+        mock_session_state: dict = {}
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("app.get_latest_checkpoint", return_value=10),
+            patch("app.load_checkpoint", return_value=state),
+            patch("app.generate_recap_summary") as mock_recap,
+        ):
+            mock_recap.return_value = "Test recap with cross-session content"
+
+            from app import handle_session_continue
+
+            result = handle_session_continue("001")
+
+            assert result is True
+            # Verify recap was called with include_cross_session=True
+            mock_recap.assert_called_once()
+            call_args = mock_recap.call_args
+            assert call_args[1].get("include_cross_session") is True
+
+    def test_new_session_creates_character_facts(self) -> None:
+        """Test that new session creates CharacterFacts for all characters."""
+        from models import CharacterFacts
+
+        mock_session_state: dict = {}
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("app.create_new_session", return_value="001"),
+        ):
+            from app import handle_new_session_click
+
+            handle_new_session_click()
+
+            # Get the game state that was set
+            game = mock_session_state.get("game")
+            assert game is not None
+
+            # Each PC should have CharacterFacts
+            for char_name in game["characters"]:
+                memory = game["agent_memories"][char_name]
+                assert memory.character_facts is not None
+                assert isinstance(memory.character_facts, CharacterFacts)
+                # CharacterFacts should match character config
+                char_config = game["characters"][char_name]
+                assert memory.character_facts.name == char_config.name
+                assert (
+                    memory.character_facts.character_class
+                    == char_config.character_class
+                )
+
+    def test_new_session_dm_has_no_character_facts(self) -> None:
+        """Test that DM does not have CharacterFacts in new session."""
+        mock_session_state: dict = {}
+
+        with (
+            patch("streamlit.session_state", mock_session_state),
+            patch("app.create_new_session", return_value="001"),
+        ):
+            from app import handle_new_session_click
+
+            handle_new_session_click()
+
+            game = mock_session_state.get("game")
+            assert game is not None
+
+            dm_memory = game["agent_memories"]["dm"]
+            assert dm_memory.character_facts is None
