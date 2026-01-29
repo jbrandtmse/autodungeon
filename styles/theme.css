@@ -2071,3 +2071,95 @@ hr {
 [data-testid="stDialog"] .agent-model-row [data-baseweb="select"] {
   background-color: var(--bg-message);
 }
+
+/* ==========================================================================
+   Token Limit Configuration (Story 6.4)
+   ========================================================================== */
+
+/* Settings tab section header */
+.settings-section-header {
+  font-family: var(--font-ui);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--accent-warm);
+  margin: 0 0 var(--space-lg) 0;
+  padding-bottom: var(--space-sm);
+  border-bottom: 1px solid var(--bg-secondary);
+}
+
+/* Token limit row container */
+.token-limit-row {
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  padding: var(--space-md);
+  margin-bottom: var(--space-md);
+  border-left: 3px solid var(--text-secondary);
+}
+
+/* Character-specific row colors */
+.token-limit-row.dm { border-left-color: var(--color-dm); }
+.token-limit-row.fighter { border-left-color: var(--color-fighter); }
+.token-limit-row.rogue { border-left-color: var(--color-rogue); }
+.token-limit-row.wizard { border-left-color: var(--color-wizard); }
+.token-limit-row.cleric { border-left-color: var(--color-cleric); }
+.token-limit-row.summarizer { border-left-color: var(--text-secondary); opacity: 0.9; }
+
+/* Token limit hint text (model max) */
+.token-limit-hint {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--text-secondary);
+  display: block;
+  margin-top: var(--space-sm);
+}
+
+/* Token limit warning (low limit) */
+.token-limit-warning {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--accent-warm);
+  display: block;
+  margin-top: var(--space-xs);
+}
+
+/* Token limit info message (clamping) */
+.token-limit-info {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--color-cleric);  /* Blue for info */
+  display: block;
+  margin-top: var(--space-xs);
+}
+
+/* Token limit separator between PCs and Summarizer */
+.token-limit-separator {
+  height: 1px;
+  background: var(--bg-secondary);
+  margin: var(--space-lg) 0;
+}
+
+/* Number input styling within token limit rows */
+[data-testid="stDialog"] .token-limit-row .stNumberInput > div > div > input {
+  background: var(--bg-message);
+  border: 1px solid var(--bg-message);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 14px;
+}
+
+[data-testid="stDialog"] .token-limit-row .stNumberInput > div > div > input:focus {
+  border-color: var(--accent-warm);
+  box-shadow: 0 0 0 1px var(--accent-warm);
+}
+
+/* Number input buttons styling */
+[data-testid="stDialog"] .token-limit-row .stNumberInput button {
+  background: var(--bg-message);
+  border: 1px solid var(--bg-secondary);
+  color: var(--text-secondary);
+}
+
+[data-testid="stDialog"] .token-limit-row .stNumberInput button:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}

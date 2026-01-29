@@ -238,17 +238,25 @@ class TestQuickActions:
         from models import CharacterConfig, DMConfig
 
         mock_st.session_state = {
-            "agent_model_overrides": {"dm": {"provider": "claude", "model": "claude-3-haiku-20240307"}},
+            "agent_model_overrides": {
+                "dm": {"provider": "claude", "model": "claude-3-haiku-20240307"}
+            },
             "game": {
-                "dm_config": DMConfig(provider="claude", model="claude-3-haiku-20240307"),
+                "dm_config": DMConfig(
+                    provider="claude", model="claude-3-haiku-20240307"
+                ),
                 "characters": {
                     "theron": CharacterConfig(
-                        name="Theron", character_class="Fighter",
-                        personality="Bold", color="#C45C4A"
+                        name="Theron",
+                        character_class="Fighter",
+                        personality="Bold",
+                        color="#C45C4A",
                     ),
                     "shadowmere": CharacterConfig(
-                        name="Shadowmere", character_class="Rogue",
-                        personality="Sneaky", color="#6B8E6B"
+                        name="Shadowmere",
+                        character_class="Rogue",
+                        personality="Sneaky",
+                        color="#6B8E6B",
                     ),
                 },
             },
@@ -278,11 +286,15 @@ class TestQuickActions:
                 "summarizer": {"provider": "gemini", "model": "gemini-1.5-flash"},
             },
             "game": {
-                "dm_config": DMConfig(provider="claude", model="claude-3-haiku-20240307"),
+                "dm_config": DMConfig(
+                    provider="claude", model="claude-3-haiku-20240307"
+                ),
                 "characters": {
                     "theron": CharacterConfig(
-                        name="Theron", character_class="Fighter",
-                        personality="Bold", color="#C45C4A"
+                        name="Theron",
+                        character_class="Fighter",
+                        personality="Bold",
+                        color="#C45C4A",
                     ),
                 },
             },
@@ -388,7 +400,10 @@ class TestApplyModelConfigChanges:
 
         mock_st.session_state = {
             "agent_model_overrides": {
-                "summarizer": {"provider": "claude", "model": "claude-3-haiku-20240307"},
+                "summarizer": {
+                    "provider": "claude",
+                    "model": "claude-3-haiku-20240307",
+                },
             },
             "game": {
                 "dm_config": DMConfig(),
@@ -412,7 +427,9 @@ class TestApplyModelConfigChanges:
         from models import DMConfig, GameConfig
 
         mock_st.session_state = {
-            "agent_model_overrides": {"dm": {"provider": "claude", "model": "claude-3-haiku-20240307"}},
+            "agent_model_overrides": {
+                "dm": {"provider": "claude", "model": "claude-3-haiku-20240307"}
+            },
             "game": {
                 "dm_config": DMConfig(),
                 "characters": {},
@@ -610,25 +627,37 @@ class TestAcceptanceCriteria:
         from models import CharacterConfig, DMConfig
 
         mock_st.session_state = {
-            "agent_model_overrides": {"dm": {"provider": "claude", "model": "claude-sonnet-4-20250514"}},
+            "agent_model_overrides": {
+                "dm": {"provider": "claude", "model": "claude-sonnet-4-20250514"}
+            },
             "game": {
-                "dm_config": DMConfig(provider="claude", model="claude-sonnet-4-20250514"),
+                "dm_config": DMConfig(
+                    provider="claude", model="claude-sonnet-4-20250514"
+                ),
                 "characters": {
                     "theron": CharacterConfig(
-                        name="Theron", character_class="Fighter",
-                        personality="Bold", color="#C45C4A"
+                        name="Theron",
+                        character_class="Fighter",
+                        personality="Bold",
+                        color="#C45C4A",
                     ),
                     "shadowmere": CharacterConfig(
-                        name="Shadowmere", character_class="Rogue",
-                        personality="Sneaky", color="#6B8E6B"
+                        name="Shadowmere",
+                        character_class="Rogue",
+                        personality="Sneaky",
+                        color="#6B8E6B",
                     ),
                     "lyra": CharacterConfig(
-                        name="Lyra", character_class="Wizard",
-                        personality="Wise", color="#7B68B8"
+                        name="Lyra",
+                        character_class="Wizard",
+                        personality="Wise",
+                        color="#7B68B8",
                     ),
                     "brother aldric": CharacterConfig(
-                        name="Brother Aldric", character_class="Cleric",
-                        personality="Calm", color="#4A90A4"
+                        name="Brother Aldric",
+                        character_class="Cleric",
+                        personality="Calm",
+                        color="#4A90A4",
                     ),
                 },
             },
@@ -653,7 +682,10 @@ class TestAcceptanceCriteria:
             "agent_model_overrides": {
                 "dm": {"provider": "claude", "model": "claude-3-haiku-20240307"},
                 "theron": {"provider": "ollama", "model": "llama3"},
-                "summarizer": {"provider": "claude", "model": "claude-3-haiku-20240307"},
+                "summarizer": {
+                    "provider": "claude",
+                    "model": "claude-3-haiku-20240307",
+                },
             },
         }
 
@@ -863,8 +895,10 @@ class TestGetClassFromCharacterKey:
             "game": {
                 "characters": {
                     "theron": CharacterConfig(
-                        name="Theron", character_class="Fighter",
-                        personality="Bold", color="#C45C4A"
+                        name="Theron",
+                        character_class="Fighter",
+                        personality="Bold",
+                        color="#C45C4A",
                     ),
                 },
             },
@@ -883,8 +917,10 @@ class TestGetClassFromCharacterKey:
             "game": {
                 "characters": {
                     "theron": CharacterConfig(
-                        name="Theron", character_class="Fighter",
-                        personality="Bold", color="#C45C4A"
+                        name="Theron",
+                        character_class="Fighter",
+                        personality="Bold",
+                        color="#C45C4A",
                     ),
                 },
             },
@@ -1058,7 +1094,9 @@ class TestProviderChangeHandlerExtended:
 
         mock_st.session_state = {
             "provider_select_dm": "Claude",
-            "agent_model_overrides": {"dm": {"provider": "gemini", "model": "gemini-1.5-flash"}},
+            "agent_model_overrides": {
+                "dm": {"provider": "gemini", "model": "gemini-1.5-flash"}
+            },
         }
 
         handle_provider_change("dm")
@@ -1081,7 +1119,9 @@ class TestProviderChangeHandlerExtended:
 
         mock_st.session_state = {
             "provider_select_dm": "Ollama",
-            "agent_model_overrides": {"dm": {"provider": "claude", "model": "claude-3-haiku-20240307"}},
+            "agent_model_overrides": {
+                "dm": {"provider": "claude", "model": "claude-3-haiku-20240307"}
+            },
         }
 
         handle_provider_change("dm")
@@ -1115,9 +1155,7 @@ class TestProviderChangeHandlerExtended:
         ]
 
     @patch("app.st")
-    def test_handles_missing_select_key_gracefully(
-        self, mock_st: MagicMock
-    ) -> None:
+    def test_handles_missing_select_key_gracefully(self, mock_st: MagicMock) -> None:
         """Test that missing select key defaults to Gemini."""
         from app import handle_provider_change
 
@@ -1148,7 +1186,9 @@ class TestModelChangeHandlerExtended:
 
         mock_st.session_state = {
             "model_select_dm": "gemini-1.5-pro",
-            "agent_model_overrides": {"dm": {"provider": "gemini", "model": "gemini-1.5-flash"}},
+            "agent_model_overrides": {
+                "dm": {"provider": "gemini", "model": "gemini-1.5-flash"}
+            },
         }
 
         handle_model_change("dm")
@@ -1259,7 +1299,9 @@ class TestApplyModelConfigExtended:
         from app import apply_model_config_changes
 
         mock_st.session_state = {
-            "agent_model_overrides": {"dm": {"provider": "claude", "model": "claude-3-haiku-20240307"}},
+            "agent_model_overrides": {
+                "dm": {"provider": "claude", "model": "claude-3-haiku-20240307"}
+            },
             # No "game" key
         }
 
@@ -1281,12 +1323,16 @@ class TestApplyModelConfigExtended:
                 "dm_config": DMConfig(),
                 "characters": {
                     "theron": CharacterConfig(
-                        name="Theron", character_class="Fighter",
-                        personality="Bold", color="#C45C4A"
+                        name="Theron",
+                        character_class="Fighter",
+                        personality="Bold",
+                        color="#C45C4A",
                     ),
                     "shadowmere": CharacterConfig(
-                        name="Shadowmere", character_class="Rogue",
-                        personality="Sneaky", color="#6B8E6B"
+                        name="Shadowmere",
+                        character_class="Rogue",
+                        personality="Sneaky",
+                        color="#6B8E6B",
                     ),
                 },
                 "game_config": GameConfig(),
@@ -1323,9 +1369,12 @@ class TestGetCurrentAgentModelExtended:
             "game": {
                 "characters": {
                     "theron": CharacterConfig(
-                        name="Theron", character_class="Fighter",
-                        personality="Bold", color="#C45C4A",
-                        provider="gemini", model="gemini-1.5-flash"
+                        name="Theron",
+                        character_class="Fighter",
+                        personality="Bold",
+                        color="#C45C4A",
+                        provider="gemini",
+                        model="gemini-1.5-flash",
                     ),
                 },
             },
@@ -1346,9 +1395,12 @@ class TestGetCurrentAgentModelExtended:
             "game": {
                 "characters": {
                     "theron": CharacterConfig(
-                        name="Theron", character_class="Fighter",
-                        personality="Bold", color="#C45C4A",
-                        provider="ollama", model="llama3"
+                        name="Theron",
+                        character_class="Fighter",
+                        personality="Bold",
+                        color="#C45C4A",
+                        provider="ollama",
+                        model="llama3",
                     ),
                 },
             },
@@ -1369,7 +1421,7 @@ class TestGetCurrentAgentModelExtended:
             "game": {
                 "game_config": GameConfig(
                     summarizer_provider="claude",
-                    summarizer_model="claude-3-haiku-20240307"
+                    summarizer_model="claude-3-haiku-20240307",
                 ),
                 "characters": {},
             },
@@ -1418,15 +1470,21 @@ class TestQuickActionsExtended:
         mock_st.session_state = {
             "agent_model_overrides": {},
             "game": {
-                "dm_config": DMConfig(provider="claude", model="claude-sonnet-4-20250514"),
+                "dm_config": DMConfig(
+                    provider="claude", model="claude-sonnet-4-20250514"
+                ),
                 "characters": {
                     "theron": CharacterConfig(
-                        name="Theron", character_class="Fighter",
-                        personality="Bold", color="#C45C4A"
+                        name="Theron",
+                        character_class="Fighter",
+                        personality="Bold",
+                        color="#C45C4A",
                     ),
                     "shadowmere": CharacterConfig(
-                        name="Shadowmere", character_class="Rogue",
-                        personality="Sneaky", color="#6B8E6B"
+                        name="Shadowmere",
+                        character_class="Rogue",
+                        personality="Sneaky",
+                        color="#6B8E6B",
                     ),
                 },
             },
@@ -1454,8 +1512,10 @@ class TestQuickActionsExtended:
                 "dm_config": DMConfig(provider="ollama", model="llama3"),
                 "characters": {
                     "theron": CharacterConfig(
-                        name="Theron", character_class="Fighter",
-                        personality="Bold", color="#C45C4A"
+                        name="Theron",
+                        character_class="Fighter",
+                        personality="Bold",
+                        color="#C45C4A",
                     ),
                 },
             },
@@ -1492,9 +1552,7 @@ class TestAgentStatusExtended:
     """Extended tests for get_agent_status()."""
 
     @patch("app.st")
-    def test_controlled_takes_precedence_over_active(
-        self, mock_st: MagicMock
-    ) -> None:
+    def test_controlled_takes_precedence_over_active(self, mock_st: MagicMock) -> None:
         """Test that 'You' status takes precedence over 'Active'."""
         from app import get_agent_status
         from models import DMConfig, GameConfig
@@ -1623,17 +1681,23 @@ class TestCrossProviderSwitching:
         # Step 1: Switch to Claude
         mock_st.session_state["provider_select_dm"] = "Claude"
         handle_provider_change("dm")
-        assert mock_st.session_state["agent_model_overrides"]["dm"]["provider"] == "claude"
+        assert (
+            mock_st.session_state["agent_model_overrides"]["dm"]["provider"] == "claude"
+        )
 
         # Step 2: Switch to Ollama
         mock_st.session_state["provider_select_dm"] = "Ollama"
         handle_provider_change("dm")
-        assert mock_st.session_state["agent_model_overrides"]["dm"]["provider"] == "ollama"
+        assert (
+            mock_st.session_state["agent_model_overrides"]["dm"]["provider"] == "ollama"
+        )
 
         # Step 3: Switch back to Gemini
         mock_st.session_state["provider_select_dm"] = "Gemini"
         handle_provider_change("dm")
-        assert mock_st.session_state["agent_model_overrides"]["dm"]["provider"] == "gemini"
+        assert (
+            mock_st.session_state["agent_model_overrides"]["dm"]["provider"] == "gemini"
+        )
 
         # Step 4: Apply changes
         apply_model_config_changes()
@@ -1650,18 +1714,25 @@ class TestCrossProviderSwitching:
                 "dm": {"provider": "gemini", "model": "gemini-2.0-flash"},
                 "theron": {"provider": "claude", "model": "claude-3-haiku-20240307"},
                 "shadowmere": {"provider": "ollama", "model": "llama3"},
-                "summarizer": {"provider": "claude", "model": "claude-sonnet-4-20250514"},
+                "summarizer": {
+                    "provider": "claude",
+                    "model": "claude-sonnet-4-20250514",
+                },
             },
             "game": {
                 "dm_config": DMConfig(),
                 "characters": {
                     "theron": CharacterConfig(
-                        name="Theron", character_class="Fighter",
-                        personality="Bold", color="#C45C4A"
+                        name="Theron",
+                        character_class="Fighter",
+                        personality="Bold",
+                        color="#C45C4A",
                     ),
                     "shadowmere": CharacterConfig(
-                        name="Shadowmere", character_class="Rogue",
-                        personality="Sneaky", color="#6B8E6B"
+                        name="Shadowmere",
+                        character_class="Rogue",
+                        personality="Sneaky",
+                        color="#6B8E6B",
                     ),
                 },
                 "game_config": GameConfig(),

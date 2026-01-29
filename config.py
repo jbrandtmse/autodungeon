@@ -25,13 +25,17 @@ __all__ = [
     "AgentsConfig",
     "AppConfig",
     "CLAUDE_MODELS",
+    "DEFAULT_MAX_CONTEXT",
     "GEMINI_MODELS",
+    "MINIMUM_TOKEN_LIMIT",
+    "MODEL_MAX_CONTEXT",
     "OLLAMA_FALLBACK_MODELS",
     "_sanitize_error_message",
     "get_api_key_source",
     "get_available_models",
     "get_config",
     "get_effective_api_key",
+    "get_model_max_context",
     "load_character_configs",
     "load_dm_config",
     "mask_api_key",
@@ -584,6 +588,53 @@ def validate_ollama_connection(base_url: str) -> ValidationResult:
             message=f"Connection error: {error_msg}",
             models=None,
         )
+
+
+# =============================================================================
+# Model Context Limits (Story 6.4)
+# =============================================================================
+
+# Model maximum context window sizes in tokens
+# These represent the maximum tokens a model can accept as input context
+MODEL_MAX_CONTEXT: dict[str, int] = {
+    # Gemini models (as of 2024-2025)
+    "gemini-1.5-flash": 1_000_000,
+    "gemini-1.5-pro": 2_000_000,
+    "gemini-2.0-flash": 1_000_000,
+    # Claude models
+    "claude-3-haiku-20240307": 200_000,
+    "claude-3-5-sonnet-20241022": 200_000,
+    "claude-sonnet-4-20250514": 200_000,
+    # Ollama models - conservative defaults (varies by model/hardware)
+    "llama3": 8_192,
+    "mistral": 32_768,
+    "phi3": 128_000,
+}
+
+# Default for unknown models (conservative)
+DEFAULT_MAX_CONTEXT = 8_192
+
+# Minimum token limit threshold for low-limit warning (Story 6.4 AC #3)
+MINIMUM_TOKEN_LIMIT = 1_000
+
+
+def get_model_max_context(model: str) -> int:
+    """Get maximum context window for a model.
+
+    Args:
+        model: Model name string.
+
+    Returns:
+        Maximum token count for the model's context window.
+        Returns DEFAULT_MAX_CONTEXT for unknown models.
+
+    Example:
+        >>> get_model_max_context("gemini-1.5-flash")
+        1000000
+        >>> get_model_max_context("unknown-model")
+        8192
+    """
+    return MODEL_MAX_CONTEXT.get(model, DEFAULT_MAX_CONTEXT)
 
 
 # =============================================================================

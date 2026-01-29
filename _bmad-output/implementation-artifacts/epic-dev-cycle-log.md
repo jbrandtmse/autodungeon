@@ -600,8 +600,8 @@
 |-------|--------|-------|
 | 6-1-configuration-modal-structure | ✅ done | Full Cycle |
 | 6-2-api-key-management-ui | ✅ done | Full Cycle |
-| 6-3-per-agent-model-selection | 🔄 in-progress | Create Story |
-| 6-4-context-limit-configuration | ⏳ backlog | - |
+| 6-3-per-agent-model-selection | ✅ done | Full Cycle |
+| 6-4-context-limit-configuration | 🔄 in-progress | Create Story |
 | 6-5-mid-campaign-provider-switching | ⏳ backlog | - |
 
 ---
@@ -661,6 +661,38 @@
 - **HIGH**: Missing security tests for sanitization → Added TestApiKeySecuritySanitization (6 tests)
 - **MEDIUM**: Misleading docstring for Anthropic validation → Updated
 - **MEDIUM**: Empty apply_api_key_overrides() → Added documentation
+
+### User Input Required
+- None - all issues auto-resolved
+
+---
+
+## Story: 6-3-per-agent-model-selection
+
+**Status:** ✅ Completed
+**Duration:** 2026-01-28
+
+### Files Touched
+- `app.py` - Model selection UI, provider/model dropdowns, quick actions, handlers
+- `config.py` - get_available_models(), GEMINI_MODELS, CLAUDE_MODELS constants
+- `models.py` - summarizer_provider field in GameConfig
+- `styles/theme.css` - Agent model grid CSS (rows, colors, badges)
+- `tests/test_story_6_3_model_selection.py` - 91 tests (42 initial + 49 testarch)
+
+### Key Design Decisions
+- Models tab grid shows DM, PCs (Fighter/Rogue/Wizard/Cleric), Summarizer
+- Provider dropdown: Gemini, Claude, Ollama
+- Model dropdown populated dynamically based on selected provider
+- Status indicator: Active/AI/You (if human controlling)
+- Quick actions: "Copy DM to all PCs", "Reset to defaults"
+- Summarizer has independent summarizer_provider field
+
+### Issues Auto-Resolved
+- **HIGH**: Missing validation in handle_provider_change() → Added model fallback
+- **HIGH**: Missing input validation on agent_key → Added early return with defaults
+- **MEDIUM**: HTML injection risk in render_agent_model_row() → Added CSS class sanitization
+- **MEDIUM**: Missing edge case tests → Added TestEdgeCases (7 tests)
+- **MEDIUM**: Missing docstrings for PROVIDER constants → Added documentation
 
 ### User Input Required
 - None - all issues auto-resolved

@@ -13,11 +13,13 @@ from pathlib import Path
 import streamlit as st
 
 from config import (
+    MINIMUM_TOKEN_LIMIT,
     AppConfig,
     get_api_key_source,
     get_available_models,
     get_config,
     get_effective_api_key,
+    get_model_max_context,
     mask_api_key,
     validate_anthropic_api_key,
     validate_api_keys,
@@ -1150,6 +1152,9 @@ def snapshot_config_values() -> dict[str, dict[str, str] | dict[str, dict[str, s
     # Get current agent model overrides from session state (Story 6.3)
     model_overrides = st.session_state.get("agent_model_overrides", {})
 
+    # Get current token limit overrides from session state (Story 6.4)
+    token_limit_overrides = st.session_state.get("token_limit_overrides", {})
+
     return {
         "api_keys": {
             "google": api_overrides.get("google", ""),
@@ -1157,7 +1162,9 @@ def snapshot_config_values() -> dict[str, dict[str, str] | dict[str, dict[str, s
             "ollama": api_overrides.get("ollama", ""),
         },
         "models": dict(model_overrides),  # Story 6.3 - copy current overrides
-        "settings": {},  # Story 6.4/6.5
+        "settings": {
+            "token_limits": dict(token_limit_overrides),  # Story 6.4
+        },
     }
 
 
@@ -1685,6 +1692,7 @@ def handle_provider_change(agent_key: str) -> None:
     else:
         # Use a safe default based on provider
         from agents import DEFAULT_MODELS
+
         default_model = DEFAULT_MODELS.get(new_provider, "gemini-1.5-flash")
 
     # Update overrides
@@ -1911,6 +1919,166 @@ def apply_model_config_changes() -> None:
     st.session_state["model_config_changed"] = True
 
 
+# =============================================================================
+# Token Limit Configuration (Story 6.4)
+# =============================================================================
+
+
+def get_effective_token_limit(agent_key: str) -> int:
+    """Get effective token limit for an agent.
+
+    Checks overrides first, then falls back to game state config.
+
+    Args:
+        agent_key: Agent key ("dm", character name, or "summarizer").
+
+    Returns:
+        Token limit for the agent. Returns default (4000) if not found.
+    """
+    # Check UI override first
+    overrides = st.session_state.get("token_limit_overrides", {})
+    if agent_key in overrides:
+        return overrides[agent_key]
+
+    # Fall back to game state
+    game: GameState | None = st.session_state.get("game")
+    if not game:
+        return 4000  # Default fallback
+
+    if agent_key == "dm":
+        dm_config = game.get("dm_config")
+        return dm_config.token_limit if dm_config else 8000
+
+    if agent_key == "summarizer":
+        # Summarizer uses default from config
+        config = get_config()
+        return config.agents.summarizer.token_limit
+
+    # Character agent
+    characters = game.get("characters", {})
+    if agent_key in characters:
+        return characters[agent_key].token_limit
+
+    return 4000  # Default fallback
+
+
+def get_token_limit_warning(value: int) -> str | None:
+    """Get warning message for low token limit.
+
+    Args:
+        value: Token limit value to check.
+
+    Returns:
+        Warning text if value < MINIMUM_TOKEN_LIMIT, else None.
+    """
+    if value < MINIMUM_TOKEN_LIMIT:
+        return "Low limit may affect memory quality"
+    return None
+
+
+def validate_token_limit(agent_key: str, value: int) -> tuple[int, str | None]:
+    """Validate token limit value and return adjusted value with message.
+
+    Clamps value to model maximum if exceeded.
+
+    Args:
+        agent_key: Agent key for model lookup.
+        value: User-entered token limit.
+
+    Returns:
+        Tuple of (adjusted_value, info_message or None)
+    """
+    # Get current model for this agent
+    _, model = get_current_agent_model(agent_key)
+    max_context = get_model_max_context(model)
+
+    # Clamp to model maximum
+    if value > max_context:
+        return max_context, f"Adjusted to model maximum ({max_context:,} tokens)"
+
+    return value, None
+
+
+def handle_token_limit_change(agent_key: str) -> None:
+    """Handle token limit field change.
+
+    Stores the new value in overrides and validates against model max.
+
+    Args:
+        agent_key: Agent key to update.
+    """
+    # Get value from widget
+    widget_key = f"token_limit_{agent_key}"
+    new_value = st.session_state.get(widget_key)
+
+    if new_value is None:
+        return
+
+    # Validate and potentially clamp
+    adjusted_value, info_msg = validate_token_limit(agent_key, int(new_value))
+
+    # Store override
+    overrides = st.session_state.get("token_limit_overrides", {})
+    overrides[agent_key] = adjusted_value
+    st.session_state["token_limit_overrides"] = overrides
+
+    # Store info message for display
+    if info_msg:
+        st.session_state[f"token_limit_info_{agent_key}"] = info_msg
+    else:
+        # Clear any previous info message
+        st.session_state.pop(f"token_limit_info_{agent_key}", None)
+
+    mark_config_changed()
+
+
+def apply_token_limit_changes() -> None:
+    """Apply token limit overrides to game state.
+
+    Updates token_limit in:
+    - dm_config
+    - character configs
+    - agent_memories (for compression threshold)
+
+    Does NOT trigger retroactive compression - only future turns affected.
+    """
+    overrides = st.session_state.get("token_limit_overrides", {})
+    game: GameState | None = st.session_state.get("game")
+
+    if not game or not overrides:
+        return
+
+    # Update DM config and memory
+    if "dm" in overrides:
+        old_dm = game.get("dm_config") or DMConfig()
+        game["dm_config"] = old_dm.model_copy(update={"token_limit": overrides["dm"]})
+        # Also update agent memory
+        if "dm" in game.get("agent_memories", {}):
+            dm_memory = game["agent_memories"]["dm"]
+            game["agent_memories"]["dm"] = dm_memory.model_copy(
+                update={"token_limit": overrides["dm"]}
+            )
+
+    # Update character configs and memories
+    for agent_key, config in game.get("characters", {}).items():
+        if agent_key in overrides:
+            game["characters"][agent_key] = config.model_copy(
+                update={"token_limit": overrides[agent_key]}
+            )
+            # Also update agent memory
+            if agent_key in game.get("agent_memories", {}):
+                agent_memory = game["agent_memories"][agent_key]
+                game["agent_memories"][agent_key] = agent_memory.model_copy(
+                    update={"token_limit": overrides[agent_key]}
+                )
+
+    # Summarizer doesn't have a persistent config in game state
+    # Its token limit is used internally by the Summarizer class
+
+    st.session_state["game"] = game
+    st.session_state["token_limit_changed"] = True
+
+
 def render_models_tab() -> None:
     """Render the Models tab content in the config modal.
 
@@ -2002,6 +2170,164 @@ def render_models_tab() -> None:
     st.markdown("</div>", unsafe_allow_html=True)
 
 
+# =============================================================================
+# Settings Tab (Story 6.4)
+# =============================================================================
+
+
+def render_token_limit_row(
+    agent_key: str,
+    agent_name: str,
+    css_class: str,
+) -> None:
+    """Render a token limit configuration row.
+
+    Args:
+        agent_key: Agent key for state management.
+        agent_name: Display name for the agent.
+        css_class: CSS class for styling (e.g., "dm", "fighter", "summarizer").
+    """
+    # Get current values
+    current_limit = get_effective_token_limit(agent_key)
+    _, model = get_current_agent_model(agent_key)
+    max_context = get_model_max_context(model)
+
+    # Ensure safe CSS class
+    safe_css_class = escape_html(css_class)
+
+    # Row container with character-colored border
+    st.markdown(
+        f'<div class="token-limit-row {safe_css_class}">',
+        unsafe_allow_html=True,
+    )
+
+    # Agent name with color
+    st.markdown(
+        f'<span class="agent-model-name {safe_css_class}">{escape_html(agent_name)}</span>',
+        unsafe_allow_html=True,
+    )
+
+    # Token limit input with columns
+    col1, col2 = st.columns([2, 1])
+
+    with col1:
+        # Number input for token limit
+        # Use min_value of 100 to allow low values but not zero
+        st.number_input(
+            f"Token limit for {agent_name}",
+            min_value=100,
+            max_value=max_context,
+            value=current_limit,
+            step=1000,
+            key=f"token_limit_{agent_key}",
+            on_change=handle_token_limit_change,
+            args=(agent_key,),
+            label_visibility="collapsed",
+        )
+
+    with col2:
+        # Model max hint
+        # Format large numbers with K/M suffix for readability
+        if max_context >= 1_000_000:
+            max_display = f"{max_context // 1_000_000}M"
+        elif max_context >= 1_000:
+            max_display = f"{max_context // 1_000}K"
+        else:
+            max_display = f"{max_context:,}"
+
+        st.markdown(
+            f'<span class="token-limit-hint">Max: {max_display} for {escape_html(model)}</span>',
+            unsafe_allow_html=True,
+        )
+
+    # Check for warning (low limit)
+    warning = get_token_limit_warning(current_limit)
+    if warning:
+        st.markdown(
+            f'<span class="token-limit-warning">\u26a0\ufe0f {escape_html(warning)}</span>',
+            unsafe_allow_html=True,
+        )
+
+    # Show info message if clamped
+    info_msg = st.session_state.get(f"token_limit_info_{agent_key}")
+    if info_msg:
+        st.markdown(
+            f'<span class="token-limit-info">{escape_html(info_msg)}</span>',
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def render_settings_tab() -> None:
+    """Render the Settings tab content in the config modal.
+
+    Shows token limit configuration for each agent.
+    Story 6.4: Context Limit Configuration.
+    """
+    # Section header
+    st.markdown(
+        '<h4 class="settings-section-header">Context Limits</h4>',
+        unsafe_allow_html=True,
+    )
+
+    # Initialize overrides if needed
+    if "token_limit_overrides" not in st.session_state:
+        st.session_state["token_limit_overrides"] = {}
+
+    # DM row
+    render_token_limit_row(
+        agent_key="dm",
+        agent_name="Dungeon Master",
+        css_class="dm",
+    )
+
+    # PC rows (from game state)
+    game: GameState | None = st.session_state.get("game")
+    if game:
+        characters = game.get("characters", {})
+        # Sort by class for consistent ordering
+        sorted_chars = sorted(
+            characters.items(),
+            key=lambda x: ["fighter", "rogue", "wizard", "cleric"].index(
+                x[1].character_class.lower()
+            )
+            if x[1].character_class.lower() in ["fighter", "rogue", "wizard", "cleric"]
+            else 99,
+        )
+        for agent_key, char_config in sorted_chars:
+            css_class = get_class_css_name(char_config.character_class)
+            render_token_limit_row(
+                agent_key=agent_key,
+                agent_name=char_config.name,
+                css_class=css_class,
+            )
+    else:
+        # Fallback: show default PC classes
+        default_pcs = [
+            ("fighter", "Fighter", "fighter"),
+            ("rogue", "Rogue", "rogue"),
+            ("wizard", "Wizard", "wizard"),
+            ("cleric", "Cleric", "cleric"),
+        ]
+        for agent_key, name, css_class in default_pcs:
+            render_token_limit_row(
+                agent_key=agent_key,
+                agent_name=name,
+                css_class=css_class,
+            )
+
+    # Separator
+    st.markdown('<div class="token-limit-separator"></div>', unsafe_allow_html=True)
+
+    # Summarizer row
+    render_token_limit_row(
+        agent_key="summarizer",
+        agent_name="Summarizer",
+        css_class="summarizer",
+    )
+
+
 @st.dialog("Configuration", width="large")
 def render_config_modal() -> None:
     """Render the configuration modal with tabs for API Keys, Models, and Settings.
@@ -2022,12 +2348,8 @@ def render_config_modal() -> None:
         render_models_tab()
 
     with tab3:
-        st.markdown(
-            '<p class="config-tab-placeholder">'
-            "Settings (context limits) coming in Stories 6.4, 6.5"
-            "</p>",
-            unsafe_allow_html=True,
-        )
+        # Settings tab content (Story 6.4)
+        render_settings_tab()
 
     # Show discard confirmation if needed (Story 6.1 AC #5)
     if st.session_state.get("show_discard_confirmation"):
@@ -2079,16 +2401,29 @@ def handle_config_save_click() -> None:
 
     Commits any pending config changes and closes the modal.
     Shows confirmation toast if model configs changed (Story 6.3 AC #7).
+    Shows confirmation toast if token limits changed (Story 6.4 AC #5).
     """
+    # Track if we need to show toast
+    show_toast = False
+
     # Apply model config changes (Story 6.3)
-    overrides = st.session_state.get("agent_model_overrides", {})
-    if overrides:
+    model_overrides = st.session_state.get("agent_model_overrides", {})
+    if model_overrides:
         apply_model_config_changes()
-        # Show toast message for model changes
-        st.toast("Changes will apply on next turn", icon="\u2705")
+        show_toast = True
+
+    # Apply token limit changes (Story 6.4)
+    token_limit_overrides = st.session_state.get("token_limit_overrides", {})
+    if token_limit_overrides:
+        apply_token_limit_changes()
+        show_toast = True
 
     # Apply API key overrides (Story 6.2)
     apply_api_key_overrides()
+
+    # Show toast if any config changes were applied
+    if show_toast:
+        st.toast("Changes will apply on next turn", icon="\u2705")
 
     handle_config_modal_close(save_changes=True)
     st.rerun()

@@ -77,7 +77,10 @@ class TestConfigModalOpen:
         """Test that opening config modal stops autopilot."""
         from app import handle_config_modal_open
 
-        mock_session_state: dict[str, Any] = {"is_autopilot_running": True, "is_paused": False}
+        mock_session_state: dict[str, Any] = {
+            "is_autopilot_running": True,
+            "is_paused": False,
+        }
 
         with patch("streamlit.session_state", mock_session_state):
             handle_config_modal_open()
@@ -521,7 +524,9 @@ class TestSnapshotConfigValuesExpanded:
 
         snapshot = snapshot_config_values()
         for key, value in snapshot.items():
-            assert isinstance(value, dict), f"Expected dict for {key}, got {type(value)}"
+            assert isinstance(value, dict), (
+                f"Expected dict for {key}, got {type(value)}"
+            )
 
     def test_snapshot_is_independent_copy(self) -> None:
         """Test that multiple snapshots are independent."""
@@ -1060,10 +1065,10 @@ class TestConfigModalRenderingExpanded:
 
     def test_render_discard_confirmation_callable(self) -> None:
         """Test that render_discard_confirmation is properly defined."""
-        from app import render_discard_confirmation
-
         # Verify function signature
         import inspect
+
+        from app import render_discard_confirmation
 
         sig = inspect.signature(render_discard_confirmation)
         # Should have no required parameters

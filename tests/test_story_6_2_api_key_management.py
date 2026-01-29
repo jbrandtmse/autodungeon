@@ -1155,7 +1155,10 @@ class TestRunApiKeyValidation:
             patch("app.validate_ollama_connection", return_value=mock_result),
         ):
             run_api_key_validation("ollama", "http://localhost:11434")
-            assert mock_session_state["ollama_available_models"] == ["llama2", "mistral"]
+            assert mock_session_state["ollama_available_models"] == [
+                "llama2",
+                "mistral",
+            ]
 
     def test_run_validation_exception_handling(self) -> None:
         """Test that exceptions during validation are caught and stored."""
@@ -1547,7 +1550,9 @@ class TestHandleApiKeyChangeEdgeCases:
 
         with patch("streamlit.session_state", mock_session_state):
             handle_api_key_change("google", "new-key")
-            assert mock_session_state["api_key_overrides"]["anthropic"] == "existing-key"
+            assert (
+                mock_session_state["api_key_overrides"]["anthropic"] == "existing-key"
+            )
             assert mock_session_state["api_key_overrides"]["google"] == "new-key"
 
     def test_handle_change_clears_validating_flag(self) -> None:
@@ -1564,8 +1569,10 @@ class TestHandleApiKeyChangeEdgeCases:
             handle_api_key_change("google", "")
             # Should not set validating flag for empty
             # Note: function doesn't explicitly clear it for empty, but doesn't set True
-            assert mock_session_state.get("api_key_validating_google") is not True or \
-                   mock_session_state.get("api_key_validating_google") is True  # Original preserved
+            assert (
+                mock_session_state.get("api_key_validating_google") is not True
+                or mock_session_state.get("api_key_validating_google") is True
+            )  # Original preserved
 
     def test_handle_change_sets_validating_for_non_empty(self) -> None:
         """Test that non-empty value sets validating flag."""
@@ -1620,7 +1627,9 @@ class TestRenderValidationStatusEdgeCases:
         """Test rendering with unicode characters in message."""
         from app import render_validation_status_html
 
-        html = render_validation_status_html("valid", "Valid - 3 models \u2713", "google")
+        html = render_validation_status_html(
+            "valid", "Valid - 3 models \u2713", "google"
+        )
         assert "\u2713" in html or "&#10003;" in html
 
 
@@ -1661,7 +1670,9 @@ class TestApplyApiKeyOverrides:
             apply_api_key_overrides()
             # Keys should still be there
             assert mock_session_state["api_key_overrides"]["google"] == "google-key"
-            assert mock_session_state["api_key_overrides"]["anthropic"] == "anthropic-key"
+            assert (
+                mock_session_state["api_key_overrides"]["anthropic"] == "anthropic-key"
+            )
 
 
 # =============================================================================
@@ -1929,7 +1940,10 @@ class TestApiKeyManagementIntegrationFlow:
             # Step 1: Enter key
             handle_api_key_change("google", "AIzaTestKey12345678901234567890")
 
-            assert mock_session_state["api_key_overrides"]["google"] == "AIzaTestKey12345678901234567890"
+            assert (
+                mock_session_state["api_key_overrides"]["google"]
+                == "AIzaTestKey12345678901234567890"
+            )
             assert mock_session_state["config_has_changes"] is True
             assert mock_session_state["api_key_validating_google"] is True
             assert mock_session_state["api_key_status_google"] is None
