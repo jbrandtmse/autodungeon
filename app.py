@@ -18,9 +18,12 @@ from config import (
     get_api_key_source,
     get_available_models,
     get_config,
+    get_default_token_limit,
     get_effective_api_key,
     get_model_max_context,
+    load_user_settings,
     mask_api_key,
+    save_user_settings,
     validate_anthropic_api_key,
     validate_api_keys,
     validate_google_api_key,
@@ -1008,6 +1011,41 @@ def render_narrative_messages(state: GameState) -> None:
 
 def initialize_session_state() -> None:
     """Initialize game state in session state if not present."""
+    # Load persisted user settings on first run
+    if "user_settings_loaded" not in st.session_state:
+        st.session_state["user_settings_loaded"] = True
+        user_settings = load_user_settings()
+        if user_settings:
+            # Restore API key overrides
+            if "api_keys" in user_settings:
+                st.session_state["api_key_overrides"] = user_settings["api_keys"]
+                # Validate loaded API keys to populate dynamic model lists
+                api_keys = user_settings["api_keys"]
+                if api_keys.get("google"):
+                    try:
+                        result = validate_google_api_key(api_keys["google"])
+                        if result.models is not None:
+                            st.session_state["gemini_available_models"] = result.models
+                    except Exception:
+                        pass  # Silently fail - user can re-validate manually
+                if api_keys.get("ollama"):
+                    try:
+                        result = validate_ollama_connection(api_keys["ollama"])
+                        if result.models is not None:
+                            st.session_state["ollama_available_models"] = result.models
+                    except Exception:
+                        pass
+            # Restore model overrides
+            if "agent_model_overrides" in user_settings:
+                st.session_state["agent_model_overrides"] = user_settings[
+                    "agent_model_overrides"
+                ]
+            # Restore token limit overrides
+            if "token_limit_overrides" in user_settings:
+                st.session_state["token_limit_overrides"] = user_settings[
+                    "token_limit_overrides"
+                ]
+
     # App view routing (Story 4.3)
     if "app_view" not in st.session_state:
         # Default to session browser if sessions exist, otherwise start new session
@@ -1022,6 +1060,12 @@ def initialize_session_state() -> None:
 
     if "game" not in st.session_state:
         st.session_state["game"] = populate_game_state()
+        # Apply user settings loaded from user-settings.yaml to the game state
+        # This ensures model/token overrides are applied on startup (Bug fix: Story 6.5)
+        if st.session_state.get("agent_model_overrides"):
+            apply_model_config_changes()
+        if st.session_state.get("token_limit_overrides"):
+            apply_token_limit_changes()
         st.session_state["ui_mode"] = "watch"
         st.session_state["controlled_character"] = None
         st.session_state["human_active"] = False  # Explicit initialization (Story 3.1)
@@ -1047,7 +1091,8 @@ def initialize_session_state() -> None:
         st.session_state["config_original_values"] = None
         st.session_state["show_discard_confirmation"] = False
         # API key management state (Story 6.2)
-        st.session_state["api_key_overrides"] = {}
+        # Use setdefault to preserve values loaded from user-settings.yaml
+        st.session_state.setdefault("api_key_overrides", {})
         st.session_state["api_key_status_google"] = None
         st.session_state["api_key_status_anthropic"] = None
         st.session_state["api_key_status_ollama"] = None
@@ -1066,6 +1111,8 @@ def initialize_session_state() -> None:
 def get_api_key_status(config: AppConfig) -> str:
     """Generate a formatted string showing API key configuration status.
 
+    Checks both environment config and user-settings.yaml for API keys.
+
     Args:
         config: The application configuration.
 
@@ -1074,14 +1121,18 @@ def get_api_key_status(config: AppConfig) -> str:
     """
     lines: list[str] = []
 
-    # Google/Gemini status
-    if config.google_api_key:
+    # Get user settings for API key overrides
+    user_settings = load_user_settings()
+    api_keys = user_settings.get("api_keys", {})
+
+    # Google/Gemini status - check both env and user settings
+    if config.google_api_key or api_keys.get("google"):
         lines.append("- Gemini: Configured")
     else:
         lines.append("- Gemini: Not configured")
 
-    # Anthropic/Claude status
-    if config.anthropic_api_key:
+    # Anthropic/Claude status - check both env and user settings
+    if config.anthropic_api_key or api_keys.get("anthropic"):
         lines.append("- Claude: Configured")
     else:
         lines.append("- Claude: Not configured")
@@ -1327,6 +1378,9 @@ def run_api_key_validation(provider: str, value: str) -> None:
         match provider:
             case "google":
                 result = validate_google_api_key(value)
+                # Store available models for Gemini
+                if result.models is not None:
+                    st.session_state["gemini_available_models"] = result.models
             case "anthropic":
                 result = validate_anthropic_api_key(value)
             case "ollama":
@@ -1700,6 +1754,9 @@ def handle_provider_change(agent_key: str) -> None:
     overrides[agent_key] = {"provider": new_provider, "model": default_model}
     st.session_state["agent_model_overrides"] = overrides
 
+    # Auto-update token limit for new provider/model
+    update_token_limit_for_model(agent_key, new_provider, default_model)
+
     mark_config_changed()
 
 
@@ -1728,7 +1785,37 @@ def handle_model_change(agent_key: str) -> None:
         overrides[agent_key]["model"] = new_model
     st.session_state["agent_model_overrides"] = overrides
 
+    # Auto-update token limit for new model
+    update_token_limit_for_model(agent_key, current_provider, new_model)
+
     mark_config_changed()
+
+
+def update_token_limit_for_model(agent_key: str, provider: str, model: str) -> None:
+    """Update token limit when model changes.
+
+    Automatically adjusts token limit based on provider:
+    - Ollama: Sets to 8000 (conservative default for local inference)
+    - Gemini/Claude: Sets to model's max context window
+
+    This ensures token limits are appropriate for the selected model.
+
+    Args:
+        agent_key: Agent key to update (e.g., "dm", "thorin").
+        provider: New provider name (gemini, claude, ollama).
+        model: New model name.
+    """
+    max_context = get_model_max_context(model)
+    default_limit = get_default_token_limit(provider, model)
+
+    # Set to the appropriate default for this provider/model
+    # Clamp to max context in case default exceeds it
+    new_limit = min(default_limit, max_context)
+
+    # Update token limit override
+    overrides = st.session_state.get("token_limit_overrides", {})
+    overrides[agent_key] = new_limit
+    st.session_state["token_limit_overrides"] = overrides
 
 
 def render_status_badge(status: str) -> str:
@@ -2016,12 +2103,17 @@ def get_provider_availability_status() -> dict[str, bool]:
     """
     status: dict[str, bool] = {}
 
-    # Check Google/Gemini - has API key?
-    config = get_config()
-    status["gemini"] = bool(config.google_api_key)
+    # Get API key overrides from session state
+    overrides = st.session_state.get("api_key_overrides", {})
 
-    # Check Anthropic/Claude - has API key?
-    status["claude"] = bool(config.anthropic_api_key)
+    # Check Google/Gemini - has API key (from UI override or config)?
+    config = get_config()
+    google_key = get_effective_api_key("google", overrides)
+    status["gemini"] = bool(google_key)
+
+    # Check Anthropic/Claude - has API key (from UI override or config)?
+    anthropic_key = get_effective_api_key("anthropic", overrides)
+    status["claude"] = bool(anthropic_key)
 
     # Check Ollama - attempt connection with short timeout
     try:
@@ -2621,6 +2713,15 @@ def handle_config_save_click() -> None:
 
     # Apply API key overrides (Story 6.2)
     apply_api_key_overrides()
+
+    # Persist settings to user-settings.yaml
+    save_user_settings(
+        {
+            "api_keys": st.session_state.get("api_key_overrides", {}),
+            "agent_model_overrides": st.session_state.get("agent_model_overrides", {}),
+            "token_limit_overrides": st.session_state.get("token_limit_overrides", {}),
+        }
+    )
 
     # Story 6.5: Show specific change messages (AC #5)
     # Format: "[Character] will use [Provider/Model] starting next turn"
@@ -3658,6 +3759,13 @@ def handle_session_continue(session_id: str) -> bool:
     st.session_state["current_session_id"] = session_id
     st.session_state["app_view"] = "game"
 
+    # Apply user settings loaded from user-settings.yaml to the loaded game state
+    # This ensures model/token overrides are applied when continuing a session (Bug fix)
+    if st.session_state.get("agent_model_overrides"):
+        apply_model_config_changes()
+    if st.session_state.get("token_limit_overrides"):
+        apply_token_limit_changes()
+
     # Reset UI state
     st.session_state["ui_mode"] = "watch"
     st.session_state["controlled_character"] = None
@@ -3713,6 +3821,13 @@ def handle_new_session_click() -> None:
     st.session_state["app_view"] = "game"
     st.session_state["show_recap"] = False
     st.session_state["recap_text"] = ""
+
+    # Apply user settings loaded from user-settings.yaml to the new game state
+    # This ensures model/token overrides are applied on new session creation (Bug fix)
+    if st.session_state.get("agent_model_overrides"):
+        apply_model_config_changes()
+    if st.session_state.get("token_limit_overrides"):
+        apply_token_limit_changes()
 
     # Reset UI state
     st.session_state["ui_mode"] = "watch"

@@ -38,7 +38,9 @@ __all__ = [
     "get_model_max_context",
     "load_character_configs",
     "load_dm_config",
+    "load_user_settings",
     "mask_api_key",
+    "save_user_settings",
     "validate_anthropic_api_key",
     "validate_api_keys",
     "validate_google_api_key",
@@ -50,6 +52,44 @@ load_dotenv()
 
 # Project root directory
 PROJECT_ROOT = Path(__file__).parent
+
+# User settings file path
+USER_SETTINGS_PATH = PROJECT_ROOT / "user-settings.yaml"
+
+
+def load_user_settings() -> dict[str, Any]:
+    """Load user settings from user-settings.yaml.
+
+    Returns settings dict with structure:
+    {
+        "api_keys": {"google": "...", "anthropic": "...", "ollama": "..."},
+        "agent_model_overrides": {"dm": {"provider": "...", "model": "..."}, ...},
+        "token_limit_overrides": {"dm": 8000, ...}
+    }
+
+    Returns empty dict if file doesn't exist.
+    """
+    if not USER_SETTINGS_PATH.exists():
+        return {}
+    try:
+        with open(USER_SETTINGS_PATH, encoding="utf-8") as f:
+            settings = yaml.safe_load(f)
+            return settings if settings else {}
+    except (yaml.YAMLError, OSError):
+        return {}
+
+
+def save_user_settings(settings: dict[str, Any]) -> None:
+    """Save user settings to user-settings.yaml.
+
+    Args:
+        settings: Dict with api_keys, agent_model_overrides, token_limit_overrides.
+    """
+    try:
+        with open(USER_SETTINGS_PATH, "w", encoding="utf-8") as f:
+            yaml.dump(settings, f, default_flow_style=False, sort_keys=False)
+    except OSError:
+        pass  # Silently fail if can't write
 
 
 def _load_yaml_defaults() -> dict[str, Any]:
@@ -235,6 +275,8 @@ def load_dm_config() -> DMConfig:
 def validate_api_keys(config: AppConfig) -> list[str]:
     """Validate API keys and return warnings for missing ones.
 
+    Checks both environment config and user-settings.yaml for API keys.
+
     Args:
         config: The application configuration to validate.
 
@@ -243,10 +285,15 @@ def validate_api_keys(config: AppConfig) -> list[str]:
     """
     warnings: list[str] = []
 
-    if not config.google_api_key:
+    # Get user settings for API key overrides
+    user_settings = load_user_settings()
+    api_keys = user_settings.get("api_keys", {})
+
+    # Check both env config and user settings
+    if not config.google_api_key and not api_keys.get("google"):
         warnings.append("GOOGLE_API_KEY not set - Gemini models will not be available")
 
-    if not config.anthropic_api_key:
+    if not config.anthropic_api_key and not api_keys.get("anthropic"):
         warnings.append(
             "ANTHROPIC_API_KEY not set - Claude models will not be available"
         )
@@ -396,17 +443,18 @@ def validate_google_api_key(api_key: str) -> ValidationResult:
         genai.configure(api_key=api_key)
         # List models is a lightweight call that validates the key
         models_list = list(genai.list_models())
-        # Filter to models that support content generation
+        # Filter to models that support content generation and are gemini- prefixed
         available_models = [
-            m.name
+            m.name.replace("models/", "")  # Strip "models/" prefix
             for m in models_list
             if hasattr(m, "supported_generation_methods")
             and "generateContent" in m.supported_generation_methods
+            and m.name.startswith("models/gemini-")  # Only gemini models
         ]
         return ValidationResult(
             valid=True,
             message=f"Valid - {len(available_models)} models available",
-            models=available_models[:10],  # Limit to first 10 for display
+            models=available_models,  # Return all gemini models
         )
     except Exception as e:
         error_str = str(e).lower()
@@ -614,6 +662,9 @@ MODEL_MAX_CONTEXT: dict[str, int] = {
 # Default for unknown models (conservative)
 DEFAULT_MAX_CONTEXT = 8_192
 
+# Default for Ollama models (conservative for local inference)
+DEFAULT_OLLAMA_CONTEXT = 8_000
+
 # Minimum token limit threshold for low-limit warning (Story 6.4 AC #3)
 MINIMUM_TOKEN_LIMIT = 1_000
 
@@ -635,6 +686,33 @@ def get_model_max_context(model: str) -> int:
         8192
     """
     return MODEL_MAX_CONTEXT.get(model, DEFAULT_MAX_CONTEXT)
+
+
+def get_default_token_limit(provider: str, model: str) -> int:
+    """Get the default token limit for a provider/model combination.
+
+    Used to auto-set token limits when the user changes models.
+    - Ollama: Returns 8000 (conservative default for local inference)
+    - Gemini/Claude: Returns model's max context window
+
+    Args:
+        provider: Provider name (gemini, claude, ollama).
+        model: Model name string.
+
+    Returns:
+        Default token limit for the provider/model combination.
+
+    Example:
+        >>> get_default_token_limit("ollama", "llama3")
+        8000
+        >>> get_default_token_limit("gemini", "gemini-2.0-flash")
+        1000000
+    """
+    if provider.lower() == "ollama":
+        return DEFAULT_OLLAMA_CONTEXT
+
+    # For Gemini/Claude, use max context as default
+    return get_model_max_context(model)
 
 
 # =============================================================================
@@ -681,6 +759,17 @@ def get_available_models(provider: str) -> list[str]:
     provider = provider.lower()
 
     if provider == "gemini":
+        # Try to get models from session state (set by validation)
+        try:
+            import streamlit as st
+
+            models = st.session_state.get("gemini_available_models")
+            if models and isinstance(models, list) and len(models) > 0:
+                return list(models)
+        except (ImportError, AttributeError):
+            # Streamlit not available (e.g., in tests)
+            pass
+        # Fallback to static list
         return GEMINI_MODELS.copy()
     elif provider == "claude":
         return CLAUDE_MODELS.copy()
