@@ -35,7 +35,9 @@ __all__ = [
     "get_available_models",
     "get_config",
     "get_effective_api_key",
+    "get_max_context_for_provider",
     "get_model_max_context",
+    "MAX_OLLAMA_CONTEXT",
     "load_character_configs",
     "load_dm_config",
     "load_user_settings",
@@ -649,18 +651,21 @@ MODEL_MAX_CONTEXT: dict[str, int] = {
     "gemini-1.5-flash": 1_000_000,
     "gemini-1.5-pro": 2_000_000,
     "gemini-2.0-flash": 1_000_000,
+    "gemini-2.5-flash-preview-05-20": 1_000_000,
+    "gemini-2.5-pro-preview-05-06": 1_000_000,
+    "gemini-3-flash-preview": 1_000_000,
+    "gemini-3-pro-preview": 1_000_000,
     # Claude models
     "claude-3-haiku-20240307": 200_000,
     "claude-3-5-sonnet-20241022": 200_000,
     "claude-sonnet-4-20250514": 200_000,
-    # Ollama models - conservative defaults (varies by model/hardware)
-    "llama3": 8_192,
-    "mistral": 32_768,
-    "phi3": 128_000,
 }
 
 # Default for unknown models (conservative)
 DEFAULT_MAX_CONTEXT = 8_192
+
+# Maximum context for Ollama models (generous limit for local inference)
+MAX_OLLAMA_CONTEXT = 128_000
 
 # Default for Ollama models (conservative for local inference)
 DEFAULT_OLLAMA_CONTEXT = 8_000
@@ -685,6 +690,31 @@ def get_model_max_context(model: str) -> int:
         >>> get_model_max_context("unknown-model")
         8192
     """
+    return MODEL_MAX_CONTEXT.get(model, DEFAULT_MAX_CONTEXT)
+
+
+def get_max_context_for_provider(provider: str, model: str) -> int:
+    """Get maximum context window for a provider/model combination.
+
+    For Ollama, returns MAX_OLLAMA_CONTEXT (128,000) regardless of model,
+    since local models can typically handle larger contexts.
+    For other providers, returns model-specific limit or DEFAULT_MAX_CONTEXT.
+
+    Args:
+        provider: Provider name (gemini, claude, ollama).
+        model: Model name string.
+
+    Returns:
+        Maximum token count for the model's context window.
+
+    Example:
+        >>> get_max_context_for_provider("ollama", "llama3")
+        128000
+        >>> get_max_context_for_provider("gemini", "gemini-1.5-flash")
+        1000000
+    """
+    if provider.lower() == "ollama":
+        return MAX_OLLAMA_CONTEXT
     return MODEL_MAX_CONTEXT.get(model, DEFAULT_MAX_CONTEXT)
 
 
@@ -724,6 +754,10 @@ GEMINI_MODELS: list[str] = [
     "gemini-1.5-flash",
     "gemini-1.5-pro",
     "gemini-2.0-flash",
+    "gemini-2.5-flash-preview-05-20",
+    "gemini-2.5-pro-preview-05-06",
+    "gemini-3-flash-preview",
+    "gemini-3-pro-preview",
 ]
 
 CLAUDE_MODELS: list[str] = [

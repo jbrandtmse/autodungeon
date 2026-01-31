@@ -10,12 +10,12 @@ from datetime import UTC, datetime
 
 from langchain_anthropic import ChatAnthropic
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import Runnable
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_ollama import ChatOllama
 
-from config import get_config
+from config import get_config, load_user_settings
 from models import AgentMemory, CharacterConfig, CharacterFacts, DMConfig, GameState
 from tools import dm_roll_dice, pc_roll_dice
 
@@ -381,11 +381,118 @@ def get_default_model(provider: str) -> str:
     return DEFAULT_MODELS[provider]
 
 
+def _get_effective_api_key(provider: str) -> str | None:
+    """Get API key for provider, checking user settings first, then env.
+
+    Priority:
+    1. User settings (user-settings.yaml from UI configuration)
+    2. Environment variable (.env file or system environment)
+
+    Args:
+        provider: Provider name ("google", "anthropic", or "ollama").
+
+    Returns:
+        The effective API key/URL, or None if not available.
+    """
+    # Check user settings first (UI overrides)
+    user_settings = load_user_settings()
+    api_keys = user_settings.get("api_keys", {})
+
+    if provider == "google" and api_keys.get("google"):
+        return api_keys["google"]
+    if provider == "anthropic" and api_keys.get("anthropic"):
+        return api_keys["anthropic"]
+    if provider == "ollama" and api_keys.get("ollama"):
+        return api_keys["ollama"]
+
+    # Fall back to environment config
+    config = get_config()
+    if provider == "google":
+        return config.google_api_key
+    if provider == "anthropic":
+        return config.anthropic_api_key
+    if provider == "ollama":
+        return config.ollama_base_url
+
+    return None
+
+
+def _extract_text_from_content(content: str | list | None) -> str:
+    """Extract text from content value (helper for _extract_response_text).
+
+    Args:
+        content: Content value (string, list of strings, or list of content blocks).
+
+    Returns:
+        Extracted text string.
+    """
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if hasattr(content, "__iter__"):
+        text_parts: list[str] = []
+        for part in content:  # type: ignore[union-attr]
+            if isinstance(part, str):
+                text_parts.append(part)
+            elif isinstance(part, dict) and "text" in part:
+                # Gemini 3 content block: {"type": "text", "text": "..."}
+                text_parts.append(str(part["text"]))
+        return "".join(text_parts)
+    return str(content) if content else ""
+
+
+def _extract_response_text(response: object) -> str:
+    """Extract text from LLM response object.
+
+    Handles various response formats from different LLM providers:
+    - Direct strings (Claude, older Gemini models)
+    - List of strings
+    - List of content block dicts with 'text' key (Gemini 3 series)
+    - content_blocks attribute (Gemini 3 Pro with thinking tokens)
+    - .text convenience property (Gemini)
+
+    Args:
+        response: The full response object from an LLM invocation.
+
+    Returns:
+        Extracted text string, empty string if no text found.
+    """
+    # Try response.content first (most common)
+    content = getattr(response, "content", None)
+    text = _extract_text_from_content(content)
+    if text:
+        return text
+
+    # Try content_blocks (Gemini 3 Pro with thinking tokens)
+    content_blocks = getattr(response, "content_blocks", None)
+    if content_blocks:
+        text = _extract_text_from_content(content_blocks)
+        if text:
+            logger.info("Extracted text from content_blocks")
+            return text
+
+    # Try .text property (Gemini convenience method)
+    if hasattr(response, "text"):
+        text = response.text  # type: ignore[union-attr]
+        if text:
+            logger.info("Extracted text from .text property")
+            return text
+
+    # Nothing found
+    logger.warning("No text extracted from response: content=%r", content)
+    return ""
+
+
 def get_llm(provider: str, model: str) -> BaseChatModel:
     """Create an LLM client for the specified provider and model.
 
     Factory function that returns the appropriate LangChain chat model
     based on the provider string. Provider names are case-insensitive.
+
+    API keys are resolved in order:
+    1. User settings (user-settings.yaml from UI configuration)
+    2. Environment variable (.env file or system environment)
 
     Args:
         provider: The LLM provider ("gemini", "claude", or "ollama").
@@ -403,24 +510,28 @@ def get_llm(provider: str, model: str) -> BaseChatModel:
 
     match provider:
         case "gemini":
-            if not config.google_api_key:
+            api_key = _get_effective_api_key("google")
+            if not api_key:
                 raise LLMConfigurationError("gemini", "GOOGLE_API_KEY")
             return ChatGoogleGenerativeAI(
                 model=model,
-                google_api_key=config.google_api_key,
+                google_api_key=api_key,
+                timeout=120,  # 2 minutes for Gemini 3 models
             )
         case "claude":
-            if not config.anthropic_api_key:
+            api_key = _get_effective_api_key("anthropic")
+            if not api_key:
                 raise LLMConfigurationError("claude", "ANTHROPIC_API_KEY")
             # type: ignore needed - langchain-anthropic type stubs are incomplete
             return ChatAnthropic(  # type: ignore[call-arg]
                 model_name=model,
-                api_key=config.anthropic_api_key,
+                api_key=api_key,
             )
         case "ollama":
+            base_url = _get_effective_api_key("ollama") or config.ollama_base_url
             return ChatOllama(
                 model=model,
-                base_url=config.ollama_base_url,
+                base_url=base_url,
             )
         case _:
             raise ValueError(f"Unknown provider: {provider}")
@@ -665,8 +776,36 @@ def dm_turn(state: GameState) -> GameState:
             messages.append(HumanMessage(content=f"Current game context:\n\n{context}"))
         messages.append(HumanMessage(content="Continue the adventure."))
 
-        # Invoke the model
-        response = dm_agent.invoke(messages)
+        # Invoke the model with tool call handling loop
+        max_tool_iterations = 3  # Prevent infinite loops
+        for _ in range(max_tool_iterations):
+            response = dm_agent.invoke(messages)
+
+            # Check if model wants to call tools
+            tool_calls = getattr(response, "tool_calls", None)
+            if not tool_calls:
+                break  # No tool calls, we have the final response
+
+            # Execute tool calls and collect results
+            messages.append(response)  # Add AI message with tool calls
+            for tool_call in tool_calls:
+                tool_name = tool_call.get("name", "")
+                tool_args = tool_call.get("args", {})
+                tool_id = tool_call.get("id", "")
+
+                # Execute the dice roll tool
+                if tool_name == "dm_roll_dice":
+                    from tools import roll_dice
+                    result = roll_dice(tool_args.get("notation"))
+                    tool_result = str(result)
+                    logger.info("DM rolled dice: %s -> %s", tool_args, tool_result)
+                else:
+                    tool_result = f"Unknown tool: {tool_name}"
+
+                # Add tool result message
+                messages.append(ToolMessage(content=tool_result, tool_call_id=tool_id))
+
+            # Continue loop to get model's response after tool execution
 
     except LLMConfigurationError as e:
         # Re-raise config errors as LLMError for consistent handling
@@ -690,9 +829,23 @@ def dm_turn(state: GameState) -> GameState:
         _log_llm_error(llm_error)
         raise llm_error from e
 
-    # Extract content from response (type ignore for langchain stubs)
-    content = response.content  # type: ignore[union-attr]
-    response_content: str = content if isinstance(content, str) else str(content)  # type: ignore[arg-type]
+    # Extract text from response (handles Gemini 3 content blocks)
+    response_content = _extract_response_text(response)
+
+    # Debug: Log and write to file if still empty after all attempts
+    if not response_content:
+        debug_info = (
+            f"DM response empty!\n"
+            f"  content type: {type(response.content).__name__}\n"
+            f"  content: {response.content!r}\n"
+            f"  tool_calls: {getattr(response, 'tool_calls', None)!r}\n"
+            f"  response type: {type(response).__name__}\n"
+            f"  response attrs: {[a for a in dir(response) if not a.startswith('_')]}\n"
+        )
+        logger.warning(debug_info)
+        # Also write to file for easy inspection
+        with open("llm_debug.log", "a", encoding="utf-8") as f:
+            f.write(f"\n{'='*60}\n{datetime.now()}\n{debug_info}")
 
     # Create new state (never mutate input)
     new_log = state["ground_truth_log"].copy()
@@ -774,8 +927,36 @@ def pc_turn(state: GameState, agent_name: str) -> GameState:
             )
         messages.append(HumanMessage(content="It's your turn. What do you do?"))
 
-        # Invoke the model
-        response = pc_agent.invoke(messages)
+        # Invoke the model with tool call handling loop
+        max_tool_iterations = 3  # Prevent infinite loops
+        for _ in range(max_tool_iterations):
+            response = pc_agent.invoke(messages)
+
+            # Check if model wants to call tools
+            tool_calls = getattr(response, "tool_calls", None)
+            if not tool_calls:
+                break  # No tool calls, we have the final response
+
+            # Execute tool calls and collect results
+            messages.append(response)  # Add AI message with tool calls
+            for tool_call in tool_calls:
+                tool_name = tool_call.get("name", "")
+                tool_args = tool_call.get("args", {})
+                tool_id = tool_call.get("id", "")
+
+                # Execute the dice roll tool
+                if tool_name == "pc_roll_dice":
+                    from tools import roll_dice
+                    result = roll_dice(tool_args.get("notation"))
+                    tool_result = str(result)
+                    logger.info("%s rolled dice: %s -> %s", agent_name, tool_args, tool_result)
+                else:
+                    tool_result = f"Unknown tool: {tool_name}"
+
+                # Add tool result message
+                messages.append(ToolMessage(content=tool_result, tool_call_id=tool_id))
+
+            # Continue loop to get model's response after tool execution
 
     except LLMConfigurationError as e:
         # Re-raise config errors as LLMError for consistent handling
@@ -799,9 +980,23 @@ def pc_turn(state: GameState, agent_name: str) -> GameState:
         _log_llm_error(llm_error)
         raise llm_error from e
 
-    # Extract content from response (type ignore for langchain stubs)
-    content = response.content  # type: ignore[union-attr]
-    response_content: str = content if isinstance(content, str) else str(content)  # type: ignore[arg-type]
+    # Extract text from response (handles Gemini 3 content blocks)
+    response_content = _extract_response_text(response)
+
+    # Debug: Log if still empty after all attempts
+    if not response_content:
+        debug_info = (
+            f"{agent_name} response empty!\n"
+            f"  content type: {type(response.content).__name__}\n"
+            f"  content: {response.content!r}\n"
+            f"  tool_calls: {getattr(response, 'tool_calls', None)!r}\n"
+            f"  response type: {type(response).__name__}\n"
+            f"  response attrs: {[a for a in dir(response) if not a.startswith('_')]}\n"
+        )
+        logger.warning(debug_info)
+        # Also write to file for easy inspection
+        with open("llm_debug.log", "a", encoding="utf-8") as f:
+            f.write(f"\n{'='*60}\n{datetime.now()}\n{debug_info}")
 
     # Create new state (never mutate input)
     new_log = state["ground_truth_log"].copy()

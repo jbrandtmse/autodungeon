@@ -92,3 +92,7 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
+markers = [
+    "integration: tests that make real LLM API calls (may incur costs)",
+    "slow: tests that take a long time to run (multiple LLM calls)",
+]

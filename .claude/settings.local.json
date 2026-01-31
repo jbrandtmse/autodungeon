@@ -9,7 +9,11 @@
       "Bash(git remote add:*)",
       "Bash(git branch:*)",
       "Bash(git push:*)",
-      "Bash(xargs -I {} bash -c \"echo ''=== {} ==='' && wc -l {}\")"
+      "Bash(xargs -I {} bash -c \"echo ''=== {} ==='' && wc -l {}\")",
+      "Bash(python -m ruff check:*)",
+      "Bash(python -m pyright:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(python:*)"
     ]
   }
 }

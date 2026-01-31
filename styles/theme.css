@@ -49,7 +49,7 @@
 
   /* Layout */
   --sidebar-width: 240px;
-  --max-content-width: 800px;
+  --max-content-width: 100%;  /* Fill available width */
 }
 
 /* ==========================================================================
@@ -97,6 +97,7 @@ footer { visibility: hidden; }
 [data-testid="stSidebar"] > div:first-child {
   width: var(--sidebar-width) !important;
   padding: var(--space-md);
+  box-sizing: border-box;
 }
 
 /* Sidebar text styling */
@@ -114,15 +115,102 @@ footer { visibility: hidden; }
   font-size: var(--text-ui);
 }
 
+/* Sidebar scrollability */
+[data-testid="stSidebar"] > div:first-child {
+  overflow-y: auto;
+  max-height: 100vh;
+}
+
+/* Sidebar divider spacing - balanced */
+[data-testid="stSidebar"] hr {
+  margin: var(--space-sm) 0;
+}
+
+/* Sidebar section headings */
+[data-testid="stSidebar"] h3 {
+  margin: var(--space-xs) 0 var(--space-xs) 0 !important;
+  font-size: 14px;
+}
+
+/* Custom scrollbar styling - dark theme */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--text-secondary);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-warm);
+}
+
+/* Firefox scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--text-secondary) var(--bg-secondary);
+}
+
 /* ==========================================================================
    Main Content Area
    ========================================================================== */
 
-/* Main content container */
-.main .block-container {
-  max-width: var(--max-content-width);
-  margin: 0 auto;
-  padding: var(--space-lg);
+/* Main content container - fill available width */
+.main .block-container,
+.stMainBlockContainer,
+[data-testid="stMainBlockContainer"] {
+  max-width: 100%;
+  margin: 0;
+  padding: var(--space-sm) var(--space-lg) var(--space-md) var(--space-lg) !important;
+  padding-top: var(--space-sm) !important;
+}
+
+/* Remove Streamlit's default top padding */
+.main > div:first-child {
+  padding-top: 0 !important;
+}
+
+/* Target Streamlit's internal padding */
+[data-testid="stAppViewContainer"] > section > div {
+  padding-top: 0 !important;
+}
+
+/* Remove gaps between Streamlit vertical blocks in main area only */
+.main [data-testid="stVerticalBlock"] {
+  gap: 0 !important;
+}
+
+/* Keep proper gaps in sidebar for readability - prevent overlap */
+[data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
+  gap: var(--space-sm) !important;
+}
+
+/* Remove default margins on Streamlit markdown elements in main area */
+.main [data-testid="stMarkdown"] {
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* Target Streamlit element containers in main area */
+.main .element-container {
+  margin: 0 !important;
+}
+
+/* Reset stHeadingContainer margins */
+[data-testid="stHeadingContainer"] {
+  padding: 0 !important;
+}
+
+/* Make session-header directly connect to narrative-container */
+.session-header + div {
+  margin-top: 0 !important;
 }
 
 /* Headings */
@@ -130,11 +218,20 @@ h1 {
   color: var(--accent-warm);
   font-family: var(--font-narrative);
   font-weight: 600;
+  margin: 0 !important;
+  padding: 0 !important;
 }
 
 h2, h3, h4 {
   color: var(--text-primary);
   font-family: var(--font-ui);
+}
+
+/* Target the session-header h1 specifically */
+.session-header h1,
+.session-title {
+  margin: 0 !important;
+  padding: 0 !important;
 }
 
 /* Narrative text styling */
@@ -217,17 +314,22 @@ h2, h3, h4 {
    Session Header (Story 2.2)
    ========================================================================== */
 
-/* Session header - chronicle style */
+/* Session header - chronicle style (compact) */
 .session-header {
   text-align: center;
-  padding: var(--space-lg) 0;
+  padding: var(--space-xs) 0;
   border-bottom: 1px solid var(--bg-secondary);
-  margin-bottom: var(--space-lg);
+  margin-bottom: 0;
+}
+
+/* Pull narrative container up to eliminate Streamlit wrapper gaps */
+.narrative-container {
+  margin-top: 0 !important;
 }
 
 .session-title {
   font-family: var(--font-narrative);
-  font-size: 24px;
+  font-size: 20px;
   font-weight: 600;
   color: var(--color-dm);
   letter-spacing: 0.05em;
@@ -238,7 +340,7 @@ h2, h3, h4 {
   font-family: var(--font-ui);
   font-size: var(--text-system);
   color: var(--text-secondary);
-  margin-top: var(--space-xs);
+  margin-top: 2px;
 }
 
 /* ==========================================================================
@@ -256,8 +358,8 @@ h2, h3, h4 {
 /* Character card with character-color left border */
 .character-card {
   background: var(--bg-secondary);
-  border-radius: 8px;
-  padding: var(--space-md);
+  border-radius: 6px;
+  padding: var(--space-sm);
   margin-bottom: var(--space-sm);
   border-left: 3px solid var(--text-secondary);
 }
@@ -834,12 +936,12 @@ hr {
   }
 }
 
-/* Game controls (Start Game / Next Turn button) */
+/* Game controls (Start Game / Next Turn button) - now in sidebar */
 .game-controls {
   display: flex;
   align-items: center;
-  gap: var(--space-md);
-  margin-bottom: var(--space-lg);
+  gap: var(--space-sm);
+  margin: var(--space-sm) 0;
 }
 
 /* Primary button styling for game controls */
@@ -850,7 +952,8 @@ hr {
   border-radius: 4px;
   font-family: var(--font-ui);
   font-weight: 500;
-  padding: var(--space-sm) var(--space-lg);
+  padding: var(--space-xs) var(--space-md);
+  width: 100%;
 }
 
 .game-controls .stButton > button:hover:not(:disabled) {
@@ -898,10 +1001,10 @@ hr {
 .narrative-container {
   background-color: var(--bg-primary);
   min-height: 400px;
-  max-height: 70vh;
+  max-height: 80vh;
   overflow-y: auto;
   scroll-behavior: smooth;
-  padding: var(--space-md);
+  padding: var(--space-xs) var(--space-md);
   position: relative;
 }
 
@@ -1558,8 +1661,16 @@ hr {
    ========================================================================== */
 
 /* Streamlit dialog overrides for theme consistency */
-[data-testid="stDialog"] > div {
+[data-testid="stDialog"] > div,
+[data-testid="stDialog"] > div > div,
+[data-testid="stDialog"] [data-testid="stVerticalBlockBorderWrapper"],
+[data-testid="stDialog"] [data-testid="stVerticalBlockBorderWrapper"] > div {
   background: var(--bg-primary) !important;
+  background-color: var(--bg-primary) !important;
+  border-color: var(--bg-secondary) !important;
+}
+
+[data-testid="stDialog"] > div {
   border: 1px solid var(--bg-secondary) !important;
   border-radius: 12px !important;
   max-width: 600px !important;
@@ -1567,6 +1678,24 @@ hr {
 
 [data-testid="stDialog"] [data-testid="stVerticalBlock"] {
   background: transparent !important;
+}
+
+/* Force all dialog content to use dark theme colors */
+[data-testid="stDialog"] * {
+  color: var(--text-primary);
+}
+
+[data-testid="stDialog"] p,
+[data-testid="stDialog"] span,
+[data-testid="stDialog"] label {
+  color: var(--text-secondary) !important;
+}
+
+[data-testid="stDialog"] h1,
+[data-testid="stDialog"] h2,
+[data-testid="stDialog"] h3,
+[data-testid="stDialog"] h4 {
+  color: var(--text-primary) !important;
 }
 
 /* Modal overlay - dark backdrop */
@@ -2212,4 +2341,26 @@ hr {
 .provider-status-indicator.unavailable {
   color: var(--color-fighter);
   background: rgba(196, 92, 74, 0.15);
+}
+
+/* ==========================================================================
+   LLM Status Expander (High Contrast)
+   ========================================================================== */
+
+/* LLM Status content - ensure high contrast text */
+[data-testid="stSidebar"] [data-testid="stExpander"] p,
+[data-testid="stSidebar"] [data-testid="stExpander"] li {
+  color: var(--text-primary) !important;
+  font-size: 13px;
+}
+
+/* Warning messages in LLM Status */
+[data-testid="stSidebar"] [data-testid="stAlert"] {
+  background: rgba(232, 168, 73, 0.15) !important;
+  border-color: var(--accent-warm) !important;
+  color: var(--text-primary) !important;
+}
+
+[data-testid="stSidebar"] [data-testid="stAlert"] p {
+  color: var(--accent-warm) !important;
 }

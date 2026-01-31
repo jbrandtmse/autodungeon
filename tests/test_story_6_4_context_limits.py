@@ -56,23 +56,16 @@ class TestModelMaxContext:
 
         assert get_model_max_context("claude-sonnet-4-20250514") == 200_000
 
-    def test_ollama_llama3_context_limit(self) -> None:
-        """Test Ollama Llama3 has 8192 context limit."""
-        from config import get_model_max_context
+    def test_ollama_max_context_for_provider(self) -> None:
+        """Test Ollama models get MAX_OLLAMA_CONTEXT via provider function."""
+        from config import MAX_OLLAMA_CONTEXT, get_max_context_for_provider
 
-        assert get_model_max_context("llama3") == 8_192
-
-    def test_ollama_mistral_context_limit(self) -> None:
-        """Test Ollama Mistral has 32K context limit."""
-        from config import get_model_max_context
-
-        assert get_model_max_context("mistral") == 32_768
-
-    def test_ollama_phi3_context_limit(self) -> None:
-        """Test Ollama Phi3 has 128K context limit."""
-        from config import get_model_max_context
-
-        assert get_model_max_context("phi3") == 128_000
+        # All Ollama models should get MAX_OLLAMA_CONTEXT (128,000)
+        assert get_max_context_for_provider("ollama", "llama3") == MAX_OLLAMA_CONTEXT
+        assert get_max_context_for_provider("ollama", "mistral") == MAX_OLLAMA_CONTEXT
+        assert get_max_context_for_provider("ollama", "phi3") == MAX_OLLAMA_CONTEXT
+        assert get_max_context_for_provider("ollama", "any-model") == MAX_OLLAMA_CONTEXT
+        assert MAX_OLLAMA_CONTEXT == 128_000
 
     def test_unknown_model_returns_default(self) -> None:
         """Test that unknown models return DEFAULT_MAX_CONTEXT (8192)."""
@@ -86,7 +79,8 @@ class TestModelMaxContext:
         from config import MODEL_MAX_CONTEXT
 
         assert isinstance(MODEL_MAX_CONTEXT, dict)
-        assert len(MODEL_MAX_CONTEXT) >= 9  # At least 9 models defined
+        # Gemini (7) + Claude (3) = 10 models
+        assert len(MODEL_MAX_CONTEXT) >= 10
 
     def test_minimum_token_limit_constant(self) -> None:
         """Test that MINIMUM_TOKEN_LIMIT is 1000."""
@@ -151,15 +145,20 @@ class TestTokenLimitValidation:
             mock_st.session_state = {}
             from app import validate_token_limit
 
-            # Mock get_current_agent_model to return ollama model with 8192 max
+            # Mock get_current_agent_model to return ollama model with 128K max
             with patch("app.get_current_agent_model") as mock_get_model:
                 mock_get_model.return_value = ("ollama", "llama3")
 
+                # 50000 is within Ollama's 128K max, so no adjustment needed
                 adjusted, msg = validate_token_limit("dm", 50000)
+                assert adjusted == 50000
+                assert msg is None
 
-                assert adjusted == 8192
+                # But 150000 exceeds Ollama's 128K max
+                adjusted, msg = validate_token_limit("dm", 150000)
+                assert adjusted == 128000
                 assert msg is not None
-                assert "8,192" in msg  # Formatted number
+                assert "128,000" in msg  # Formatted number
                 assert "model maximum" in msg.lower()
 
 
@@ -554,11 +553,17 @@ class TestAcceptanceCriteria:
             from app import validate_token_limit
 
             with patch("app.get_current_agent_model") as mock_get_model:
-                mock_get_model.return_value = ("ollama", "llama3")  # 8192 max
+                # Ollama now has 128K max (MAX_OLLAMA_CONTEXT)
+                mock_get_model.return_value = ("ollama", "llama3")
 
+                # 100000 is within Ollama's 128K max, no clamping
                 adjusted, msg = validate_token_limit("dm", 100000)
+                assert adjusted == 100000
+                assert msg is None
 
-                assert adjusted == 8192
+                # But 200000 exceeds Ollama's 128K max, should clamp
+                adjusted, msg = validate_token_limit("dm", 200000)
+                assert adjusted == 128000
                 assert msg is not None
                 assert "maximum" in msg.lower()
 
@@ -729,11 +734,11 @@ class TestEdgeCases:
                 assert adjusted == 500000
                 assert msg is None
 
-            # After switching to Ollama llama3 (8K max), should clamp
+            # After switching to Ollama llama3 (128K max), should clamp
             with patch("app.get_current_agent_model") as mock_get_model:
                 mock_get_model.return_value = ("ollama", "llama3")
                 adjusted, msg = validate_token_limit("dm", 500000)
-                assert adjusted == 8192
+                assert adjusted == 128000
                 assert msg is not None
                 assert "maximum" in msg.lower()
 
@@ -864,9 +869,9 @@ class TestBoundaryValues:
             from app import validate_token_limit
 
             with patch("app.get_current_agent_model") as mock_get_model:
-                mock_get_model.return_value = ("ollama", "llama3")  # 8192 max
-                adjusted, msg = validate_token_limit("dm", 8193)
-                assert adjusted == 8192  # Clamped
+                mock_get_model.return_value = ("ollama", "llama3")  # 128K max
+                adjusted, msg = validate_token_limit("dm", 128001)
+                assert adjusted == 128000  # Clamped
                 assert msg is not None  # Should have info message
 
     def test_validate_token_limit_one_under_max(self) -> None:
@@ -943,23 +948,23 @@ class TestHandleTokenLimitChange:
         """Test that clamping stores info message in session state."""
         with patch("app.st") as mock_st:
             mock_st.session_state = {
-                "token_limit_dm": 50000,  # Exceeds llama3 max
+                "token_limit_dm": 200000,  # Exceeds Ollama 128K max
                 "token_limit_overrides": {},
                 "game": None,
             }
 
             with patch("app.mark_config_changed"):
                 with patch("app.get_current_agent_model") as mock_get_model:
-                    mock_get_model.return_value = ("ollama", "llama3")  # 8192 max
+                    mock_get_model.return_value = ("ollama", "llama3")  # 128K max
                     from app import handle_token_limit_change
 
                     handle_token_limit_change("dm")
 
                     # Should store clamped value
-                    assert mock_st.session_state["token_limit_overrides"]["dm"] == 8192
+                    assert mock_st.session_state["token_limit_overrides"]["dm"] == 128000
                     # Should store info message
                     assert "token_limit_info_dm" in mock_st.session_state
-                    assert "8,192" in mock_st.session_state["token_limit_info_dm"]
+                    assert "128,000" in mock_st.session_state["token_limit_info_dm"]
 
     def test_handle_change_clears_info_message_on_valid_value(self) -> None:
         """Test that valid value clears any previous info message."""
@@ -1377,7 +1382,8 @@ class TestValidationMessageFormat:
 
             with patch("app.get_current_agent_model") as mock_get_model:
                 mock_get_model.return_value = ("ollama", "llama3")
-                _, msg = validate_token_limit("dm", 50000)
+                # Use value exceeding Ollama's 128K max to trigger clamping
+                _, msg = validate_token_limit("dm", 200000)
 
                 assert msg is not None
                 assert "model maximum" in msg.lower() or "maximum" in msg.lower()

@@ -574,9 +574,9 @@ class NarrativeMessage(BaseModel):
         """Determine message type based on agent name.
 
         Returns:
-            "dm_narration" if agent is "dm", otherwise "pc_dialogue"
+            "dm_narration" if agent is "dm" or "DM", otherwise "pc_dialogue"
         """
-        return "dm_narration" if self.agent == "dm" else "pc_dialogue"
+        return "dm_narration" if self.agent.lower() == "dm" else "pc_dialogue"
 
 
 def parse_log_entry(entry: str) -> NarrativeMessage:

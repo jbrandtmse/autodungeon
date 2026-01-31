@@ -63,3 +63,7 @@ Thumbs.db
 campaigns/
 !campaigns/.gitkeep
 *.log
+user-settings.yaml
+
+# Integration test API keys (not source controlled)
+tests/integration_config.py

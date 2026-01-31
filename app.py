@@ -4,8 +4,18 @@ This is the main application entry point. Run with:
     streamlit run app.py
 """
 
+import logging
 import re
 import time
+
+# Configure logging to show warnings in terminal
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
+)
+# Set autodungeon logger to show debug messages
+logging.getLogger("autodungeon").setLevel(logging.DEBUG)
 from datetime import date
 from html import escape as escape_html
 from pathlib import Path
@@ -20,7 +30,7 @@ from config import (
     get_config,
     get_default_token_limit,
     get_effective_api_key,
-    get_model_max_context,
+    get_max_context_for_provider,
     load_user_settings,
     mask_api_key,
     save_user_settings,
@@ -42,6 +52,7 @@ from models import (
 )
 from persistence import (
     create_new_session,
+    delete_session,
     generate_recap_summary,
     get_latest_checkpoint,
     get_transcript_download_data,
@@ -950,19 +961,33 @@ def get_party_characters(state: GameState) -> dict[str, CharacterConfig]:
 def get_character_info(state: GameState, agent_name: str) -> tuple[str, str] | None:
     """Get character info (name, class) for a PC agent.
 
+    Looks up character by agent key first, then by character name.
+    Log entries use character names (e.g., "Thorin") while the characters
+    dict is keyed by agent names (e.g., "thorin").
+
     Args:
         state: Current game state with characters dict.
-        agent_name: Agent key (e.g., "rogue", "fighter", "dm").
+        agent_name: Agent key or character name from log entry.
 
     Returns:
         (character_name, character_class) tuple, or None if DM.
     """
-    if agent_name == "dm":
+    if agent_name.lower() == "dm":
         return None  # DM uses implicit narrator styling
-    char_config = state.get("characters", {}).get(agent_name)
+
+    characters = state.get("characters", {})
+
+    # Try direct key lookup first (lowercase agent key)
+    char_config = characters.get(agent_name.lower())
     if char_config:
         return (char_config.name, char_config.character_class)
-    return ("Unknown", "Adventurer")  # Fallback for unknown agents
+
+    # Fallback: search by character name (log entries use names, not keys)
+    for char in characters.values():
+        if char.name == agent_name:
+            return (char.name, char.character_class)
+
+    return (agent_name, "Adventurer")  # Use agent_name as-is if not found
 
 
 def render_narrative_messages(state: GameState) -> None:
@@ -1805,7 +1830,7 @@ def update_token_limit_for_model(agent_key: str, provider: str, model: str) -> N
         provider: New provider name (gemini, claude, ollama).
         model: New model name.
     """
-    max_context = get_model_max_context(model)
+    max_context = get_max_context_for_provider(provider, model)
     default_limit = get_default_token_limit(provider, model)
 
     # Set to the appropriate default for this provider/model
@@ -2281,9 +2306,9 @@ def validate_token_limit(agent_key: str, value: int) -> tuple[int, str | None]:
     Returns:
         Tuple of (adjusted_value, info_message or None)
     """
-    # Get current model for this agent
-    _, model = get_current_agent_model(agent_key)
-    max_context = get_model_max_context(model)
+    # Get current provider/model for this agent
+    provider, model = get_current_agent_model(agent_key)
+    max_context = get_max_context_for_provider(provider, model)
 
     # Clamp to model maximum
     if value > max_context:
@@ -2482,8 +2507,8 @@ def render_token_limit_row(
     """
     # Get current values
     current_limit = get_effective_token_limit(agent_key)
-    _, model = get_current_agent_model(agent_key)
-    max_context = get_model_max_context(model)
+    provider, model = get_current_agent_model(agent_key)
+    max_context = get_max_context_for_provider(provider, model)
 
     # Ensure safe CSS class
     safe_css_class = escape_html(css_class)
@@ -2733,7 +2758,9 @@ def handle_config_save_click() -> None:
         st.session_state["last_model_change_messages"] = model_change_messages
     elif token_limit_overrides:
         # Fallback: show generic message for token limit changes only
-        st.toast("Token limits updated - changes will apply on next turn", icon="\u2705")
+        st.toast(
+            "Token limits updated - changes will apply on next turn", icon="\u2705"
+        )
 
     # Clear provider availability cache after save (fresh check on next modal open)
     st.session_state["provider_availability"] = {}
@@ -3527,6 +3554,9 @@ def render_sidebar(config: AppConfig) -> None:
             unsafe_allow_html=True,
         )
 
+        # Game controls (Start Game / Next Turn button) - moved from main panel
+        render_game_controls()
+
         st.markdown("---")
 
         # Party panel (Story 2.4)
@@ -3633,9 +3663,6 @@ def render_main_content() -> None:
         render_session_header_html(session_number, session_info),
         unsafe_allow_html=True,
     )
-
-    # Game controls (Start Game / Next Turn button) (Story 2.6)
-    render_game_controls()
 
     # Error panel - shown when error is present (Story 4.5)
     # Renders above narrative area with recovery options
@@ -3896,8 +3923,13 @@ def render_session_browser() -> None:
     # Get sessions with metadata
     sessions = list_sessions_with_metadata()
 
+    # Check if we're confirming a delete
+    confirm_delete_id = st.session_state.get("confirm_delete_session")
+
     if sessions:
         for metadata in sessions:
+            session_id = metadata.session_id
+
             # Render session card
             st.markdown(
                 render_session_card_html(metadata),
@@ -3905,21 +3937,41 @@ def render_session_browser() -> None:
             )
 
             # Check if session has checkpoints (turn 0 is valid)
-            latest_turn = get_latest_checkpoint(metadata.session_id)
+            latest_turn = get_latest_checkpoint(session_id)
             has_checkpoints = latest_turn is not None
 
-            # Continue button
-            _col1, col2 = st.columns([3, 1])
-            with col2:
-                if st.button(
-                    "Continue",
-                    key=f"continue_{metadata.session_id}",
-                    disabled=not has_checkpoints,
-                ):
-                    if handle_session_continue(metadata.session_id):
+            # Check if this session is being deleted
+            if confirm_delete_id == session_id:
+                # Show confirmation UI
+                st.warning("Delete this adventure? This cannot be undone.")
+                col_yes, col_no, _spacer = st.columns([1, 1, 2])
+                with col_yes:
+                    if st.button("Yes, Delete", key=f"confirm_del_{session_id}"):
+                        delete_session(session_id)
+                        st.session_state["confirm_delete_session"] = None
+                        st.toast("Adventure deleted")
                         st.rerun()
-                    else:
-                        st.error("Failed to load session")
+                with col_no:
+                    if st.button("Cancel", key=f"cancel_del_{session_id}"):
+                        st.session_state["confirm_delete_session"] = None
+                        st.rerun()
+            else:
+                # Normal buttons: Continue and Delete
+                _col1, col_continue, col_delete = st.columns([2, 1, 1])
+                with col_continue:
+                    if st.button(
+                        "Continue",
+                        key=f"continue_{session_id}",
+                        disabled=not has_checkpoints,
+                    ):
+                        if handle_session_continue(session_id):
+                            st.rerun()
+                        else:
+                            st.error("Failed to load session")
+                with col_delete:
+                    if st.button("🗑️", key=f"delete_{session_id}", help="Delete"):
+                        st.session_state["confirm_delete_session"] = session_id
+                        st.rerun()
 
             st.markdown("---")
     else:
@@ -3966,14 +4018,13 @@ def main() -> None:
     # Wrap content in app-content div for responsive hiding
     st.markdown('<div class="app-content">', unsafe_allow_html=True)
 
-    # Title
-    st.title("autodungeon")
-    st.caption("Multi-agent D&D game engine")
-
     # App view routing (Story 4.3)
     app_view = st.session_state.get("app_view", "session_browser")
 
     if app_view == "session_browser":
+        # Title only shown in session browser (not game view to save space)
+        st.title("autodungeon")
+        st.caption("Multi-agent D&D game engine")
         # Session browser view
         render_session_browser()
     else:

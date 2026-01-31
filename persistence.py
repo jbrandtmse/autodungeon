@@ -35,6 +35,7 @@ __all__ = [
     "CheckpointInfo",
     "append_transcript_entry",
     "create_new_session",
+    "delete_session",
     "deserialize_game_state",
     "ensure_session_dir",
     "format_session_id",
@@ -652,6 +653,35 @@ def create_new_session(
     save_session_metadata(session_id, metadata)
 
     return session_id
+
+
+def delete_session(session_id: str) -> bool:
+    """Delete a session and all its files.
+
+    Removes the entire session directory including checkpoints,
+    transcript, and metadata.
+
+    Args:
+        session_id: Session ID string (e.g., "001").
+
+    Returns:
+        True if session was deleted, False if it didn't exist.
+
+    Raises:
+        ValueError: If session_id contains invalid characters.
+        OSError: If deletion fails (permissions, etc.).
+    """
+    import shutil
+
+    _validate_session_id(session_id)
+    session_dir = get_session_dir(session_id)
+
+    if not session_dir.exists():
+        return False
+
+    # Remove the entire session directory
+    shutil.rmtree(session_dir)
+    return True
 
 
 def update_session_metadata_on_checkpoint(
