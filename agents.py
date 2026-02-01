@@ -10,13 +10,26 @@ from datetime import UTC, datetime
 
 from langchain_anthropic import ChatAnthropic
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import (
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
 from langchain_core.runnables import Runnable
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_ollama import ChatOllama
 
 from config import get_config, load_user_settings
-from models import AgentMemory, CharacterConfig, CharacterFacts, DMConfig, GameState
+from models import (
+    AgentMemory,
+    CharacterConfig,
+    CharacterFacts,
+    DMConfig,
+    GameState,
+    ModuleDiscoveryResult,
+    ModuleInfo,
+)
 from tools import dm_roll_dice, pc_roll_dice
 
 # Logger for error tracking (technical details logged internally per FR40)
@@ -30,16 +43,21 @@ __all__ = [
     "DM_SYSTEM_PROMPT",
     "LLMConfigurationError",
     "LLMError",
+    "MODULE_DISCOVERY_MAX_RETRIES",
+    "MODULE_DISCOVERY_PROMPT",
+    "MODULE_DISCOVERY_RETRY_PROMPT",
     "PC_CONTEXT_RECENT_EVENTS_LIMIT",
     "PC_SYSTEM_PROMPT_TEMPLATE",
     "SUPPORTED_PROVIDERS",
     "_build_dm_context",
     "_build_pc_context",
+    "_parse_module_json",
     "build_pc_system_prompt",
     "categorize_error",
     "create_dm_agent",
     "create_pc_agent",
     "detect_network_error",
+    "discover_modules",
     "dm_turn",
     "format_character_facts",
     "get_default_model",
@@ -107,11 +125,26 @@ Reference earlier events naturally to maintain immersion:
 
 ## Dice Rolling
 
-Use the dice rolling tool when:
+Use the dm_roll_dice tool when:
 - A player attempts something with uncertain outcome (skill checks)
 - Combat attacks or damage need to be resolved
 - Saving throws against effects are required
 - Random outcomes enhance the story
+
+**CRITICAL**: When you call the dice tool, you MUST include narrative text in your response.
+Never return just a tool call with no story content.
+
+Common dice notations:
+- "1d20+5" - Skill check with modifier (e.g., Perception +5)
+- "1d20+3" - Attack roll with modifier
+- "2d6+3" - Damage (e.g., greatsword 2d6 + 3 STR)
+- "1d20" - Simple check (default if unsure)
+
+Example - Player wants to pick a lock:
+1. Call dm_roll_dice("1d20+7") for their Thieves' Tools check
+2. Get result: "1d20+7: [15] + 7 = 22"
+3. Your response: "Shadowmere's nimble fingers work the tumblers with practiced ease.
+   (Thieves' Tools: 22) With a satisfying *click*, the lock surrenders."
 
 After receiving dice results, integrate them meaningfully into your narration. A natural 20 should feel \
 heroic; a natural 1 should be dramatically unfortunate but not humiliating.
@@ -154,10 +187,26 @@ When responding:
 
 ## Dice Rolling
 
-Use the dice rolling tool when:
+Use the pc_roll_dice tool when:
 - You attempt something with uncertain outcome
 - You want to make a skill check (Perception, Stealth, etc.)
 - The DM hasn't already rolled for you
+
+**CRITICAL**: When you call the dice tool, you MUST include your character's action and
+dialogue in your response. Never return just a tool call with no narrative text.
+
+Common dice notations:
+- "1d20+5" - Skill check with your modifier
+- "1d20+3" - Attack roll
+- "2d6+2" - Damage roll
+- "1d20" - Simple check (default if unsure about modifier)
+
+Example - You want to sneak past guards:
+1. Call pc_roll_dice("1d20+5") for Stealth
+2. Get result: "1d20+5: [14] + 5 = 19"
+3. Your response: "I hold my breath and slip into the shadows, timing my steps
+   to the creak of the old floorboards. (Stealth: 19) 'Stay close,' I whisper
+   to the others without looking back."
 
 Keep responses focused - you're one character in a party, not the narrator."""
 
@@ -776,6 +825,9 @@ def dm_turn(state: GameState) -> GameState:
             messages.append(HumanMessage(content=f"Current game context:\n\n{context}"))
         messages.append(HumanMessage(content="Continue the adventure."))
 
+        # Track any dice results for fallback response
+        dice_results: list[str] = []
+
         # Invoke the model with tool call handling loop
         max_tool_iterations = 3  # Prevent infinite loops
         for _ in range(max_tool_iterations):
@@ -796,8 +848,10 @@ def dm_turn(state: GameState) -> GameState:
                 # Execute the dice roll tool
                 if tool_name == "dm_roll_dice":
                     from tools import roll_dice
+
                     result = roll_dice(tool_args.get("notation"))
                     tool_result = str(result)
+                    dice_results.append(tool_result)
                     logger.info("DM rolled dice: %s -> %s", tool_args, tool_result)
                 else:
                     tool_result = f"Unknown tool: {tool_name}"
@@ -806,6 +860,53 @@ def dm_turn(state: GameState) -> GameState:
                 messages.append(ToolMessage(content=tool_result, tool_call_id=tool_id))
 
             # Continue loop to get model's response after tool execution
+
+        # Extract text from response (handles Gemini 3 content blocks)
+        response_content = _extract_response_text(response)
+
+        # Retry logic for empty responses
+        max_retries = 2
+        retry_count = 0
+        while not response_content and retry_count < max_retries:
+            retry_count += 1
+            logger.warning(
+                "DM response empty (attempt %d/%d), retrying with nudge...",
+                retry_count,
+                max_retries,
+            )
+
+            # Add a nudge message asking for narrative
+            nudge = (
+                "Your response was empty. Please provide narrative text describing "
+                "what happens next in the adventure. "
+            )
+            if dice_results:
+                nudge += (
+                    f"Include the dice result ({dice_results[-1]}) in your narrative."
+                )
+            messages.append(HumanMessage(content=nudge))
+
+            # Retry the invocation
+            response = dm_agent.invoke(messages)
+            response_content = _extract_response_text(response)
+
+        # If still empty after retries, generate a fallback response
+        if not response_content:
+            if dice_results:
+                response_content = (
+                    f"*The tension in the air is palpable as fate intervenes.* "
+                    f"(Roll: {dice_results[-1]}) The outcome hangs in the balance..."
+                )
+            else:
+                response_content = (
+                    "*A moment of stillness falls over the scene. The adventurers "
+                    "sense that something significant is about to unfold...*"
+                )
+            logger.warning(
+                "DM using fallback response after %d retries: %s",
+                max_retries,
+                response_content,
+            )
 
     except LLMConfigurationError as e:
         # Re-raise config errors as LLMError for consistent handling
@@ -828,24 +929,6 @@ def dm_turn(state: GameState) -> GameState:
         )
         _log_llm_error(llm_error)
         raise llm_error from e
-
-    # Extract text from response (handles Gemini 3 content blocks)
-    response_content = _extract_response_text(response)
-
-    # Debug: Log and write to file if still empty after all attempts
-    if not response_content:
-        debug_info = (
-            f"DM response empty!\n"
-            f"  content type: {type(response.content).__name__}\n"
-            f"  content: {response.content!r}\n"
-            f"  tool_calls: {getattr(response, 'tool_calls', None)!r}\n"
-            f"  response type: {type(response).__name__}\n"
-            f"  response attrs: {[a for a in dir(response) if not a.startswith('_')]}\n"
-        )
-        logger.warning(debug_info)
-        # Also write to file for easy inspection
-        with open("llm_debug.log", "a", encoding="utf-8") as f:
-            f.write(f"\n{'='*60}\n{datetime.now()}\n{debug_info}")
 
     # Create new state (never mutate input)
     new_log = state["ground_truth_log"].copy()
@@ -927,6 +1010,9 @@ def pc_turn(state: GameState, agent_name: str) -> GameState:
             )
         messages.append(HumanMessage(content="It's your turn. What do you do?"))
 
+        # Track any dice results for fallback response
+        dice_results: list[str] = []
+
         # Invoke the model with tool call handling loop
         max_tool_iterations = 3  # Prevent infinite loops
         for _ in range(max_tool_iterations):
@@ -947,9 +1033,13 @@ def pc_turn(state: GameState, agent_name: str) -> GameState:
                 # Execute the dice roll tool
                 if tool_name == "pc_roll_dice":
                     from tools import roll_dice
+
                     result = roll_dice(tool_args.get("notation"))
                     tool_result = str(result)
-                    logger.info("%s rolled dice: %s -> %s", agent_name, tool_args, tool_result)
+                    dice_results.append(tool_result)
+                    logger.info(
+                        "%s rolled dice: %s -> %s", agent_name, tool_args, tool_result
+                    )
                 else:
                     tool_result = f"Unknown tool: {tool_name}"
 
@@ -957,6 +1047,55 @@ def pc_turn(state: GameState, agent_name: str) -> GameState:
                 messages.append(ToolMessage(content=tool_result, tool_call_id=tool_id))
 
             # Continue loop to get model's response after tool execution
+
+        # Extract text from response (handles Gemini 3 content blocks)
+        response_content = _extract_response_text(response)
+
+        # Retry logic for empty responses
+        max_retries = 2
+        retry_count = 0
+        while not response_content and retry_count < max_retries:
+            retry_count += 1
+            logger.warning(
+                "%s response empty (attempt %d/%d), retrying with nudge...",
+                agent_name,
+                retry_count,
+                max_retries,
+            )
+
+            # Add a nudge message asking for narrative
+            nudge = (
+                "Your response was empty. Please describe your character's action "
+                "in first person, including any dialogue. "
+            )
+            if dice_results:
+                nudge += (
+                    f"Include your dice result ({dice_results[-1]}) in your narrative."
+                )
+            messages.append(HumanMessage(content=nudge))
+
+            # Retry the invocation
+            response = pc_agent.invoke(messages)
+            response_content = _extract_response_text(response)
+
+        # If still empty after retries, generate a fallback response
+        if not response_content:
+            if dice_results:
+                response_content = (
+                    f"*{character_config.name} takes action cautiously, watching the "
+                    f"situation unfold.* (Roll: {dice_results[-1]})"
+                )
+            else:
+                response_content = (
+                    f"*{character_config.name} observes the situation carefully, "
+                    "ready to act when the moment is right.*"
+                )
+            logger.warning(
+                "%s using fallback response after %d retries: %s",
+                agent_name,
+                max_retries,
+                response_content,
+            )
 
     except LLMConfigurationError as e:
         # Re-raise config errors as LLMError for consistent handling
@@ -979,24 +1118,6 @@ def pc_turn(state: GameState, agent_name: str) -> GameState:
         )
         _log_llm_error(llm_error)
         raise llm_error from e
-
-    # Extract text from response (handles Gemini 3 content blocks)
-    response_content = _extract_response_text(response)
-
-    # Debug: Log if still empty after all attempts
-    if not response_content:
-        debug_info = (
-            f"{agent_name} response empty!\n"
-            f"  content type: {type(response.content).__name__}\n"
-            f"  content: {response.content!r}\n"
-            f"  tool_calls: {getattr(response, 'tool_calls', None)!r}\n"
-            f"  response type: {type(response).__name__}\n"
-            f"  response attrs: {[a for a in dir(response) if not a.startswith('_')]}\n"
-        )
-        logger.warning(debug_info)
-        # Also write to file for easy inspection
-        with open("llm_debug.log", "a", encoding="utf-8") as f:
-            f.write(f"\n{'='*60}\n{datetime.now()}\n{debug_info}")
 
     # Create new state (never mutate input)
     new_log = state["ground_truth_log"].copy()
@@ -1032,4 +1153,230 @@ def pc_turn(state: GameState, agent_name: str) -> GameState:
         session_number=state["session_number"],
         session_id=state["session_id"],
         summarization_in_progress=state.get("summarization_in_progress", False),
+    )
+
+
+# =============================================================================
+# Module Discovery (Story 7.1)
+# =============================================================================
+
+# Maximum retry attempts for module discovery
+MODULE_DISCOVERY_MAX_RETRIES = 2
+
+# Initial module discovery prompt
+MODULE_DISCOVERY_PROMPT = """You are the dungeon master in a dungeons and dragons game.
+
+What dungeons and dragons modules do you know from your training?
+
+Return exactly 100 modules in JSON format. Each module must have:
+- number: Integer from 1 to 100
+- name: The official module name
+- description: A 1-2 sentence description of the adventure
+
+Example format:
+```json
+[
+  {"number": 1, "name": "Curse of Strahd", "description": "Gothic horror adventure in the haunted realm of Barovia, where players must defeat the vampire lord Strahd von Zarovich."},
+  {"number": 2, "name": "Lost Mine of Phandelver", "description": "Starter adventure set in the Sword Coast where heroes discover a lost dwarven mine and its magical forge."}
+]
+```
+
+Include modules from different editions (AD&D, 2e, 3e, 4e, 5e) and various campaign settings (Forgotten Realms, Greyhawk, Dragonlance, Ravenloft, Eberron, etc.).
+
+Return ONLY the JSON array, no additional text."""
+
+# Retry prompt with more explicit JSON instructions
+MODULE_DISCOVERY_RETRY_PROMPT = """Your previous response could not be parsed as valid JSON.
+
+Please return exactly 100 D&D modules as a valid JSON array. Each object must have these exact keys:
+- "number": integer (1-100)
+- "name": string (module name)
+- "description": string (brief description)
+
+The response must:
+1. Start with [ and end with ]
+2. Use double quotes for strings
+3. Separate objects with commas
+4. Have no trailing commas
+5. Contain no text before or after the JSON array
+
+Example of valid format:
+[
+  {"number": 1, "name": "Curse of Strahd", "description": "Gothic horror in Barovia."},
+  {"number": 2, "name": "Lost Mine of Phandelver", "description": "Starter adventure in the Sword Coast."}
+]
+
+Return ONLY the JSON array now:"""
+
+
+def _parse_module_json(response_text: str) -> list["ModuleInfo"]:
+    """Parse JSON array of modules from LLM response text.
+
+    Handles common LLM response quirks:
+    - JSON wrapped in markdown code blocks
+    - Leading/trailing whitespace
+    - Extra text before/after JSON
+
+    Args:
+        response_text: Raw text from LLM response.
+
+    Returns:
+        List of validated ModuleInfo objects.
+
+    Raises:
+        json.JSONDecodeError: If JSON parsing fails.
+        ValueError: If parsed data doesn't match expected structure.
+    """
+    import json
+
+    # Validate input - empty response should fail fast
+    if not response_text or not response_text.strip():
+        raise json.JSONDecodeError("Empty response text", response_text or "", 0)
+
+    # Strip whitespace
+    text = response_text.strip()
+
+    # Remove markdown code blocks if present
+    if text.startswith("```json"):
+        text = text[7:]
+    if text.startswith("```"):
+        text = text[3:]
+    if text.endswith("```"):
+        text = text[:-3]
+    text = text.strip()
+
+    # Try to find JSON array in response
+    # Look for first [ and last ]
+    start_idx = text.find("[")
+    end_idx = text.rfind("]")
+
+    if start_idx == -1 or end_idx == -1 or end_idx < start_idx:
+        raise json.JSONDecodeError("No JSON array found in response", text, 0)
+
+    json_text = text[start_idx : end_idx + 1]
+
+    # Parse JSON
+    data = json.loads(json_text)
+
+    if not isinstance(data, list):
+        raise ValueError("Expected JSON array, got: " + type(data).__name__)
+
+    # Validate and convert to ModuleInfo objects
+    modules: list[ModuleInfo] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue  # Skip invalid items
+
+        try:
+            module = ModuleInfo(
+                number=item.get("number", len(modules) + 1),
+                name=str(item.get("name", "")).strip(),
+                description=str(item.get("description", "")).strip(),
+                setting=str(item.get("setting", "")).strip(),
+                level_range=str(item.get("level_range", "")).strip(),
+            )
+            modules.append(module)
+        except Exception as e:
+            logger.warning("Skipping invalid module entry: %s", e)
+            continue
+
+    return modules
+
+
+def discover_modules(dm_config: DMConfig) -> "ModuleDiscoveryResult":
+    """Query the DM LLM for known D&D modules.
+
+    Uses the configured DM provider and model to ask what D&D modules
+    the LLM knows from training. Returns a structured list of modules.
+
+    Story 7.1: Module Discovery via LLM Query.
+
+    Args:
+        dm_config: DM configuration with provider and model settings.
+
+    Returns:
+        ModuleDiscoveryResult containing list of ModuleInfo objects.
+
+    Raises:
+        LLMError: If the LLM API call fails after retries.
+    """
+    import json
+
+    llm = get_llm(dm_config.provider, dm_config.model)
+    retry_count = 0
+
+    for attempt in range(MODULE_DISCOVERY_MAX_RETRIES + 1):
+        try:
+            # Use standard prompt on first attempt, retry prompt on subsequent
+            prompt = (
+                MODULE_DISCOVERY_PROMPT
+                if attempt == 0
+                else MODULE_DISCOVERY_RETRY_PROMPT
+            )
+
+            # Invoke LLM
+            messages = [HumanMessage(content=prompt)]
+            response = llm.invoke(messages)
+
+            # Extract response text
+            response_text = _extract_response_text(response)
+
+            # Parse JSON from response
+            modules = _parse_module_json(response_text)
+
+            return ModuleDiscoveryResult(
+                modules=modules,
+                provider=dm_config.provider,
+                model=dm_config.model,
+                timestamp=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+                retry_count=retry_count,
+            )
+
+        except json.JSONDecodeError as e:
+            retry_count += 1
+            if attempt == MODULE_DISCOVERY_MAX_RETRIES:
+                # Log error and raise LLMError (truncate error message for safety)
+                error_msg = str(e)[:200] if len(str(e)) > 200 else str(e)
+                logger.error(
+                    "Module discovery JSON parse failed after %d retries: %s",
+                    retry_count,
+                    error_msg,
+                )
+                raise LLMError(
+                    provider=dm_config.provider,
+                    agent="dm",
+                    error_type="invalid_response",
+                    original_error=e,
+                ) from e
+            logger.warning(
+                "Module discovery JSON parse failed (attempt %d), retrying...",
+                attempt + 1,
+            )
+
+        except LLMConfigurationError as e:
+            # Re-raise config errors as LLMError for consistent handling
+            raise LLMError(
+                provider=dm_config.provider,
+                agent="dm",
+                error_type="auth_error",
+                original_error=e,
+            ) from e
+
+        except Exception as e:
+            # Categorize and wrap the error
+            error_type = categorize_error(e)
+            raise LLMError(
+                provider=dm_config.provider,
+                agent="dm",
+                error_type=error_type,
+                original_error=e,
+            ) from e
+
+    # Should not reach here, but safety return
+    return ModuleDiscoveryResult(
+        modules=[],
+        provider=dm_config.provider,
+        model=dm_config.model,
+        timestamp=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        retry_count=retry_count,
     )

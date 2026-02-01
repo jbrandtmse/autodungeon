@@ -828,6 +828,30 @@
 - Run epic retrospective: `/bmad-bmm-retrospective`
 - Check sprint status: `/bmad-bmm-sprint-status`
 - All 6 Epics are now COMPLETE! 🎉
+- Continue with Epic 7: Module Selection & Campaign Setup (v1.1 enhancements)
+
+---
+
+# Epic 7 - Module Selection & Campaign Setup
+
+**Project:** autodungeon
+**Epic:** 7 - Module Selection & Campaign Setup
+**Started:** 2026-02-01
+
+**Goal:** User can start a new adventure by selecting from D&D modules the DM knows from training.
+
+**User Outcome:** "I ask the DM what adventures it knows, pick 'Curse of Strahd' from the list, and the DM starts running that campaign with full knowledge of the setting."
+
+**FRs Covered:** FR56-FR59 (4 FRs)
+
+## Cycle Overview
+
+| Story | Status | Phase |
+|-------|--------|-------|
+| 7-1-module-discovery-via-llm-query | ⏳ in-progress | Starting |
+| 7-2-module-selection-ui | ⬜ backlog | - |
+| 7-3-module-context-injection | ⬜ backlog | - |
+| 7-4-new-adventure-flow-integration | ⬜ backlog | - |
 
 ---
 

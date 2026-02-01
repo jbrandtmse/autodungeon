@@ -291,6 +291,12 @@ class TestModuleExports:
             "detect_network_error",
             # Story 5.4: Cross-Session Memory
             "format_character_facts",
+            # Story 7.1: Module Discovery
+            "MODULE_DISCOVERY_PROMPT",
+            "MODULE_DISCOVERY_RETRY_PROMPT",
+            "MODULE_DISCOVERY_MAX_RETRIES",
+            "discover_modules",
+            "_parse_module_json",
         }
 
         assert set(agents.__all__) == expected_exports

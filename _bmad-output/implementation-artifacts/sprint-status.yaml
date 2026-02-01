@@ -98,3 +98,58 @@ development_status:
   6-4-context-limit-configuration: done
   6-5-mid-campaign-provider-switching: done
   epic-6-retrospective: optional
+
+  # ===========================================
+  # v1.1 ENHANCEMENTS
+  # ===========================================
+
+  # Epic 7: Module Selection & Campaign Setup (4 stories)
+  epic-7: in-progress
+  7-1-module-discovery-via-llm-query: review
+  7-2-module-selection-ui: backlog
+  7-3-module-context-injection: backlog
+  7-4-new-adventure-flow-integration: backlog
+  epic-7-retrospective: optional
+
+  # Epic 8: Character Sheets (5 stories)
+  epic-8: backlog
+  8-1-character-sheet-data-model: backlog
+  8-2-character-sheet-viewer-ui: backlog
+  8-3-character-sheet-context-injection: backlog
+  8-4-dm-tool-calls-for-sheet-updates: backlog
+  8-5-sheet-change-notifications: backlog
+  epic-8-retrospective: optional
+
+  # Epic 9: Character Creation UI (4 stories)
+  epic-9: backlog
+  9-1-character-creation-wizard: backlog
+  9-2-ai-assisted-backstory-generation: backlog
+  9-3-character-validation: backlog
+  9-4-character-library: backlog
+  epic-9-retrospective: optional
+
+  # Epic 10: DM Whisper & Secrets System (5 stories)
+  epic-10: backlog
+  10-1-whisper-data-model: backlog
+  10-2-dm-whisper-tool: backlog
+  10-3-secret-knowledge-injection: backlog
+  10-4-human-whisper-to-dm: backlog
+  10-5-secret-revelation-system: backlog
+  epic-10-retrospective: optional
+
+  # Epic 11: Callback Tracker (5 stories)
+  epic-11: backlog
+  11-1-narrative-element-extraction: backlog
+  11-2-callback-database: backlog
+  11-3-dm-callback-suggestions: backlog
+  11-4-callback-detection: backlog
+  11-5-callback-ui-and-history: backlog
+  epic-11-retrospective: optional
+
+  # Epic 12: Fork Gameplay (4 stories)
+  epic-12: backlog
+  12-1-fork-creation: backlog
+  12-2-fork-management-ui: backlog
+  12-3-fork-comparison-view: backlog
+  12-4-fork-resolution: backlog
+  epic-12-retrospective: optional

@@ -27,6 +27,8 @@ __all__ = [
     "ERROR_TYPES",
     "GameConfig",
     "GameState",
+    "ModuleDiscoveryResult",
+    "ModuleInfo",
     "NarrativeMessage",
     "MessageSegment",
     "SessionMetadata",
@@ -335,6 +337,61 @@ class TranscriptEntry(BaseModel):
 
 
 # =============================================================================
+# Module Discovery (Story 7.1)
+# =============================================================================
+
+
+class ModuleInfo(BaseModel):
+    """D&D module information from LLM knowledge.
+
+    Represents a single D&D module/adventure that the LLM knows from its
+    training data. Used in the module selection UI during new adventure setup.
+
+    Story 7.1: Module Discovery via LLM Query.
+
+    Attributes:
+        number: Module number (1-100) for ordering in the list.
+        name: Official module name (e.g., "Curse of Strahd").
+        description: Brief 1-2 sentence description of the adventure.
+        setting: Campaign setting (e.g., "Forgotten Realms", "Ravenloft").
+        level_range: Recommended level range (e.g., "1-5", "5-10").
+    """
+
+    number: int = Field(..., ge=1, le=100, description="Module number (1-100)")
+    name: str = Field(..., min_length=1, description="Module name")
+    description: str = Field(..., min_length=1, description="Brief module description")
+    setting: str = Field(
+        default="", description="Campaign setting (e.g., Forgotten Realms)"
+    )
+    level_range: str = Field(
+        default="", description="Recommended level range (e.g., 1-5)"
+    )
+
+
+class ModuleDiscoveryResult(BaseModel):
+    """Result of module discovery LLM query.
+
+    Wraps the list of discovered modules with metadata about the discovery
+    process (which provider/model was used, timestamp, retry count).
+
+    Story 7.1: Module Discovery via LLM Query.
+
+    Attributes:
+        modules: List of discovered ModuleInfo objects.
+        provider: LLM provider used for discovery (e.g., "gemini").
+        model: Model name used for discovery (e.g., "gemini-1.5-flash").
+        timestamp: ISO timestamp when discovery completed.
+        retry_count: Number of retries needed to get valid JSON response.
+    """
+
+    modules: list[ModuleInfo] = Field(default_factory=list)
+    provider: str = Field(..., description="Provider used for discovery")
+    model: str = Field(..., description="Model used for discovery")
+    timestamp: str = Field(..., description="ISO timestamp of discovery")
+    retry_count: int = Field(default=0, ge=0, description="Number of retries needed")
+
+
+# =============================================================================
 # Error Handling (Story 4.5)
 # =============================================================================
 
@@ -369,6 +426,11 @@ ERROR_TYPES: dict[str, dict[str, str]] = {
         "title": "Something unexpected happened...",
         "message": "An unknown error occurred in the magical realm.",
         "action": "Try again or restore to your last checkpoint.",
+    },
+    "module_discovery_failed": {
+        "title": "The Dungeon Master's library is unreachable...",
+        "message": "Could not retrieve the list of known adventures. The tomes are shrouded in magical mist.",
+        "action": "Try again, or start a freeform adventure without a specific module.",
     },
 }
 
@@ -602,12 +664,12 @@ def parse_log_entry(entry: str) -> NarrativeMessage:
         bracket_end = entry.find("]")
         if bracket_end > 0:
             agent = entry[1:bracket_end] or "unknown"
-            content = entry[bracket_end + 1:]
+            content = entry[bracket_end + 1 :]
             # Strip ": " or just ":" or whitespace from start of content
             content = content.lstrip(": ")
             # Handle duplicate prefix: LLM sometimes echoes "[agent]:" in response
             if content.startswith(f"[{agent}]"):
-                content = content[len(agent) + 2:].lstrip(": ")
+                content = content[len(agent) + 2 :].lstrip(": ")
             return NarrativeMessage(agent=agent, content=content)
     # No brackets at start - treat as DM narration
     return NarrativeMessage(agent="dm", content=entry)

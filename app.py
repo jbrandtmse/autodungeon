@@ -22,6 +22,7 @@ from pathlib import Path
 
 import streamlit as st
 
+from agents import LLMError, discover_modules
 from config import (
     MINIMUM_TOKEN_LIMIT,
     AppConfig,
@@ -48,6 +49,7 @@ from models import (
     SessionMetadata,
     UserError,
     ValidationResult,
+    create_user_error,
     populate_game_state,
 )
 from persistence import (
@@ -61,6 +63,9 @@ from persistence import (
     list_sessions_with_metadata,
     load_checkpoint,
 )
+
+# Logger for this module
+logger = logging.getLogger("autodungeon.app")
 
 # Speed delay mappings for playback control
 SPEED_DELAYS: dict[str, float] = {
@@ -3816,6 +3821,110 @@ def handle_session_continue(session_id: str) -> bool:
             st.session_state["recap_text"] = recap
 
     return True
+
+
+# =============================================================================
+# Module Discovery (Story 7.1)
+# =============================================================================
+
+
+def start_module_discovery() -> None:
+    """Initiate module discovery from DM LLM.
+
+    Sets session state flags and triggers discovery. The discovery
+    runs synchronously (blocking) for MVP simplicity.
+
+    UI should show loading indicator while in_progress is True.
+
+    Story 7.1: Module Discovery via LLM Query.
+    """
+    st.session_state["module_discovery_in_progress"] = True
+    st.session_state["module_discovery_error"] = None
+    st.session_state["module_list"] = None
+
+    try:
+        # Get DM config (use defaults if no game exists yet)
+        game: GameState | None = st.session_state.get("game")
+        if game:
+            dm_config = game["dm_config"]
+        else:
+            # Load DM config from YAML defaults
+            from config import load_dm_config
+
+            dm_config = load_dm_config()
+
+        # Run discovery
+        result = discover_modules(dm_config)
+
+        # Store results
+        st.session_state["module_discovery_result"] = result
+        st.session_state["module_list"] = result.modules
+
+    except LLMError as e:
+        # Convert to UserError for display using module_discovery_failed type
+        # for proper campfire-style messaging (Story 7.1)
+        error = create_user_error(
+            error_type="module_discovery_failed",
+            provider=e.provider,
+            agent=e.agent,
+        )
+        st.session_state["module_discovery_error"] = error
+
+    except Exception as e:
+        # Catch any other errors (config loading, etc.) and wrap them
+        logger.error("Module discovery failed with unexpected error: %s", str(e)[:200])
+        error = create_user_error(
+            error_type="module_discovery_failed",
+            provider="unknown",
+            agent="dm",
+        )
+        st.session_state["module_discovery_error"] = error
+
+    finally:
+        st.session_state["module_discovery_in_progress"] = False
+
+
+def clear_module_discovery_state() -> None:
+    """Clear all module discovery session state.
+
+    Called when adventure creation is cancelled or completed.
+
+    Story 7.1: Module Discovery via LLM Query.
+    """
+    keys_to_clear = [
+        "module_list",
+        "module_discovery_result",
+        "module_discovery_in_progress",
+        "module_discovery_error",
+        "selected_module",
+    ]
+    for key in keys_to_clear:
+        if key in st.session_state:
+            del st.session_state[key]
+
+
+def render_module_discovery_loading() -> None:
+    """Render loading state during module discovery.
+
+    Shows a campfire-themed loading indicator while the DM LLM
+    is being queried for known D&D modules.
+
+    Story 7.1: Module Discovery via LLM Query.
+    """
+    st.markdown(
+        """
+    <div class="module-discovery-loading">
+        <div class="loading-icon">&#128214;</div>
+        <p class="loading-text">Consulting the Dungeon Master's Library...</p>
+        <p class="loading-subtext">Gathering tales of adventure from across the realms</p>
+    </div>
+    """,
+        unsafe_allow_html=True,
+    )
+
+    # Streamlit spinner as backup/accessibility
+    with st.spinner(""):
+        pass  # Just show spinner animation
 
 
 def handle_new_session_click() -> None:
