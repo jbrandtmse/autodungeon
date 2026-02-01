@@ -1034,3 +1034,27 @@
 
 ---
 
+# Epic 8 - Character Sheets
+
+**Project:** autodungeon
+**Epic:** 8 - Character Sheets
+**Started:** 2026-02-01
+
+**Goal:** Each character has a full D&D 5e character sheet that's viewable and dynamically updated.
+
+**User Outcome:** "I can click on any character and see their full sheet - HP, abilities, equipment, spells. When the fighter takes damage, their HP updates. When the rogue finds a magic dagger, it appears in their inventory."
+
+**FRs Covered:** FR60-FR66 (7 FRs)
+
+## Cycle Overview
+
+| Story | Status | Phase |
+|-------|--------|-------|
+| 8-1-character-sheet-data-model | ⏳ in-progress | Starting |
+| 8-2-character-sheet-viewer-ui | ⬜ backlog | - |
+| 8-3-character-sheet-context-injection | ⬜ backlog | - |
+| 8-4-dm-tool-calls-for-sheet-updates | ⬜ backlog | - |
+| 8-5-sheet-change-notifications | ⬜ backlog | - |
+
+---
+

@@ -16,14 +16,18 @@ import re
 from datetime import UTC, datetime
 from typing import ClassVar, Literal, TypedDict
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 
 __all__ = [
     "AgentMemory",
     "ApiKeyFieldState",
+    "Armor",
     "CharacterConfig",
     "CharacterFacts",
+    "CharacterSheet",
+    "DeathSaves",
     "DMConfig",
+    "EquipmentItem",
     "ERROR_TYPES",
     "GameConfig",
     "GameState",
@@ -32,9 +36,12 @@ __all__ = [
     "NarrativeMessage",
     "MessageSegment",
     "SessionMetadata",
+    "Spell",
+    "SpellSlots",
     "TranscriptEntry",
     "UserError",
     "ValidationResult",
+    "Weapon",
     "create_agent_memory",
     "create_character_facts_from_config",
     "create_initial_game_state",
@@ -557,6 +564,408 @@ class ApiKeyFieldState(BaseModel):
     show_value: bool = Field(
         default=False, description="Whether to show actual value vs masked"
     )
+
+
+# =============================================================================
+# Character Sheet Models (Story 8.1)
+# =============================================================================
+
+
+class Weapon(BaseModel):
+    """A weapon in character inventory.
+
+    Story 8.1: Character Sheet Data Model.
+
+    Attributes:
+        name: Weapon name (e.g., "Longsword").
+        damage_dice: Damage dice notation (e.g., "1d8").
+        damage_type: Type of damage (e.g., "slashing", "piercing", "bludgeoning").
+        properties: List of weapon properties (e.g., ["versatile", "finesse"]).
+        attack_bonus: Additional attack bonus from magic or other sources.
+        is_equipped: Whether the weapon is currently equipped.
+    """
+
+    name: str = Field(..., min_length=1, description="Weapon name")
+    damage_dice: str = Field(
+        ...,
+        pattern=r"^\d+d\d+([+-]\d+)?$",
+        description="Damage dice notation (e.g., 1d8, 2d6+2, 1d10-1)",
+    )
+    damage_type: str = Field(default="slashing", description="Damage type")
+    properties: list[str] = Field(default_factory=list, description="Weapon properties")
+    attack_bonus: int = Field(default=0, description="Magic/other attack bonus")
+    is_equipped: bool = Field(default=False, description="Whether weapon is equipped")
+
+
+class Armor(BaseModel):
+    """Armor worn by a character.
+
+    Story 8.1: Character Sheet Data Model.
+
+    Attributes:
+        name: Armor name (e.g., "Chain Mail").
+        armor_class: Base AC provided by armor.
+        armor_type: Category (light, medium, heavy, shield).
+        strength_requirement: Minimum STR required (0 if none).
+        stealth_disadvantage: Whether armor imposes disadvantage on Stealth.
+        is_equipped: Whether the armor is currently worn.
+    """
+
+    name: str = Field(..., min_length=1, description="Armor name")
+    armor_class: int = Field(
+        ..., ge=0, le=20, description="Base AC or bonus (shields use +2)"
+    )
+    armor_type: Literal["light", "medium", "heavy", "shield"] = Field(
+        ..., description="Armor category"
+    )
+    strength_requirement: int = Field(
+        default=0, ge=0, description="Minimum STR required"
+    )
+    stealth_disadvantage: bool = Field(
+        default=False, description="Imposes Stealth disadvantage"
+    )
+    is_equipped: bool = Field(default=True, description="Whether armor is worn")
+
+
+class EquipmentItem(BaseModel):
+    """A non-weapon, non-armor item in inventory.
+
+    Story 8.1: Character Sheet Data Model.
+
+    Attributes:
+        name: Item name (e.g., "Rope, 50 feet").
+        quantity: Number of this item (default 1).
+        description: Optional description or notes.
+        weight: Weight in pounds (optional).
+    """
+
+    name: str = Field(..., min_length=1, description="Item name")
+    quantity: int = Field(default=1, ge=1, description="Quantity")
+    description: str = Field(default="", description="Item description")
+    weight: float = Field(default=0.0, ge=0, description="Weight in pounds")
+
+
+class Spell(BaseModel):
+    """A spell known or prepared by a character.
+
+    Story 8.1: Character Sheet Data Model.
+
+    Attributes:
+        name: Spell name (e.g., "Fireball").
+        level: Spell level (0 for cantrips, 1-9 for leveled spells).
+        school: School of magic (e.g., "evocation", "abjuration").
+        casting_time: Time required (e.g., "1 action", "1 minute").
+        range: Spell range (e.g., "120 feet", "Self").
+        components: Required components (e.g., ["V", "S", "M"]).
+        duration: How long effect lasts (e.g., "Instantaneous", "1 hour").
+        description: Brief spell description.
+        is_prepared: Whether spell is currently prepared (for prepared casters).
+    """
+
+    name: str = Field(..., min_length=1, description="Spell name")
+    level: int = Field(..., ge=0, le=9, description="Spell level (0 = cantrip)")
+    school: str = Field(default="", description="School of magic")
+    casting_time: str = Field(default="1 action", description="Casting time")
+    range: str = Field(default="Self", description="Spell range")
+    components: list[str] = Field(default_factory=list, description="V/S/M components")
+    duration: str = Field(default="Instantaneous", description="Duration")
+    description: str = Field(default="", description="Spell description")
+    is_prepared: bool = Field(default=True, description="Whether prepared")
+
+
+class SpellSlots(BaseModel):
+    """Spell slot tracking for a single spell level.
+
+    Story 8.1: Character Sheet Data Model.
+
+    Attributes:
+        max: Maximum number of slots at this level.
+        current: Current available slots (may be less if expended).
+    """
+
+    max: int = Field(..., ge=0, le=4, description="Maximum slots")
+    current: int = Field(..., ge=0, description="Current available slots")
+
+    @field_validator("current")
+    @classmethod
+    def current_not_exceeds_max(cls, v: int, info: ValidationInfo) -> int:
+        """Ensure current slots don't exceed max."""
+        max_val = info.data.get("max", 4)
+        if v > max_val:
+            raise ValueError(f"current ({v}) cannot exceed max ({max_val})")
+        return v
+
+
+class DeathSaves(BaseModel):
+    """Death saving throw tracking.
+
+    Story 8.1: Character Sheet Data Model.
+
+    Attributes:
+        successes: Number of successful death saves (0-3).
+        failures: Number of failed death saves (0-3).
+    """
+
+    successes: int = Field(default=0, ge=0, le=3, description="Successful saves")
+    failures: int = Field(default=0, ge=0, le=3, description="Failed saves")
+
+    @property
+    def is_stable(self) -> bool:
+        """Character stabilized with 3 successes."""
+        return self.successes >= 3
+
+    @property
+    def is_dead(self) -> bool:
+        """Character died with 3 failures."""
+        return self.failures >= 3
+
+
+class CharacterSheet(BaseModel):
+    """Complete D&D 5e character sheet with all standard fields.
+
+    This model represents a full player character sheet including
+    basic info, abilities, combat stats, proficiencies, equipment,
+    spells, and personality traits.
+
+    Story 8.1: Character Sheet Data Model.
+    FRs: FR60, FR61, FR62, FR65, FR66.
+
+    Attributes:
+        (See individual field descriptions below)
+    """
+
+    # ==========================================================================
+    # Basic Info
+    # ==========================================================================
+    name: str = Field(..., min_length=1, description="Character name")
+    race: str = Field(..., min_length=1, description="Character race")
+    character_class: str = Field(..., min_length=1, description="Character class")
+    level: int = Field(default=1, ge=1, le=20, description="Character level (1-20)")
+    background: str = Field(default="", description="Character background")
+    alignment: str = Field(default="", description="Alignment (e.g., Neutral Good)")
+    experience_points: int = Field(default=0, ge=0, description="XP total")
+
+    # ==========================================================================
+    # Ability Scores (raw scores, modifiers computed)
+    # ==========================================================================
+    strength: int = Field(..., ge=1, le=30, description="STR score")
+    dexterity: int = Field(..., ge=1, le=30, description="DEX score")
+    constitution: int = Field(..., ge=1, le=30, description="CON score")
+    intelligence: int = Field(..., ge=1, le=30, description="INT score")
+    wisdom: int = Field(..., ge=1, le=30, description="WIS score")
+    charisma: int = Field(..., ge=1, le=30, description="CHA score")
+
+    # ==========================================================================
+    # Combat Stats
+    # ==========================================================================
+    armor_class: int = Field(..., ge=1, description="Armor Class")
+    initiative: int = Field(default=0, description="Initiative modifier")
+    speed: int = Field(default=30, ge=0, description="Speed in feet")
+    hit_points_max: int = Field(..., ge=1, description="Maximum HP")
+    hit_points_current: int = Field(..., ge=0, description="Current HP")
+    hit_points_temp: int = Field(default=0, ge=0, description="Temporary HP")
+    hit_dice: str = Field(
+        ..., pattern=r"^\d+d\d+$", description="Hit dice (e.g., 5d10)"
+    )
+    hit_dice_remaining: int = Field(..., ge=0, description="Remaining hit dice")
+
+    # ==========================================================================
+    # Saving Throws
+    # ==========================================================================
+    saving_throw_proficiencies: list[str] = Field(
+        default_factory=list,
+        description="Abilities proficient in saves (e.g., ['strength', 'constitution'])",
+    )
+
+    # ==========================================================================
+    # Skills
+    # ==========================================================================
+    skill_proficiencies: list[str] = Field(
+        default_factory=list, description="Skills with proficiency"
+    )
+    skill_expertise: list[str] = Field(
+        default_factory=list, description="Skills with expertise (double proficiency)"
+    )
+
+    # ==========================================================================
+    # Proficiencies
+    # ==========================================================================
+    armor_proficiencies: list[str] = Field(
+        default_factory=list, description="Armor types proficient with"
+    )
+    weapon_proficiencies: list[str] = Field(
+        default_factory=list, description="Weapon types proficient with"
+    )
+    tool_proficiencies: list[str] = Field(
+        default_factory=list, description="Tools proficient with"
+    )
+    languages: list[str] = Field(default_factory=list, description="Languages known")
+
+    # ==========================================================================
+    # Features & Traits
+    # ==========================================================================
+    class_features: list[str] = Field(
+        default_factory=list,
+        description="Class features (e.g., Second Wind, Sneak Attack)",
+    )
+    racial_traits: list[str] = Field(
+        default_factory=list,
+        description="Racial traits (e.g., Darkvision, Fey Ancestry)",
+    )
+    feats: list[str] = Field(default_factory=list, description="Feats taken")
+
+    # ==========================================================================
+    # Equipment & Inventory
+    # ==========================================================================
+    weapons: list[Weapon] = Field(
+        default_factory=list, description="Weapons in inventory"
+    )
+    armor: Armor | None = Field(
+        default=None, description="Armor worn (None if unarmored)"
+    )
+    equipment: list[EquipmentItem] = Field(
+        default_factory=list, description="Other equipment and items"
+    )
+    gold: int = Field(default=0, ge=0, description="Gold pieces")
+    silver: int = Field(default=0, ge=0, description="Silver pieces")
+    copper: int = Field(default=0, ge=0, description="Copper pieces")
+
+    # ==========================================================================
+    # Spellcasting (optional, None for non-casters)
+    # ==========================================================================
+    spellcasting_ability: str | None = Field(
+        default=None,
+        description="Spellcasting ability (e.g., 'intelligence', 'wisdom', 'charisma')",
+    )
+    spell_save_dc: int | None = Field(default=None, ge=1, description="Spell save DC")
+    spell_attack_bonus: int | None = Field(
+        default=None, description="Spell attack modifier"
+    )
+    cantrips: list[str] = Field(default_factory=list, description="Known cantrip names")
+    spells_known: list[Spell] = Field(
+        default_factory=list, description="Full spell data for known/prepared spells"
+    )
+    spell_slots: dict[int, SpellSlots] = Field(
+        default_factory=dict, description="Spell slots by level (1-9)"
+    )
+
+    # ==========================================================================
+    # Personality
+    # ==========================================================================
+    personality_traits: str = Field(default="", description="Personality traits")
+    ideals: str = Field(default="", description="Ideals")
+    bonds: str = Field(default="", description="Bonds")
+    flaws: str = Field(default="", description="Flaws")
+    backstory: str = Field(default="", description="Character backstory")
+
+    # ==========================================================================
+    # Conditions & Status
+    # ==========================================================================
+    conditions: list[str] = Field(
+        default_factory=list,
+        description="Active conditions (poisoned, exhausted, etc.)",
+    )
+    death_saves: DeathSaves = Field(
+        default_factory=DeathSaves, description="Death saving throw status"
+    )
+
+    # ==========================================================================
+    # Computed Properties
+    # ==========================================================================
+
+    @property
+    def strength_modifier(self) -> int:
+        """Calculate STR modifier from score."""
+        return (self.strength - 10) // 2
+
+    @property
+    def dexterity_modifier(self) -> int:
+        """Calculate DEX modifier from score."""
+        return (self.dexterity - 10) // 2
+
+    @property
+    def constitution_modifier(self) -> int:
+        """Calculate CON modifier from score."""
+        return (self.constitution - 10) // 2
+
+    @property
+    def intelligence_modifier(self) -> int:
+        """Calculate INT modifier from score."""
+        return (self.intelligence - 10) // 2
+
+    @property
+    def wisdom_modifier(self) -> int:
+        """Calculate WIS modifier from score."""
+        return (self.wisdom - 10) // 2
+
+    @property
+    def charisma_modifier(self) -> int:
+        """Calculate CHA modifier from score."""
+        return (self.charisma - 10) // 2
+
+    @property
+    def proficiency_bonus(self) -> int:
+        """Calculate proficiency bonus from level per D&D 5e rules.
+
+        Levels 1-4: +2
+        Levels 5-8: +3
+        Levels 9-12: +4
+        Levels 13-16: +5
+        Levels 17-20: +6
+        """
+        return (self.level - 1) // 4 + 2
+
+    def get_ability_modifier(self, ability: str) -> int:
+        """Get modifier for a named ability.
+
+        Args:
+            ability: Ability name (strength, dexterity, etc.) or short form (str, dex)
+
+        Returns:
+            The ability modifier.
+
+        Raises:
+            ValueError: If ability name is not recognized.
+        """
+        ability_lower = ability.lower()
+        abilities = {
+            "strength": self.strength_modifier,
+            "dexterity": self.dexterity_modifier,
+            "constitution": self.constitution_modifier,
+            "intelligence": self.intelligence_modifier,
+            "wisdom": self.wisdom_modifier,
+            "charisma": self.charisma_modifier,
+            # Short forms
+            "str": self.strength_modifier,
+            "dex": self.dexterity_modifier,
+            "con": self.constitution_modifier,
+            "int": self.intelligence_modifier,
+            "wis": self.wisdom_modifier,
+            "cha": self.charisma_modifier,
+        }
+        if ability_lower not in abilities:
+            raise ValueError(f"Unknown ability: {ability}")
+        return abilities[ability_lower]
+
+    @field_validator("hit_dice_remaining")
+    @classmethod
+    def hit_dice_remaining_valid(cls, v: int, info: ValidationInfo) -> int:
+        """Ensure remaining hit dice doesn't exceed level."""
+        level = info.data.get("level", 1)
+        if v > level:
+            raise ValueError(f"hit_dice_remaining ({v}) cannot exceed level ({level})")
+        return v
+
+    @model_validator(mode="after")
+    def validate_hit_points(self) -> "CharacterSheet":
+        """Ensure current HP doesn't exceed max HP + temp HP."""
+        max_allowed = self.hit_points_max + self.hit_points_temp
+        if self.hit_points_current > max_allowed:
+            raise ValueError(
+                f"hit_points_current ({self.hit_points_current}) cannot exceed "
+                f"hit_points_max + hit_points_temp ({self.hit_points_max} + {self.hit_points_temp} = {max_allowed})"
+            )
+        return self
 
 
 class GameState(TypedDict):
