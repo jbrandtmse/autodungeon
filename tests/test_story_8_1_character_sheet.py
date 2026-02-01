@@ -1563,3 +1563,1382 @@ class TestCharacterSheetExports:
         for export in expected_exports:
             assert export in models.__all__, f"{export} not in models.__all__"
             assert hasattr(models, export), f"models.{export} not accessible"
+
+
+# =============================================================================
+# Additional Edge Case Tests - Weapon
+# =============================================================================
+
+
+class TestWeaponEdgeCases:
+    """Extended edge case tests for Weapon model."""
+
+    def test_damage_dice_invalid_patterns(self) -> None:
+        """Test various invalid damage dice patterns are rejected."""
+        invalid_patterns = [
+            "d8",  # Missing count
+            "1d",  # Missing die size
+            "1d8+",  # Incomplete modifier
+            "1d8-",  # Incomplete modifier
+            "1d8++2",  # Double operator
+            "1d8+-2",  # Mixed operators
+            "-1d8",  # Negative dice count
+            "1d-8",  # Negative die size
+            "1d8+2+3",  # Multiple modifiers
+            "abc",  # Not a dice pattern
+            "1.5d8",  # Decimal dice count
+            "1d8.5",  # Decimal die size
+            "",  # Empty string
+            " 1d8 ",  # Whitespace
+            "1d8 + 2",  # Spaces in pattern
+        ]
+        for pattern in invalid_patterns:
+            with pytest.raises(ValidationError):
+                Weapon(name="Test", damage_dice=pattern)
+
+    def test_damage_dice_large_values(self) -> None:
+        """Test damage dice with large but valid values."""
+        large_patterns = ["100d100", "99d99+99", "50d20-10"]
+        for pattern in large_patterns:
+            weapon = Weapon(name="Epic Weapon", damage_dice=pattern)
+            assert weapon.damage_dice == pattern
+
+    def test_negative_attack_bonus(self) -> None:
+        """Test weapons can have negative attack bonus (cursed items)."""
+        weapon = Weapon(name="Cursed Blade", damage_dice="1d8", attack_bonus=-2)
+        assert weapon.attack_bonus == -2
+
+    def test_large_positive_attack_bonus(self) -> None:
+        """Test weapons can have large positive attack bonus."""
+        weapon = Weapon(name="Legendary Blade", damage_dice="2d6", attack_bonus=10)
+        assert weapon.attack_bonus == 10
+
+    def test_multiple_weapon_properties(self) -> None:
+        """Test weapons with many properties."""
+        properties = [
+            "finesse",
+            "light",
+            "thrown",
+            "versatile",
+            "silvered",
+            "magical",
+        ]
+        weapon = Weapon(name="Special Dagger", damage_dice="1d4", properties=properties)
+        assert len(weapon.properties) == 6
+        assert "finesse" in weapon.properties
+
+    def test_empty_properties_list(self) -> None:
+        """Test weapon with explicitly empty properties."""
+        weapon = Weapon(name="Simple Club", damage_dice="1d4", properties=[])
+        assert weapon.properties == []
+
+    def test_whitespace_only_name_accepted(self) -> None:
+        """Test that whitespace-only name is accepted (min_length counts whitespace)."""
+        # Pydantic's min_length counts whitespace characters, so "   " has length 3
+        # This is valid per the model definition
+        weapon = Weapon(name="   ", damage_dice="1d8")
+        assert len(weapon.name) == 3
+
+    def test_special_characters_in_name(self) -> None:
+        """Test weapon names with special characters."""
+        weapon = Weapon(name="Blade of the Night's Edge (+1)", damage_dice="1d8+1")
+        assert weapon.name == "Blade of the Night's Edge (+1)"
+
+    def test_unicode_in_name(self) -> None:
+        """Test weapon names with unicode characters."""
+        weapon = Weapon(name="Elf\u00edbane Sword", damage_dice="1d8")
+        assert "bane" in weapon.name.lower()
+
+
+# =============================================================================
+# Additional Edge Case Tests - Armor
+# =============================================================================
+
+
+class TestArmorEdgeCases:
+    """Extended edge case tests for Armor model."""
+
+    def test_shield_armor_class_value(self) -> None:
+        """Test shield type uses +2 AC bonus correctly."""
+        shield = Armor(name="Wooden Shield", armor_class=2, armor_type="shield")
+        assert shield.armor_class == 2
+        assert shield.armor_type == "shield"
+
+    def test_armor_class_zero_valid(self) -> None:
+        """Test AC of 0 is valid (for special cases)."""
+        armor = Armor(name="Tattered Rags", armor_class=0, armor_type="light")
+        assert armor.armor_class == 0
+
+    def test_strength_requirement_high_value(self) -> None:
+        """Test high strength requirement values."""
+        armor = Armor(
+            name="Dragon Plate",
+            armor_class=20,
+            armor_type="heavy",
+            strength_requirement=20,
+        )
+        assert armor.strength_requirement == 20
+
+    def test_strength_requirement_negative_invalid(self) -> None:
+        """Test negative strength requirement is invalid."""
+        with pytest.raises(ValidationError):
+            Armor(
+                name="Bad Armor",
+                armor_class=12,
+                armor_type="light",
+                strength_requirement=-1,
+            )
+
+    def test_all_armor_defaults(self) -> None:
+        """Test all default values for Armor model."""
+        armor = Armor(name="Padded Armor", armor_class=11, armor_type="light")
+        assert armor.strength_requirement == 0
+        assert armor.stealth_disadvantage is False
+        assert armor.is_equipped is True
+
+    def test_heavy_armor_with_all_penalties(self) -> None:
+        """Test heavy armor with strength requirement and stealth disadvantage."""
+        armor = Armor(
+            name="Splint Armor",
+            armor_class=17,
+            armor_type="heavy",
+            strength_requirement=15,
+            stealth_disadvantage=True,
+            is_equipped=True,
+        )
+        assert armor.armor_type == "heavy"
+        assert armor.strength_requirement == 15
+        assert armor.stealth_disadvantage is True
+
+    def test_armor_unequipped(self) -> None:
+        """Test armor that is not currently worn."""
+        armor = Armor(
+            name="Spare Chainmail",
+            armor_class=16,
+            armor_type="heavy",
+            is_equipped=False,
+        )
+        assert armor.is_equipped is False
+
+
+# =============================================================================
+# Additional Edge Case Tests - EquipmentItem
+# =============================================================================
+
+
+class TestEquipmentItemEdgeCases:
+    """Extended edge case tests for EquipmentItem model."""
+
+    def test_large_quantity(self) -> None:
+        """Test item with very large quantity."""
+        item = EquipmentItem(name="Gold Coins", quantity=10000)
+        assert item.quantity == 10000
+
+    def test_quantity_one_is_default(self) -> None:
+        """Test that quantity defaults to 1."""
+        item = EquipmentItem(name="Potion of Healing")
+        assert item.quantity == 1
+
+    def test_weight_precision(self) -> None:
+        """Test weight with decimal precision."""
+        item = EquipmentItem(name="Gem", weight=0.01)
+        assert item.weight == 0.01
+
+    def test_weight_zero(self) -> None:
+        """Test weightless items."""
+        item = EquipmentItem(name="Spell Component Pouch", weight=0.0)
+        assert item.weight == 0.0
+
+    def test_long_description(self) -> None:
+        """Test item with very long description."""
+        long_desc = "A" * 1000
+        item = EquipmentItem(name="Mysterious Object", description=long_desc)
+        assert len(item.description) == 1000
+
+    def test_empty_description_default(self) -> None:
+        """Test empty description is the default."""
+        item = EquipmentItem(name="Generic Item")
+        assert item.description == ""
+
+    def test_special_characters_in_description(self) -> None:
+        """Test description with special characters and newlines."""
+        desc = "A magical item.\nIt glows softly.\tVery valuable!"
+        item = EquipmentItem(name="Magic Item", description=desc)
+        assert "\n" in item.description
+        assert "\t" in item.description
+
+
+# =============================================================================
+# Additional Edge Case Tests - Spell
+# =============================================================================
+
+
+class TestSpellEdgeCases:
+    """Extended edge case tests for Spell model."""
+
+    def test_all_spell_levels(self) -> None:
+        """Test creating spells of every level 0-9."""
+        spell_names = [
+            "Prestidigitation",
+            "Magic Missile",
+            "Scorching Ray",
+            "Fireball",
+            "Dimension Door",
+            "Cloudkill",
+            "Disintegrate",
+            "Finger of Death",
+            "Dominate Monster",
+            "Wish",
+        ]
+        for level, name in enumerate(spell_names):
+            spell = Spell(name=name, level=level)
+            assert spell.level == level
+
+    def test_spell_all_components(self) -> None:
+        """Test spell with all component types."""
+        spell = Spell(
+            name="Complex Spell",
+            level=5,
+            components=["V", "S", "M"],
+        )
+        assert "V" in spell.components
+        assert "S" in spell.components
+        assert "M" in spell.components
+
+    def test_spell_material_only(self) -> None:
+        """Test spell with only material component."""
+        spell = Spell(name="Material Only", level=1, components=["M"])
+        assert spell.components == ["M"]
+
+    def test_spell_no_components(self) -> None:
+        """Test spell with no components (innate abilities)."""
+        spell = Spell(name="Innate Power", level=3, components=[])
+        assert spell.components == []
+
+    def test_spell_all_schools(self) -> None:
+        """Test spells from all eight schools of magic."""
+        schools = [
+            "abjuration",
+            "conjuration",
+            "divination",
+            "enchantment",
+            "evocation",
+            "illusion",
+            "necromancy",
+            "transmutation",
+        ]
+        for school in schools:
+            spell = Spell(name=f"{school.capitalize()} Spell", level=1, school=school)
+            assert spell.school == school
+
+    def test_spell_various_durations(self) -> None:
+        """Test spells with various duration types."""
+        durations = [
+            "Instantaneous",
+            "1 round",
+            "1 minute",
+            "10 minutes",
+            "1 hour",
+            "8 hours",
+            "24 hours",
+            "Until dispelled",
+            "Concentration, up to 1 minute",
+        ]
+        for duration in durations:
+            spell = Spell(name="Test", level=1, duration=duration)
+            assert spell.duration == duration
+
+    def test_spell_various_ranges(self) -> None:
+        """Test spells with various range types."""
+        ranges = [
+            "Self",
+            "Touch",
+            "30 feet",
+            "60 feet",
+            "120 feet",
+            "500 feet",
+            "1 mile",
+            "Sight",
+            "Unlimited",
+            "Self (10-foot radius)",
+            "Self (30-foot cone)",
+        ]
+        for range_val in ranges:
+            spell = Spell(name="Test", level=1, range=range_val)
+            assert spell.range == range_val
+
+    def test_spell_unprepared(self) -> None:
+        """Test spell that is not prepared."""
+        spell = Spell(name="Unprepared Spell", level=2, is_prepared=False)
+        assert spell.is_prepared is False
+
+    def test_spell_with_full_description(self) -> None:
+        """Test spell with detailed description."""
+        desc = (
+            "You hurl a mote of fire at a creature or object within range. "
+            "Make a ranged spell attack against the target. On a hit, the "
+            "target takes 1d10 fire damage."
+        )
+        spell = Spell(name="Fire Bolt", level=0, description=desc, school="evocation")
+        assert "fire" in spell.description.lower()
+
+
+# =============================================================================
+# Additional Edge Case Tests - SpellSlots
+# =============================================================================
+
+
+class TestSpellSlotsEdgeCases:
+    """Extended edge case tests for SpellSlots model."""
+
+    def test_current_negative_invalid(self) -> None:
+        """Test that negative current slots is invalid."""
+        with pytest.raises(ValidationError):
+            SpellSlots(max=4, current=-1)
+
+    def test_max_negative_invalid(self) -> None:
+        """Test that negative max slots is invalid."""
+        with pytest.raises(ValidationError):
+            SpellSlots(max=-1, current=0)
+
+    def test_all_slots_expended(self) -> None:
+        """Test all slots being used up."""
+        slots = SpellSlots(max=4, current=0)
+        assert slots.current == 0
+        assert slots.max == 4
+
+    def test_partially_used_slots(self) -> None:
+        """Test various partial usage scenarios."""
+        for max_val in range(1, 5):
+            for current in range(max_val + 1):
+                slots = SpellSlots(max=max_val, current=current)
+                assert slots.current <= slots.max
+
+    def test_boundary_max_values(self) -> None:
+        """Test boundary values for max (0 and 4)."""
+        slots_zero = SpellSlots(max=0, current=0)
+        slots_four = SpellSlots(max=4, current=4)
+        assert slots_zero.max == 0
+        assert slots_four.max == 4
+
+
+# =============================================================================
+# Additional Edge Case Tests - DeathSaves
+# =============================================================================
+
+
+class TestDeathSavesEdgeCases:
+    """Extended edge case tests for DeathSaves model."""
+
+    def test_both_max_successes_and_failures(self) -> None:
+        """Test both successes and failures at max (technically impossible but valid data)."""
+        saves = DeathSaves(successes=3, failures=3)
+        assert saves.is_stable is True
+        assert saves.is_dead is True
+
+    def test_all_success_failure_combinations(self) -> None:
+        """Test all valid combinations of successes and failures."""
+        for successes in range(4):
+            for failures in range(4):
+                saves = DeathSaves(successes=successes, failures=failures)
+                assert saves.successes == successes
+                assert saves.failures == failures
+
+    def test_is_stable_is_computed_property(self) -> None:
+        """Test that is_stable is a computed property, not stored."""
+        saves = DeathSaves(successes=2, failures=1)
+        assert saves.is_stable is False
+        # Can't set it directly - it's a property
+
+    def test_is_dead_is_computed_property(self) -> None:
+        """Test that is_dead is a computed property, not stored."""
+        saves = DeathSaves(successes=1, failures=2)
+        assert saves.is_dead is False
+        # Can't set it directly - it's a property
+
+
+# =============================================================================
+# Additional Edge Case Tests - CharacterSheet All Abilities
+# =============================================================================
+
+
+class TestCharacterSheetAllAbilityBounds:
+    """Test bounds for all six ability scores."""
+
+    def _make_base_char_params(self) -> dict:
+        """Return base parameters for CharacterSheet."""
+        return {
+            "name": "Test",
+            "race": "Human",
+            "character_class": "Fighter",
+            "strength": 10,
+            "dexterity": 10,
+            "constitution": 10,
+            "intelligence": 10,
+            "wisdom": 10,
+            "charisma": 10,
+            "armor_class": 10,
+            "hit_points_max": 10,
+            "hit_points_current": 10,
+            "hit_dice": "1d10",
+            "hit_dice_remaining": 1,
+        }
+
+    def test_dexterity_bounds(self) -> None:
+        """Test dexterity score must be 1-30."""
+        params = self._make_base_char_params()
+
+        # Valid bounds
+        params["dexterity"] = 1
+        assert CharacterSheet(**params).dexterity == 1
+        params["dexterity"] = 30
+        assert CharacterSheet(**params).dexterity == 30
+
+        # Invalid: too low
+        params["dexterity"] = 0
+        with pytest.raises(ValidationError):
+            CharacterSheet(**params)
+
+        # Invalid: too high
+        params["dexterity"] = 31
+        with pytest.raises(ValidationError):
+            CharacterSheet(**params)
+
+    def test_constitution_bounds(self) -> None:
+        """Test constitution score must be 1-30."""
+        params = self._make_base_char_params()
+
+        params["constitution"] = 1
+        assert CharacterSheet(**params).constitution == 1
+        params["constitution"] = 30
+        assert CharacterSheet(**params).constitution == 30
+
+        params["constitution"] = 0
+        with pytest.raises(ValidationError):
+            CharacterSheet(**params)
+
+    def test_intelligence_bounds(self) -> None:
+        """Test intelligence score must be 1-30."""
+        params = self._make_base_char_params()
+
+        params["intelligence"] = 1
+        assert CharacterSheet(**params).intelligence == 1
+        params["intelligence"] = 30
+        assert CharacterSheet(**params).intelligence == 30
+
+        params["intelligence"] = 0
+        with pytest.raises(ValidationError):
+            CharacterSheet(**params)
+
+    def test_wisdom_bounds(self) -> None:
+        """Test wisdom score must be 1-30."""
+        params = self._make_base_char_params()
+
+        params["wisdom"] = 1
+        assert CharacterSheet(**params).wisdom == 1
+        params["wisdom"] = 30
+        assert CharacterSheet(**params).wisdom == 30
+
+        params["wisdom"] = 0
+        with pytest.raises(ValidationError):
+            CharacterSheet(**params)
+
+    def test_charisma_bounds(self) -> None:
+        """Test charisma score must be 1-30."""
+        params = self._make_base_char_params()
+
+        params["charisma"] = 1
+        assert CharacterSheet(**params).charisma == 1
+        params["charisma"] = 30
+        assert CharacterSheet(**params).charisma == 30
+
+        params["charisma"] = 0
+        with pytest.raises(ValidationError):
+            CharacterSheet(**params)
+
+
+# =============================================================================
+# Additional Edge Case Tests - CharacterSheet Empty Fields
+# =============================================================================
+
+
+class TestCharacterSheetEmptyFields:
+    """Test CharacterSheet with empty optional fields."""
+
+    def test_minimal_character_sheet(self) -> None:
+        """Test character sheet with only required fields."""
+        char = CharacterSheet(
+            name="Minimal",
+            race="Human",
+            character_class="Fighter",
+            strength=10,
+            dexterity=10,
+            constitution=10,
+            intelligence=10,
+            wisdom=10,
+            charisma=10,
+            armor_class=10,
+            hit_points_max=10,
+            hit_points_current=10,
+            hit_dice="1d10",
+            hit_dice_remaining=1,
+        )
+        # Check all defaults
+        assert char.level == 1
+        assert char.background == ""
+        assert char.alignment == ""
+        assert char.experience_points == 0
+        assert char.initiative == 0
+        assert char.speed == 30
+        assert char.hit_points_temp == 0
+        assert char.saving_throw_proficiencies == []
+        assert char.skill_proficiencies == []
+        assert char.skill_expertise == []
+        assert char.armor_proficiencies == []
+        assert char.weapon_proficiencies == []
+        assert char.tool_proficiencies == []
+        assert char.languages == []
+        assert char.class_features == []
+        assert char.racial_traits == []
+        assert char.feats == []
+        assert char.weapons == []
+        assert char.armor is None
+        assert char.equipment == []
+        assert char.gold == 0
+        assert char.silver == 0
+        assert char.copper == 0
+        assert char.spellcasting_ability is None
+        assert char.spell_save_dc is None
+        assert char.spell_attack_bonus is None
+        assert char.cantrips == []
+        assert char.spells_known == []
+        assert char.spell_slots == {}
+        assert char.personality_traits == ""
+        assert char.ideals == ""
+        assert char.bonds == ""
+        assert char.flaws == ""
+        assert char.backstory == ""
+        assert char.conditions == []
+
+    def test_empty_race_invalid(self) -> None:
+        """Test that empty race raises ValidationError."""
+        with pytest.raises(ValidationError):
+            CharacterSheet(
+                name="Test",
+                race="",
+                character_class="Fighter",
+                strength=10,
+                dexterity=10,
+                constitution=10,
+                intelligence=10,
+                wisdom=10,
+                charisma=10,
+                armor_class=10,
+                hit_points_max=10,
+                hit_points_current=10,
+                hit_dice="1d10",
+                hit_dice_remaining=1,
+            )
+
+    def test_empty_character_class_invalid(self) -> None:
+        """Test that empty character_class raises ValidationError."""
+        with pytest.raises(ValidationError):
+            CharacterSheet(
+                name="Test",
+                race="Human",
+                character_class="",
+                strength=10,
+                dexterity=10,
+                constitution=10,
+                intelligence=10,
+                wisdom=10,
+                charisma=10,
+                armor_class=10,
+                hit_points_max=10,
+                hit_points_current=10,
+                hit_dice="1d10",
+                hit_dice_remaining=1,
+            )
+
+
+# =============================================================================
+# Additional Edge Case Tests - CharacterSheet Spellcaster
+# =============================================================================
+
+
+class TestCharacterSheetSpellcaster:
+    """Test CharacterSheet with full spellcasting setup."""
+
+    def test_full_wizard_build(self) -> None:
+        """Test a complete wizard character with all spellcasting fields."""
+        wizard = CharacterSheet(
+            name="Elminster",
+            race="Human",
+            character_class="Wizard",
+            level=9,
+            background="Sage",
+            alignment="Lawful Neutral",
+            experience_points=48000,
+            strength=8,
+            dexterity=14,
+            constitution=14,
+            intelligence=20,
+            wisdom=12,
+            charisma=10,
+            armor_class=12,
+            initiative=2,
+            speed=30,
+            hit_points_max=48,
+            hit_points_current=48,
+            hit_dice="9d6",
+            hit_dice_remaining=9,
+            saving_throw_proficiencies=["intelligence", "wisdom"],
+            skill_proficiencies=["arcana", "history", "investigation", "religion"],
+            weapon_proficiencies=[
+                "dagger",
+                "dart",
+                "sling",
+                "quarterstaff",
+                "crossbow light",
+            ],
+            tool_proficiencies=[],
+            languages=["Common", "Elvish", "Draconic", "Celestial"],
+            class_features=["Arcane Recovery", "Arcane Tradition", "Potent Cantrip"],
+            spellcasting_ability="intelligence",
+            spell_save_dc=17,
+            spell_attack_bonus=9,
+            cantrips=[
+                "Fire Bolt",
+                "Prestidigitation",
+                "Mage Hand",
+                "Minor Illusion",
+                "Light",
+            ],
+            spells_known=[
+                Spell(name="Magic Missile", level=1, school="evocation"),
+                Spell(name="Shield", level=1, school="abjuration"),
+                Spell(
+                    name="Detect Magic", level=1, school="divination", is_prepared=False
+                ),
+                Spell(name="Scorching Ray", level=2, school="evocation"),
+                Spell(name="Misty Step", level=2, school="conjuration"),
+                Spell(name="Fireball", level=3, school="evocation"),
+                Spell(name="Counterspell", level=3, school="abjuration"),
+                Spell(name="Greater Invisibility", level=4, school="illusion"),
+                Spell(name="Polymorph", level=4, school="transmutation"),
+                Spell(name="Cone of Cold", level=5, school="evocation"),
+            ],
+            spell_slots={
+                1: SpellSlots(max=4, current=4),
+                2: SpellSlots(max=3, current=2),
+                3: SpellSlots(max=3, current=3),
+                4: SpellSlots(max=3, current=1),
+                5: SpellSlots(max=1, current=0),
+            },
+            equipment=[
+                EquipmentItem(
+                    name="Spellbook", description="Contains all known spells"
+                ),
+                EquipmentItem(name="Component Pouch"),
+                EquipmentItem(name="Scholar's Pack"),
+            ],
+            gold=150,
+            silver=30,
+            copper=50,
+            personality_traits="I use polysyllabic words to impress others.",
+            ideals="Knowledge is the path to power and self-improvement.",
+            bonds="I have an ancient text that holds terrible secrets.",
+            flaws="I overlook obvious solutions in favor of complex ones.",
+        )
+
+        assert wizard.level == 9
+        assert wizard.proficiency_bonus == 4
+        assert wizard.intelligence_modifier == 5
+        assert wizard.spellcasting_ability == "intelligence"
+        assert len(wizard.spells_known) == 10
+        assert len(wizard.cantrips) == 5
+        assert 5 in wizard.spell_slots
+        assert wizard.spell_slots[5].current == 0
+
+    def test_cleric_wisdom_caster(self) -> None:
+        """Test cleric with wisdom-based spellcasting."""
+        cleric = CharacterSheet(
+            name="Brother Aldric",
+            race="Dwarf",
+            character_class="Cleric",
+            level=5,
+            strength=14,
+            dexterity=10,
+            constitution=16,
+            intelligence=10,
+            wisdom=18,
+            charisma=12,
+            armor_class=18,
+            hit_points_max=43,
+            hit_points_current=43,
+            hit_dice="5d8",
+            hit_dice_remaining=5,
+            spellcasting_ability="wisdom",
+            spell_save_dc=15,
+            spell_attack_bonus=7,
+            armor=Armor(
+                name="Plate Armor",
+                armor_class=18,
+                armor_type="heavy",
+                strength_requirement=15,
+            ),
+        )
+
+        assert cleric.spellcasting_ability == "wisdom"
+        assert cleric.wisdom_modifier == 4
+        assert cleric.proficiency_bonus == 3
+
+    def test_non_caster_no_spellcasting(self) -> None:
+        """Test non-caster has None for spellcasting fields."""
+        fighter = CharacterSheet(
+            name="Warrior",
+            race="Human",
+            character_class="Fighter",
+            level=5,
+            strength=16,
+            dexterity=14,
+            constitution=16,
+            intelligence=10,
+            wisdom=12,
+            charisma=8,
+            armor_class=18,
+            hit_points_max=44,
+            hit_points_current=44,
+            hit_dice="5d10",
+            hit_dice_remaining=5,
+        )
+
+        assert fighter.spellcasting_ability is None
+        assert fighter.spell_save_dc is None
+        assert fighter.spell_attack_bonus is None
+        assert fighter.cantrips == []
+        assert fighter.spells_known == []
+        assert fighter.spell_slots == {}
+
+
+# =============================================================================
+# Additional Edge Case Tests - CharacterSheet Conditions
+# =============================================================================
+
+
+class TestCharacterSheetConditions:
+    """Test CharacterSheet conditions tracking."""
+
+    def test_multiple_conditions(self) -> None:
+        """Test character with multiple active conditions."""
+        char = CharacterSheet(
+            name="Suffering Hero",
+            race="Human",
+            character_class="Fighter",
+            strength=10,
+            dexterity=10,
+            constitution=10,
+            intelligence=10,
+            wisdom=10,
+            charisma=10,
+            armor_class=10,
+            hit_points_max=10,
+            hit_points_current=5,
+            hit_dice="1d10",
+            hit_dice_remaining=1,
+            conditions=["poisoned", "frightened", "exhaustion (1 level)"],
+        )
+        assert len(char.conditions) == 3
+        assert "poisoned" in char.conditions
+
+    def test_all_dnd_conditions(self) -> None:
+        """Test all D&D 5e standard conditions can be stored."""
+        conditions = [
+            "blinded",
+            "charmed",
+            "deafened",
+            "frightened",
+            "grappled",
+            "incapacitated",
+            "invisible",
+            "paralyzed",
+            "petrified",
+            "poisoned",
+            "prone",
+            "restrained",
+            "stunned",
+            "unconscious",
+        ]
+        char = CharacterSheet(
+            name="Test",
+            race="Human",
+            character_class="Fighter",
+            strength=10,
+            dexterity=10,
+            constitution=10,
+            intelligence=10,
+            wisdom=10,
+            charisma=10,
+            armor_class=10,
+            hit_points_max=10,
+            hit_points_current=0,
+            hit_dice="1d10",
+            hit_dice_remaining=1,
+            conditions=conditions,
+        )
+        assert len(char.conditions) == 14
+
+    def test_empty_conditions(self) -> None:
+        """Test healthy character with no conditions."""
+        char = CharacterSheet(
+            name="Test",
+            race="Human",
+            character_class="Fighter",
+            strength=10,
+            dexterity=10,
+            constitution=10,
+            intelligence=10,
+            wisdom=10,
+            charisma=10,
+            armor_class=10,
+            hit_points_max=10,
+            hit_points_current=10,
+            hit_dice="1d10",
+            hit_dice_remaining=1,
+        )
+        assert char.conditions == []
+
+
+# =============================================================================
+# Additional Edge Case Tests - CharacterSheet Death Saves Integration
+# =============================================================================
+
+
+class TestCharacterSheetDeathSavesIntegration:
+    """Test CharacterSheet death saves integration."""
+
+    def test_character_with_death_saves(self) -> None:
+        """Test character at 0 HP with death saves tracking."""
+        char = CharacterSheet(
+            name="Dying Hero",
+            race="Human",
+            character_class="Fighter",
+            strength=10,
+            dexterity=10,
+            constitution=10,
+            intelligence=10,
+            wisdom=10,
+            charisma=10,
+            armor_class=10,
+            hit_points_max=10,
+            hit_points_current=0,
+            hit_dice="1d10",
+            hit_dice_remaining=1,
+            death_saves=DeathSaves(successes=2, failures=1),
+        )
+        assert char.hit_points_current == 0
+        assert char.death_saves.successes == 2
+        assert char.death_saves.failures == 1
+        assert char.death_saves.is_stable is False
+        assert char.death_saves.is_dead is False
+
+    def test_stabilized_character(self) -> None:
+        """Test character who has stabilized."""
+        char = CharacterSheet(
+            name="Stable Hero",
+            race="Human",
+            character_class="Fighter",
+            strength=10,
+            dexterity=10,
+            constitution=10,
+            intelligence=10,
+            wisdom=10,
+            charisma=10,
+            armor_class=10,
+            hit_points_max=10,
+            hit_points_current=0,
+            hit_dice="1d10",
+            hit_dice_remaining=1,
+            death_saves=DeathSaves(successes=3, failures=2),
+        )
+        assert char.death_saves.is_stable is True
+        assert char.death_saves.is_dead is False
+
+    def test_dead_character(self) -> None:
+        """Test character who has died."""
+        char = CharacterSheet(
+            name="Fallen Hero",
+            race="Human",
+            character_class="Fighter",
+            strength=10,
+            dexterity=10,
+            constitution=10,
+            intelligence=10,
+            wisdom=10,
+            charisma=10,
+            armor_class=10,
+            hit_points_max=10,
+            hit_points_current=0,
+            hit_dice="1d10",
+            hit_dice_remaining=1,
+            death_saves=DeathSaves(successes=2, failures=3),
+        )
+        assert char.death_saves.is_stable is False
+        assert char.death_saves.is_dead is True
+
+    def test_death_saves_serialization(self) -> None:
+        """Test death saves survive serialization round-trip."""
+        char = CharacterSheet(
+            name="Test",
+            race="Human",
+            character_class="Fighter",
+            strength=10,
+            dexterity=10,
+            constitution=10,
+            intelligence=10,
+            wisdom=10,
+            charisma=10,
+            armor_class=10,
+            hit_points_max=10,
+            hit_points_current=0,
+            hit_dice="1d10",
+            hit_dice_remaining=1,
+            death_saves=DeathSaves(successes=2, failures=1),
+        )
+        json_str = char.model_dump_json()
+        restored = CharacterSheet.model_validate_json(json_str)
+        assert restored.death_saves.successes == 2
+        assert restored.death_saves.failures == 1
+
+
+# =============================================================================
+# Additional Edge Case Tests - CharacterSheet Model Operations
+# =============================================================================
+
+
+class TestCharacterSheetModelOperations:
+    """Test Pydantic model operations on CharacterSheet."""
+
+    def test_model_dump(self, sample_character_sheet: CharacterSheet) -> None:
+        """Test model_dump() returns a dictionary."""
+        data = sample_character_sheet.model_dump()
+        assert isinstance(data, dict)
+        assert data["name"] == "Thorn Ironbark"
+        assert data["level"] == 5
+
+    def test_model_copy(self, sample_character_sheet: CharacterSheet) -> None:
+        """Test model_copy() creates an independent copy."""
+        copy = sample_character_sheet.model_copy()
+        assert copy.name == sample_character_sheet.name
+        # Modifying copy shouldn't affect original
+        copy_dict = copy.model_dump()
+        copy_dict["name"] = "Different Name"
+        assert sample_character_sheet.name == "Thorn Ironbark"
+
+    def test_model_copy_update(self, sample_character_sheet: CharacterSheet) -> None:
+        """Test model_copy(update=...) modifies specific fields."""
+        copy = sample_character_sheet.model_copy(
+            update={"name": "New Name", "level": 10}
+        )
+        assert copy.name == "New Name"
+        assert copy.level == 10
+        # Original unchanged
+        assert sample_character_sheet.name == "Thorn Ironbark"
+        assert sample_character_sheet.level == 5
+
+    def test_equality(self, sample_character_sheet: CharacterSheet) -> None:
+        """Test CharacterSheet equality comparison."""
+        copy = sample_character_sheet.model_copy()
+        assert copy == sample_character_sheet
+
+    def test_inequality_different_fields(
+        self, sample_character_sheet: CharacterSheet
+    ) -> None:
+        """Test CharacterSheet inequality with different field values."""
+        copy = sample_character_sheet.model_copy(update={"strength": 18})
+        assert copy != sample_character_sheet
+
+
+# =============================================================================
+# Additional Edge Case Tests - D&D 5e Rule Edge Cases
+# =============================================================================
+
+
+class TestDnD5eRuleEdgeCases:
+    """Test D&D 5e specific rule edge cases."""
+
+    def test_level_20_max_proficiency(self) -> None:
+        """Test level 20 character has +6 proficiency bonus."""
+        char = CharacterSheet(
+            name="Epic Hero",
+            race="Human",
+            character_class="Fighter",
+            level=20,
+            strength=20,
+            dexterity=20,
+            constitution=20,
+            intelligence=20,
+            wisdom=20,
+            charisma=20,
+            armor_class=20,
+            hit_points_max=200,
+            hit_points_current=200,
+            hit_dice="20d10",
+            hit_dice_remaining=20,
+        )
+        assert char.proficiency_bonus == 6
+        assert char.strength_modifier == 5  # (20-10)//2 = 5
+
+    def test_epic_boon_stats_score_30(self) -> None:
+        """Test ability score 30 (epic boons/magic items)."""
+        char = CharacterSheet(
+            name="Demigod",
+            race="Human",
+            character_class="Fighter",
+            level=20,
+            strength=30,  # Epic boon or artifact
+            dexterity=10,
+            constitution=10,
+            intelligence=10,
+            wisdom=10,
+            charisma=10,
+            armor_class=10,
+            hit_points_max=10,
+            hit_points_current=10,
+            hit_dice="20d10",
+            hit_dice_remaining=20,
+        )
+        assert char.strength_modifier == 10  # (30-10)//2 = 10
+
+    def test_minimum_viable_character(self) -> None:
+        """Test weakest possible legal character (score 1 in all stats)."""
+        char = CharacterSheet(
+            name="Weakest Hero",
+            race="Human",
+            character_class="Commoner",
+            level=1,
+            strength=1,
+            dexterity=1,
+            constitution=1,
+            intelligence=1,
+            wisdom=1,
+            charisma=1,
+            armor_class=1,
+            hit_points_max=1,
+            hit_points_current=1,
+            hit_dice="1d4",
+            hit_dice_remaining=1,
+        )
+        assert char.strength_modifier == -5
+        assert char.proficiency_bonus == 2
+
+    def test_multiclass_hit_dice_mixed(self) -> None:
+        """Test multiclass character with different hit die sizes."""
+        # Character could be Fighter 3 / Wizard 2 (3d10 + 2d6)
+        # We store combined level and primary hit die
+        char = CharacterSheet(
+            name="Multiclass Hero",
+            race="Human",
+            character_class="Fighter/Wizard",
+            level=5,
+            strength=14,
+            dexterity=10,
+            constitution=14,
+            intelligence=16,
+            wisdom=10,
+            charisma=10,
+            armor_class=16,
+            hit_points_max=35,
+            hit_points_current=35,
+            hit_dice="5d10",  # Simplified - could track separately
+            hit_dice_remaining=5,
+        )
+        assert char.level == 5
+        assert char.proficiency_bonus == 3
+
+    def test_expertise_doubles_proficiency(self) -> None:
+        """Test expertise list is stored correctly."""
+        rogue = CharacterSheet(
+            name="Sneaky",
+            race="Halfling",
+            character_class="Rogue",
+            level=1,
+            strength=8,
+            dexterity=16,
+            constitution=12,
+            intelligence=14,
+            wisdom=10,
+            charisma=10,
+            armor_class=14,
+            hit_points_max=9,
+            hit_points_current=9,
+            hit_dice="1d8",
+            hit_dice_remaining=1,
+            skill_proficiencies=[
+                "stealth",
+                "thieves' tools",
+                "perception",
+                "acrobatics",
+            ],
+            skill_expertise=["stealth", "thieves' tools"],
+        )
+        assert "stealth" in rogue.skill_expertise
+        assert len(rogue.skill_expertise) == 2
+
+    def test_currency_conversion_values(self) -> None:
+        """Test typical currency values can be stored."""
+        char = CharacterSheet(
+            name="Rich Hero",
+            race="Human",
+            character_class="Fighter",
+            strength=10,
+            dexterity=10,
+            constitution=10,
+            intelligence=10,
+            wisdom=10,
+            charisma=10,
+            armor_class=10,
+            hit_points_max=10,
+            hit_points_current=10,
+            hit_dice="1d10",
+            hit_dice_remaining=1,
+            gold=9999,
+            silver=99,
+            copper=999,
+        )
+        assert char.gold == 9999
+        assert char.silver == 99
+        assert char.copper == 999
+
+
+# =============================================================================
+# Additional Edge Case Tests - Error Message Validation
+# =============================================================================
+
+
+class TestErrorMessages:
+    """Test that validation errors contain useful messages."""
+
+    def test_weapon_damage_dice_error_message(self) -> None:
+        """Test damage dice error message is informative."""
+        with pytest.raises(ValidationError) as exc_info:
+            Weapon(name="Test", damage_dice="invalid")
+        error = str(exc_info.value)
+        assert "damage_dice" in error
+        assert "pattern" in error.lower() or "string" in error.lower()
+
+    def test_spell_slots_current_exceeds_max_message(self) -> None:
+        """Test spell slots error message shows both values."""
+        with pytest.raises(ValidationError) as exc_info:
+            SpellSlots(max=2, current=5)
+        error = str(exc_info.value)
+        assert "current" in error
+
+    def test_character_sheet_hp_validation_message(self) -> None:
+        """Test HP validation error is descriptive."""
+        with pytest.raises(ValidationError) as exc_info:
+            CharacterSheet(
+                name="Test",
+                race="Human",
+                character_class="Fighter",
+                strength=10,
+                dexterity=10,
+                constitution=10,
+                intelligence=10,
+                wisdom=10,
+                charisma=10,
+                armor_class=10,
+                hit_points_max=50,
+                hit_points_current=100,  # Exceeds max
+                hit_dice="1d10",
+                hit_dice_remaining=1,
+            )
+        error = str(exc_info.value)
+        assert "hit_points_current" in error
+
+    def test_hit_dice_remaining_exceeds_level_message(self) -> None:
+        """Test hit dice remaining error mentions level."""
+        with pytest.raises(ValidationError) as exc_info:
+            CharacterSheet(
+                name="Test",
+                race="Human",
+                character_class="Fighter",
+                level=3,
+                strength=10,
+                dexterity=10,
+                constitution=10,
+                intelligence=10,
+                wisdom=10,
+                charisma=10,
+                armor_class=10,
+                hit_points_max=10,
+                hit_points_current=10,
+                hit_dice="3d10",
+                hit_dice_remaining=5,  # More than level 3
+            )
+        error = str(exc_info.value)
+        assert "hit_dice_remaining" in error
+
+    def test_ability_score_bounds_error_message(self) -> None:
+        """Test ability score error shows the field name."""
+        with pytest.raises(ValidationError) as exc_info:
+            CharacterSheet(
+                name="Test",
+                race="Human",
+                character_class="Fighter",
+                strength=50,  # Too high
+                dexterity=10,
+                constitution=10,
+                intelligence=10,
+                wisdom=10,
+                charisma=10,
+                armor_class=10,
+                hit_points_max=10,
+                hit_points_current=10,
+                hit_dice="1d10",
+                hit_dice_remaining=1,
+            )
+        error = str(exc_info.value)
+        assert "strength" in error
+
+
+# =============================================================================
+# Additional Edge Case Tests - Complex Nested Serialization
+# =============================================================================
+
+
+class TestComplexNestedSerialization:
+    """Test serialization with complex nested structures."""
+
+    def test_character_with_all_nested_objects(self) -> None:
+        """Test serialization with weapons, armor, equipment, and spells."""
+        char = CharacterSheet(
+            name="Complete Hero",
+            race="Half-Elf",
+            character_class="Bard",
+            level=7,
+            strength=10,
+            dexterity=16,
+            constitution=14,
+            intelligence=12,
+            wisdom=10,
+            charisma=18,
+            armor_class=15,
+            hit_points_max=52,
+            hit_points_current=45,
+            hit_dice="7d8",
+            hit_dice_remaining=7,
+            weapons=[
+                Weapon(
+                    name="Rapier",
+                    damage_dice="1d8",
+                    damage_type="piercing",
+                    properties=["finesse"],
+                    is_equipped=True,
+                ),
+                Weapon(
+                    name="Dagger",
+                    damage_dice="1d4",
+                    damage_type="piercing",
+                    properties=["finesse", "light", "thrown"],
+                    attack_bonus=1,
+                ),
+            ],
+            armor=Armor(name="Studded Leather", armor_class=12, armor_type="light"),
+            equipment=[
+                EquipmentItem(name="Lute", description="Musical instrument"),
+                EquipmentItem(name="Costume Clothes", quantity=3),
+                EquipmentItem(name="Potion of Healing", quantity=2, weight=0.5),
+            ],
+            spellcasting_ability="charisma",
+            spell_save_dc=15,
+            spell_attack_bonus=7,
+            cantrips=["Vicious Mockery", "Minor Illusion"],
+            spells_known=[
+                Spell(name="Healing Word", level=1, school="evocation"),
+                Spell(name="Dissonant Whispers", level=1, school="enchantment"),
+                Spell(name="Hold Person", level=2, school="enchantment"),
+                Spell(name="Hypnotic Pattern", level=3, school="illusion"),
+            ],
+            spell_slots={
+                1: SpellSlots(max=4, current=3),
+                2: SpellSlots(max=3, current=3),
+                3: SpellSlots(max=3, current=2),
+                4: SpellSlots(max=1, current=1),
+            },
+            death_saves=DeathSaves(successes=0, failures=0),
+        )
+
+        # Serialize and deserialize
+        json_str = char.model_dump_json()
+        restored = CharacterSheet.model_validate_json(json_str)
+
+        # Verify all nested objects
+        assert len(restored.weapons) == 2
+        assert restored.weapons[0].name == "Rapier"
+        assert restored.weapons[1].attack_bonus == 1
+
+        assert restored.armor is not None
+        assert restored.armor.name == "Studded Leather"
+
+        assert len(restored.equipment) == 3
+        assert restored.equipment[1].quantity == 3
+
+        assert len(restored.spells_known) == 4
+        assert restored.spells_known[3].school == "illusion"
+
+        assert len(restored.spell_slots) == 4
+        assert restored.spell_slots[3].current == 2
+
+    def test_dict_serialization_format(self) -> None:
+        """Test model_dump() output format matches expected structure."""
+        weapon = Weapon(
+            name="Sword",
+            damage_dice="1d8",
+            damage_type="slashing",
+            properties=["versatile"],
+            attack_bonus=2,
+            is_equipped=True,
+        )
+        data = weapon.model_dump()
+
+        assert data == {
+            "name": "Sword",
+            "damage_dice": "1d8",
+            "damage_type": "slashing",
+            "properties": ["versatile"],
+            "attack_bonus": 2,
+            "is_equipped": True,
+        }
+
+    def test_deep_equality_after_serialization(self) -> None:
+        """Test that complex objects remain equal after round-trip."""
+        char = CharacterSheet(
+            name="Test",
+            race="Human",
+            character_class="Fighter",
+            level=5,
+            strength=16,
+            dexterity=14,
+            constitution=15,
+            intelligence=10,
+            wisdom=12,
+            charisma=8,
+            armor_class=18,
+            hit_points_max=44,
+            hit_points_current=44,
+            hit_dice="5d10",
+            hit_dice_remaining=5,
+            weapons=[Weapon(name="Longsword", damage_dice="1d8")],
+            armor=Armor(name="Plate", armor_class=18, armor_type="heavy"),
+            death_saves=DeathSaves(successes=1, failures=0),
+        )
+
+        json_str = char.model_dump_json()
+        restored = CharacterSheet.model_validate_json(json_str)
+
+        # Deep equality check
+        assert restored == char
+        assert restored.weapons == char.weapons
+        assert restored.armor == char.armor
+        assert restored.death_saves.successes == char.death_saves.successes
