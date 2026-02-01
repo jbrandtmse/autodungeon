@@ -5101,7 +5101,12 @@ class TestStory33AcceptanceCriteria:
 
 
 class TestDropInButtonDisabledDuringGeneration:
-    """Tests for Drop-In button disabled state during generation (Story 3.3 code review fix)."""
+    """Tests for Drop-In button disabled state during generation (Story 3.3 code review fix).
+
+    Note: Story 8.2 added a clickable character name button, so now there are 2 buttons:
+    1. Character name button (opens sheet modal)
+    2. Drop-In/Release button
+    """
 
     def test_drop_in_button_disabled_when_generating(self) -> None:
         """Test that Drop-In button is disabled when is_generating=True."""
@@ -5129,9 +5134,11 @@ class TestDropInButtonDisabledDuringGeneration:
 
             render_character_card("fighter", char_config, controlled=False)
 
-            # Verify button was called with disabled=True
-            mock_button.assert_called_once()
-            call_kwargs = mock_button.call_args[1]
+            # Story 8.2: Now 2 buttons - name button and drop-in button
+            assert mock_button.call_count == 2
+            # Second call is the Drop-In button
+            drop_in_call = mock_button.call_args_list[1]
+            call_kwargs = drop_in_call[1]
             assert call_kwargs.get("disabled") is True
 
     def test_drop_in_button_enabled_when_not_generating(self) -> None:
@@ -5160,9 +5167,11 @@ class TestDropInButtonDisabledDuringGeneration:
 
             render_character_card("fighter", char_config, controlled=False)
 
-            # Verify button was called with disabled=False
-            mock_button.assert_called_once()
-            call_kwargs = mock_button.call_args[1]
+            # Story 8.2: Now 2 buttons - name button and drop-in button
+            assert mock_button.call_count == 2
+            # Second call is the Drop-In button
+            drop_in_call = mock_button.call_args_list[1]
+            call_kwargs = drop_in_call[1]
             assert call_kwargs.get("disabled") is False
 
     def test_release_button_also_disabled_when_generating(self) -> None:
@@ -5191,10 +5200,12 @@ class TestDropInButtonDisabledDuringGeneration:
 
             render_character_card("fighter", char_config, controlled=True)
 
-            # Verify button was called with disabled=True and label "Release"
-            mock_button.assert_called_once()
-            call_args = mock_button.call_args[0]
-            call_kwargs = mock_button.call_args[1]
+            # Story 8.2: Now 2 buttons - name button and release button
+            assert mock_button.call_count == 2
+            # Second call is the Release button
+            release_call = mock_button.call_args_list[1]
+            call_args = release_call[0]
+            call_kwargs = release_call[1]
             assert call_args[0] == "Release"
             assert call_kwargs.get("disabled") is True
 

@@ -4,10 +4,13 @@ This is the main application entry point. Run with:
     streamlit run app.py
 """
 
+from __future__ import annotations
+
 import logging
 import random
 import re
 import time
+from typing import Any
 
 # Configure logging to show warnings in terminal
 logging.basicConfig(
@@ -43,14 +46,21 @@ from config import (
 )
 from graph import run_single_round
 from models import (
+    Armor,
     CharacterConfig,
+    CharacterSheet,
+    DeathSaves,
     DMConfig,
+    EquipmentItem,
     GameConfig,
     GameState,
     ModuleInfo,
     SessionMetadata,
+    Spell,
+    SpellSlots,
     UserError,
     ValidationResult,
+    Weapon,
     create_user_error,
     populate_game_state,
 )
@@ -3244,8 +3254,9 @@ def render_human_input_area() -> None:
 def render_character_card(
     agent_key: str, char_config: CharacterConfig, controlled: bool
 ) -> None:
-    """Render a single character card with Drop-In button.
+    """Render a single character card with clickable name and Drop-In button.
 
+    Story 8.2: Character name is clickable to open character sheet modal.
     Uses a wrapper div with character-specific classes to enable CSS targeting
     of both the card content and the Streamlit button that follows it.
 
@@ -3264,9 +3275,23 @@ def render_character_card(
     # This wrapper has the character class for CSS targeting of child elements
     st.markdown(
         f'<div class="character-card-wrapper {class_slug}{controlled_class}">'
-        f'<div class="character-card {class_slug}{controlled_class}">'
-        f'<span class="character-name {class_slug}">'
-        f"{escape_html(char_config.name)}</span><br/>"
+        f'<div class="character-card {class_slug}{controlled_class}">',
+        unsafe_allow_html=True,
+    )
+
+    # Clickable character name button (Story 8.2) - opens character sheet
+    is_generating = st.session_state.get("is_generating", False)
+    if st.button(
+        char_config.name,
+        key=f"view_sheet_{agent_key}",
+        help="View character sheet",
+        disabled=is_generating,
+    ):
+        handle_view_character_sheet(agent_key)
+        st.rerun()
+
+    # Character class display
+    st.markdown(
         f'<span class="character-class">'
         f"{escape_html(char_config.character_class)}</span>"
         f"</div>",
@@ -3276,13 +3301,901 @@ def render_character_card(
     # Render the functional Streamlit button (styled via CSS targeting the wrapper)
     # Disabled during generation for UX consistency (Story 3.3 code review fix)
     button_label = get_drop_in_button_label(controlled)
-    is_generating = st.session_state.get("is_generating", False)
     if st.button(button_label, key=f"drop_in_{agent_key}", disabled=is_generating):
         handle_drop_in_click(agent_key)
         st.rerun()
 
     # Close the wrapper div
     st.markdown("</div>", unsafe_allow_html=True)
+
+
+# =============================================================================
+# Character Sheet Viewer (Story 8.2)
+# =============================================================================
+
+# Skills organized by governing ability (D&D 5e rules)
+SKILLS_BY_ABILITY: dict[str, list[str]] = {
+    "strength": ["Athletics"],
+    "dexterity": ["Acrobatics", "Sleight of Hand", "Stealth"],
+    "constitution": [],  # No CON skills in 5e
+    "intelligence": ["Arcana", "History", "Investigation", "Nature", "Religion"],
+    "wisdom": ["Animal Handling", "Insight", "Medicine", "Perception", "Survival"],
+    "charisma": ["Deception", "Intimidation", "Performance", "Persuasion"],
+}
+
+
+def get_hp_color(current: int, max_hp: int) -> str:
+    """Get HP bar color based on percentage.
+
+    Args:
+        current: Current HP.
+        max_hp: Maximum HP.
+
+    Returns:
+        CSS color code: green (>50%), yellow (25-50%), red (<=25%).
+    """
+    if max_hp <= 0:
+        return "#C45C4A"  # Red for invalid
+
+    percentage = (current / max_hp) * 100
+
+    if percentage > 50:
+        return "#6B8E6B"  # Green (Rogue color)
+    elif percentage > 25:
+        return "#E8A849"  # Amber/Yellow (accent-warm)
+    else:
+        return "#C45C4A"  # Red (Fighter color)
+
+
+def render_hp_bar_html(current: int, max_hp: int, temp: int = 0) -> str:
+    """Generate HTML for HP bar visualization.
+
+    Args:
+        current: Current HP.
+        max_hp: Maximum HP.
+        temp: Temporary HP.
+
+    Returns:
+        HTML string for HP bar.
+    """
+    percentage = min(100, (current / max_hp) * 100) if max_hp > 0 else 0
+    color = get_hp_color(current, max_hp)
+
+    temp_display = f" (+{temp})" if temp > 0 else ""
+    temp_aria = f" plus {temp} temporary" if temp > 0 else ""
+
+    return (
+        f'<div class="hp-container" role="meter" aria-label="Hit Points" '
+        f'aria-valuenow="{current}" aria-valuemin="0" aria-valuemax="{max_hp}">'
+        f'<div class="hp-bar-bg">'
+        f'<div class="hp-bar-fill" style="width: {percentage}%; background-color: {color};"></div>'
+        f"</div>"
+        f'<span class="hp-text" aria-hidden="true">{current}/{max_hp}{temp_display} HP</span>'
+        f'<span class="sr-only">{current} of {max_hp} hit points{temp_aria}</span>'
+        f"</div>"
+    )
+
+
+def render_spell_slots_html(spell_slots: dict[int, SpellSlots]) -> str:
+    """Generate HTML for spell slot visualization.
+
+    Args:
+        spell_slots: Dict mapping spell level to SpellSlots model.
+
+    Returns:
+        HTML string with filled/empty dots for each level.
+    """
+    if not spell_slots:
+        return ""
+
+    html_parts = [
+        '<div class="spell-slots-container" role="list" aria-label="Spell slots">'
+    ]
+
+    for level in sorted(spell_slots.keys()):
+        slots = spell_slots[level]
+        if slots.max == 0:
+            continue
+
+        # Clamp values to valid range to prevent negative empty dots
+        filled = max(0, min(slots.current, slots.max))
+        empty = max(0, slots.max - filled)
+
+        dots = ("●" * filled) + ("○" * empty)
+
+        html_parts.append(
+            f'<div class="spell-slot-row" role="listitem">'
+            f'<span class="spell-level">Level {level}:</span>'
+            f'<span class="spell-dots" aria-label="{filled} of {slots.max} slots available">{dots}</span>'
+            f"</div>"
+        )
+
+    html_parts.append("</div>")
+    return "".join(html_parts)
+
+
+def calculate_skill_modifier(sheet: CharacterSheet, skill: str, ability: str) -> int:
+    """Calculate total skill modifier.
+
+    Args:
+        sheet: Character sheet.
+        skill: Skill name.
+        ability: Governing ability.
+
+    Returns:
+        Total modifier (ability mod + proficiency if applicable).
+    """
+    ability_mod = sheet.get_ability_modifier(ability)
+
+    if skill in sheet.skill_expertise:
+        return ability_mod + (sheet.proficiency_bonus * 2)
+    elif skill in sheet.skill_proficiencies:
+        return ability_mod + sheet.proficiency_bonus
+    else:
+        return ability_mod
+
+
+def create_sample_character_sheet(
+    character_class: str, name: str = "Sample"
+) -> CharacterSheet:
+    """Create a sample character sheet for UI testing.
+
+    Args:
+        character_class: D&D class (Fighter, Rogue, Wizard, Cleric).
+        name: Character name.
+
+    Returns:
+        A populated CharacterSheet instance.
+    """
+    # Base stats vary by class
+    class_stats: dict[str, dict[str, int]] = {
+        "Fighter": {
+            "strength": 16,
+            "dexterity": 14,
+            "constitution": 15,
+            "intelligence": 10,
+            "wisdom": 12,
+            "charisma": 8,
+        },
+        "Rogue": {
+            "strength": 10,
+            "dexterity": 16,
+            "constitution": 12,
+            "intelligence": 14,
+            "wisdom": 12,
+            "charisma": 14,
+        },
+        "Wizard": {
+            "strength": 8,
+            "dexterity": 14,
+            "constitution": 12,
+            "intelligence": 16,
+            "wisdom": 14,
+            "charisma": 10,
+        },
+        "Cleric": {
+            "strength": 14,
+            "dexterity": 10,
+            "constitution": 14,
+            "intelligence": 10,
+            "wisdom": 16,
+            "charisma": 12,
+        },
+    }
+
+    # Class-specific configurations (using Any for mixed value types)
+    class_config: dict[str, dict[str, Any]] = {
+        "Fighter": {
+            "hit_dice": "5d10",
+            "hit_points_max": 44,
+            "hit_points_current": 32,
+            "armor_class": 18,
+            "saving_throw_proficiencies": ["strength", "constitution"],
+            "skill_proficiencies": ["Athletics", "Intimidation", "Perception"],
+            "class_features": ["Second Wind", "Action Surge", "Extra Attack"],
+            "weapons": [
+                Weapon(
+                    name="Longsword",
+                    damage_dice="1d8",
+                    damage_type="slashing",
+                    properties=["versatile"],
+                    is_equipped=True,
+                ),
+                Weapon(
+                    name="Javelin",
+                    damage_dice="1d6",
+                    damage_type="piercing",
+                    properties=["thrown", "range"],
+                    is_equipped=False,
+                ),
+            ],
+            "armor": Armor(
+                name="Chain Mail",
+                armor_class=16,
+                armor_type="heavy",
+                stealth_disadvantage=True,
+                is_equipped=True,
+            ),
+        },
+        "Rogue": {
+            "hit_dice": "5d8",
+            "hit_points_max": 33,
+            "hit_points_current": 28,
+            "armor_class": 14,
+            "saving_throw_proficiencies": ["dexterity", "intelligence"],
+            "skill_proficiencies": [
+                "Stealth",
+                "Sleight of Hand",
+                "Acrobatics",
+                "Perception",
+            ],
+            "skill_expertise": ["Stealth", "Sleight of Hand"],
+            "class_features": ["Sneak Attack", "Cunning Action", "Uncanny Dodge"],
+            "weapons": [
+                Weapon(
+                    name="Rapier",
+                    damage_dice="1d8",
+                    damage_type="piercing",
+                    properties=["finesse"],
+                    is_equipped=True,
+                ),
+                Weapon(
+                    name="Shortbow",
+                    damage_dice="1d6",
+                    damage_type="piercing",
+                    properties=["ammunition", "range"],
+                    is_equipped=False,
+                ),
+            ],
+            "armor": Armor(
+                name="Leather Armor",
+                armor_class=11,
+                armor_type="light",
+                is_equipped=True,
+            ),
+        },
+        "Wizard": {
+            "hit_dice": "5d6",
+            "hit_points_max": 22,
+            "hit_points_current": 18,
+            "armor_class": 12,
+            "saving_throw_proficiencies": ["intelligence", "wisdom"],
+            "skill_proficiencies": ["Arcana", "History", "Investigation"],
+            "class_features": ["Arcane Recovery", "Arcane Tradition"],
+            "spellcasting_ability": "intelligence",
+            "spell_save_dc": 14,
+            "spell_attack_bonus": 6,
+            "cantrips": ["Fire Bolt", "Light", "Mage Hand", "Prestidigitation"],
+            "spells_known": [
+                Spell(name="Magic Missile", level=1, school="evocation"),
+                Spell(name="Shield", level=1, school="abjuration"),
+                Spell(name="Detect Magic", level=1, school="divination"),
+                Spell(name="Misty Step", level=2, school="conjuration"),
+                Spell(name="Fireball", level=3, school="evocation"),
+            ],
+            "spell_slots": {
+                1: SpellSlots(max=4, current=2),
+                2: SpellSlots(max=3, current=3),
+                3: SpellSlots(max=2, current=1),
+            },
+            "weapons": [
+                Weapon(
+                    name="Quarterstaff",
+                    damage_dice="1d6",
+                    damage_type="bludgeoning",
+                    properties=["versatile"],
+                    is_equipped=True,
+                ),
+            ],
+            "armor": None,
+        },
+        "Cleric": {
+            "hit_dice": "5d8",
+            "hit_points_max": 38,
+            "hit_points_current": 30,
+            "armor_class": 18,
+            "saving_throw_proficiencies": ["wisdom", "charisma"],
+            "skill_proficiencies": ["Medicine", "Religion", "Insight"],
+            "class_features": ["Divine Domain", "Channel Divinity", "Destroy Undead"],
+            "spellcasting_ability": "wisdom",
+            "spell_save_dc": 14,
+            "spell_attack_bonus": 6,
+            "cantrips": ["Sacred Flame", "Guidance", "Spare the Dying"],
+            "spells_known": [
+                Spell(name="Cure Wounds", level=1, school="evocation"),
+                Spell(name="Bless", level=1, school="enchantment"),
+                Spell(name="Spiritual Weapon", level=2, school="evocation"),
+                Spell(name="Spirit Guardians", level=3, school="conjuration"),
+            ],
+            "spell_slots": {
+                1: SpellSlots(max=4, current=3),
+                2: SpellSlots(max=3, current=2),
+                3: SpellSlots(max=2, current=2),
+            },
+            "weapons": [
+                Weapon(
+                    name="Mace",
+                    damage_dice="1d6",
+                    damage_type="bludgeoning",
+                    is_equipped=True,
+                ),
+            ],
+            "armor": Armor(
+                name="Chain Mail",
+                armor_class=16,
+                armor_type="heavy",
+                is_equipped=True,
+            ),
+        },
+    }
+
+    # Get stats and config for this class (default to Fighter)
+    stats = class_stats.get(character_class, class_stats["Fighter"])
+    config = class_config.get(character_class, class_config["Fighter"])
+
+    # Build common equipment
+    equipment = [
+        EquipmentItem(name="Backpack", quantity=1),
+        EquipmentItem(name="Bedroll", quantity=1),
+        EquipmentItem(name="Rations", quantity=10, description="Days of food"),
+        EquipmentItem(name="Waterskin", quantity=1),
+        EquipmentItem(name="Rope (50 ft)", quantity=1),
+    ]
+
+    return CharacterSheet(
+        name=name,
+        race="Human",
+        character_class=character_class,
+        level=5,
+        background="Adventurer",
+        alignment="Neutral Good",
+        experience_points=6500,
+        strength=stats["strength"],
+        dexterity=stats["dexterity"],
+        constitution=stats["constitution"],
+        intelligence=stats["intelligence"],
+        wisdom=stats["wisdom"],
+        charisma=stats["charisma"],
+        armor_class=int(config.get("armor_class", 10)),
+        initiative=stats["dexterity"] // 2 - 5,
+        speed=30,
+        hit_points_max=int(config.get("hit_points_max", 30)),
+        hit_points_current=int(config.get("hit_points_current", 25)),
+        hit_points_temp=0,
+        hit_dice=str(config.get("hit_dice", "5d8")),
+        hit_dice_remaining=5,
+        saving_throw_proficiencies=list(config.get("saving_throw_proficiencies", [])),
+        skill_proficiencies=list(config.get("skill_proficiencies", [])),
+        skill_expertise=list(config.get("skill_expertise", [])),
+        armor_proficiencies=["light", "medium"] if character_class != "Wizard" else [],
+        weapon_proficiencies=["simple"]
+        if character_class == "Wizard"
+        else ["simple", "martial"],
+        tool_proficiencies=[],
+        languages=["Common", "Elvish"],
+        class_features=list(config.get("class_features", [])),
+        racial_traits=["Bonus Feat", "Bonus Skill"],
+        feats=[],
+        weapons=list(config.get("weapons", [])),
+        armor=config.get("armor"),
+        equipment=equipment,
+        gold=50,
+        silver=25,
+        copper=10,
+        spellcasting_ability=config.get("spellcasting_ability"),
+        spell_save_dc=config.get("spell_save_dc"),
+        spell_attack_bonus=config.get("spell_attack_bonus"),
+        cantrips=list(config.get("cantrips", [])),
+        spells_known=list(config.get("spells_known", [])),
+        spell_slots=dict(config.get("spell_slots", {})),
+        personality_traits="Brave and determined.",
+        ideals="Justice and honor guide my path.",
+        bonds="I protect those who cannot protect themselves.",
+        flaws="Sometimes too stubborn for my own good.",
+        backstory="A seasoned adventurer seeking glory and treasure.",
+        conditions=[],
+    )
+
+
+def render_sheet_header_html(sheet: CharacterSheet) -> str:
+    """Generate HTML for character sheet header section.
+
+    Args:
+        sheet: Character sheet data.
+
+    Returns:
+        HTML string for header section.
+    """
+    return (
+        f'<div class="character-sheet-header">'
+        f'<h2 class="character-sheet-name">{escape_html(sheet.name)}</h2>'
+        f'<p class="character-sheet-subtitle">'
+        f"{escape_html(sheet.race)} {escape_html(sheet.character_class)}, "
+        f"Level {sheet.level}</p>"
+        f'<span class="proficiency-badge">Proficiency Bonus: +{sheet.proficiency_bonus}</span>'
+        f"</div>"
+    )
+
+
+def render_ability_scores_html(sheet: CharacterSheet) -> str:
+    """Generate HTML for ability scores section.
+
+    Args:
+        sheet: Character sheet data.
+
+    Returns:
+        HTML string for ability scores in 3x2 grid.
+    """
+    abilities = [
+        ("STR", "Strength", sheet.strength, sheet.strength_modifier),
+        ("DEX", "Dexterity", sheet.dexterity, sheet.dexterity_modifier),
+        ("CON", "Constitution", sheet.constitution, sheet.constitution_modifier),
+        ("INT", "Intelligence", sheet.intelligence, sheet.intelligence_modifier),
+        ("WIS", "Wisdom", sheet.wisdom, sheet.wisdom_modifier),
+        ("CHA", "Charisma", sheet.charisma, sheet.charisma_modifier),
+    ]
+
+    html_parts = [
+        '<div class="ability-scores-grid" role="list" aria-label="Ability scores">'
+    ]
+
+    for abbrev, full_name, score, modifier in abilities:
+        mod_sign = "+" if modifier >= 0 else ""
+        save_prof = full_name.lower() in sheet.saving_throw_proficiencies
+        save_indicator = " *" if save_prof else ""
+        save_aria = ", proficient in saving throws" if save_prof else ""
+
+        html_parts.append(
+            f'<div class="ability-score-card" role="listitem" '
+            f'aria-label="{full_name}: {score}, modifier {mod_sign}{modifier}{save_aria}">'
+            f'<span class="ability-name">{abbrev}{save_indicator}</span>'
+            f'<span class="ability-modifier">{mod_sign}{modifier}</span>'
+            f'<span class="ability-score">{score}</span>'
+            f"</div>"
+        )
+
+    html_parts.append("</div>")
+    return "".join(html_parts)
+
+
+def render_death_saves_html(death_saves: DeathSaves) -> str:
+    """Generate HTML for death saving throws display.
+
+    Args:
+        death_saves: DeathSaves model with successes and failures.
+
+    Returns:
+        HTML string for death saves visualization.
+    """
+    # Use filled/empty circles for successes and failures
+    success_dots = ("●" * death_saves.successes) + ("○" * (3 - death_saves.successes))
+    failure_dots = ("●" * death_saves.failures) + ("○" * (3 - death_saves.failures))
+
+    status = ""
+    if death_saves.is_stable:
+        status = '<span class="death-save-stable">Stable</span>'
+    elif death_saves.is_dead:
+        status = '<span class="death-save-dead">Dead</span>'
+
+    return (
+        f'<div class="death-saves" role="group" aria-label="Death saving throws">'
+        f'<div class="death-save-row">'
+        f'<span class="death-save-label">Successes:</span>'
+        f'<span class="death-save-dots success" aria-label="{death_saves.successes} of 3 successes">{success_dots}</span>'
+        f"</div>"
+        f'<div class="death-save-row">'
+        f'<span class="death-save-label">Failures:</span>'
+        f'<span class="death-save-dots failure" aria-label="{death_saves.failures} of 3 failures">{failure_dots}</span>'
+        f"</div>"
+        f"{status}"
+        f"</div>"
+    )
+
+
+def render_combat_stats_html(sheet: CharacterSheet) -> str:
+    """Generate HTML for combat stats section.
+
+    Args:
+        sheet: Character sheet data.
+
+    Returns:
+        HTML string for combat stats.
+    """
+    hp_bar = render_hp_bar_html(
+        sheet.hit_points_current, sheet.hit_points_max, sheet.hit_points_temp
+    )
+
+    # Build death saves section if character is at 0 HP (Story 8.2 Task 4.7)
+    death_saves_html = ""
+    if sheet.hit_points_current <= 0:
+        death_saves_html = render_death_saves_html(sheet.death_saves)
+
+    return (
+        f'<div class="combat-stats" role="region" aria-label="Combat statistics">'
+        f'<div class="combat-stat">'
+        f'<span class="stat-label">AC</span>'
+        f'<span class="stat-value" aria-label="Armor Class {sheet.armor_class}">{sheet.armor_class}</span>'
+        f"</div>"
+        f'<div class="combat-stat">'
+        f'<span class="stat-label">Initiative</span>'
+        f'<span class="stat-value">{"+" if sheet.initiative >= 0 else ""}{sheet.initiative}</span>'
+        f"</div>"
+        f'<div class="combat-stat">'
+        f'<span class="stat-label">Speed</span>'
+        f'<span class="stat-value">{sheet.speed} ft</span>'
+        f"</div>"
+        f"{hp_bar}"
+        f"{death_saves_html}"
+        f'<div class="hit-dice-info">'
+        f'<span class="stat-label">Hit Dice</span>'
+        f'<span class="stat-value">{sheet.hit_dice_remaining}/{sheet.level} ({sheet.hit_dice})</span>'
+        f"</div>"
+        f"</div>"
+    )
+
+
+def render_skills_section_html(sheet: CharacterSheet) -> str:
+    """Generate HTML for skills section.
+
+    Args:
+        sheet: Character sheet data.
+
+    Returns:
+        HTML string for skills organized by ability.
+    """
+    html_parts = ['<div class="skills-section">']
+
+    for ability, skills in SKILLS_BY_ABILITY.items():
+        if not skills:
+            continue
+
+        for skill in skills:
+            modifier = calculate_skill_modifier(sheet, skill, ability)
+            mod_sign = "+" if modifier >= 0 else ""
+
+            # Determine proficiency indicator
+            if skill in sheet.skill_expertise:
+                prof_indicator = "●●"  # Double circle for expertise
+            elif skill in sheet.skill_proficiencies:
+                prof_indicator = "●"  # Filled circle for proficiency
+            else:
+                prof_indicator = "○"  # Empty circle for no proficiency
+
+            html_parts.append(
+                f'<div class="skill-row">'
+                f'<span class="skill-proficiency">{prof_indicator}</span>'
+                f'<span class="skill-name">{escape_html(skill)}</span>'
+                f'<span class="skill-modifier">{mod_sign}{modifier}</span>'
+                f"</div>"
+            )
+
+    html_parts.append("</div>")
+    return "".join(html_parts)
+
+
+def render_equipment_section_html(
+    equipment: list[EquipmentItem],
+    weapons: list[Weapon] | None = None,
+    armor: Armor | None = None,
+    gold: int = 0,
+    silver: int = 0,
+    copper: int = 0,
+) -> str:
+    """Generate HTML for equipment section.
+
+    Args:
+        equipment: List of equipment items.
+        weapons: List of weapons (optional).
+        armor: Worn armor (optional).
+        gold: Gold pieces.
+        silver: Silver pieces.
+        copper: Copper pieces.
+
+    Returns:
+        HTML string for equipment section.
+    """
+    html_parts: list[str] = ['<div class="equipment-section">']
+
+    # Weapons
+    if weapons:
+        html_parts.append('<div class="sheet-section-header">Weapons</div>')
+        for weapon in weapons:
+            equipped = " (equipped)" if weapon.is_equipped else ""
+            props = f" [{', '.join(weapon.properties)}]" if weapon.properties else ""
+            html_parts.append(
+                f'<div class="equipment-item">'
+                f"{escape_html(weapon.name)}: {escape_html(weapon.damage_dice)} "
+                f"{escape_html(weapon.damage_type)}{props}{equipped}"
+                f"</div>"
+            )
+
+    # Armor
+    if armor:
+        html_parts.append('<div class="sheet-section-header">Armor</div>')
+        html_parts.append(
+            f'<div class="equipment-item">'
+            f"{escape_html(armor.name)} ({armor.armor_type}): AC {armor.armor_class}"
+            f"</div>"
+        )
+
+    # Currency
+    if gold or silver or copper:
+        html_parts.append('<div class="sheet-section-header">Currency</div>')
+        currency_parts: list[str] = []
+        if gold:
+            currency_parts.append(f"{gold} gp")
+        if silver:
+            currency_parts.append(f"{silver} sp")
+        if copper:
+            currency_parts.append(f"{copper} cp")
+        html_parts.append(
+            f'<div class="equipment-item">{", ".join(currency_parts)}</div>'
+        )
+
+    # Other equipment
+    if equipment:
+        html_parts.append('<div class="sheet-section-header">Inventory</div>')
+        for item in equipment:
+            qty = f" x{item.quantity}" if item.quantity > 1 else ""
+            html_parts.append(
+                f'<div class="equipment-item">{escape_html(item.name)}{qty}</div>'
+            )
+
+    html_parts.append("</div>")
+    return "".join(html_parts)
+
+
+def render_spellcasting_section_html(sheet: CharacterSheet) -> str:
+    """Generate HTML for spellcasting section.
+
+    Args:
+        sheet: Character sheet data.
+
+    Returns:
+        HTML string for spellcasting (empty if non-caster).
+    """
+    if not sheet.spellcasting_ability:
+        return ""
+
+    html_parts = ['<div class="spellcasting-section">']
+
+    # Spell stats
+    html_parts.append(
+        f'<div class="spell-stats">'
+        f"<span>Spellcasting: {escape_html(sheet.spellcasting_ability.capitalize())}</span>"
+    )
+    if sheet.spell_save_dc:
+        html_parts.append(f"<span>Save DC: {sheet.spell_save_dc}</span>")
+    if sheet.spell_attack_bonus:
+        html_parts.append(f"<span>Attack: +{sheet.spell_attack_bonus}</span>")
+    html_parts.append("</div>")
+
+    # Cantrips
+    if sheet.cantrips:
+        html_parts.append('<div class="sheet-section-header">Cantrips</div>')
+        html_parts.append(
+            f'<div class="spell-list">{", ".join(escape_html(c) for c in sheet.cantrips)}</div>'
+        )
+
+    # Spell slots
+    if sheet.spell_slots:
+        html_parts.append('<div class="sheet-section-header">Spell Slots</div>')
+        html_parts.append(render_spell_slots_html(sheet.spell_slots))
+
+    # Known/prepared spells
+    if sheet.spells_known:
+        html_parts.append('<div class="sheet-section-header">Spells</div>')
+        for spell in sheet.spells_known:
+            level_str = "Cantrip" if spell.level == 0 else f"Level {spell.level}"
+            html_parts.append(
+                f'<div class="spell-entry">'
+                f'<span class="spell-name">{escape_html(spell.name)}</span>'
+                f'<span class="spell-level">({level_str})</span>'
+                f"</div>"
+            )
+
+    html_parts.append("</div>")
+    return "".join(html_parts)
+
+
+def render_features_section_html(sheet: CharacterSheet) -> str:
+    """Generate HTML for features and traits section.
+
+    Args:
+        sheet: Character sheet data.
+
+    Returns:
+        HTML string for features section.
+    """
+    html_parts = ['<div class="features-section">']
+
+    if sheet.class_features:
+        html_parts.append('<div class="sheet-section-header">Class Features</div>')
+        for feature in sheet.class_features:
+            html_parts.append(f'<div class="feature-item">{escape_html(feature)}</div>')
+
+    if sheet.racial_traits:
+        html_parts.append('<div class="sheet-section-header">Racial Traits</div>')
+        for trait in sheet.racial_traits:
+            html_parts.append(f'<div class="feature-item">{escape_html(trait)}</div>')
+
+    if sheet.feats:
+        html_parts.append('<div class="sheet-section-header">Feats</div>')
+        for feat in sheet.feats:
+            html_parts.append(f'<div class="feature-item">{escape_html(feat)}</div>')
+
+    html_parts.append("</div>")
+    return "".join(html_parts)
+
+
+def render_personality_section_html(sheet: CharacterSheet) -> str:
+    """Generate HTML for personality section.
+
+    Args:
+        sheet: Character sheet data.
+
+    Returns:
+        HTML string for personality section.
+    """
+    html_parts = ['<div class="personality-section">']
+
+    if sheet.personality_traits:
+        html_parts.append('<div class="sheet-section-header">Personality Traits</div>')
+        html_parts.append(
+            f'<div class="personality-item">{escape_html(sheet.personality_traits)}</div>'
+        )
+
+    if sheet.ideals:
+        html_parts.append('<div class="sheet-section-header">Ideals</div>')
+        html_parts.append(
+            f'<div class="personality-item">{escape_html(sheet.ideals)}</div>'
+        )
+
+    if sheet.bonds:
+        html_parts.append('<div class="sheet-section-header">Bonds</div>')
+        html_parts.append(
+            f'<div class="personality-item">{escape_html(sheet.bonds)}</div>'
+        )
+
+    if sheet.flaws:
+        html_parts.append('<div class="sheet-section-header">Flaws</div>')
+        html_parts.append(
+            f'<div class="personality-item">{escape_html(sheet.flaws)}</div>'
+        )
+
+    if sheet.conditions:
+        html_parts.append('<div class="sheet-section-header">Active Conditions</div>')
+        html_parts.append(
+            f'<div class="conditions-list">{", ".join(escape_html(c) for c in sheet.conditions)}</div>'
+        )
+
+    html_parts.append("</div>")
+    return "".join(html_parts)
+
+
+def get_character_sheet(character_name: str) -> CharacterSheet | None:
+    """Get character sheet from session state or create sample.
+
+    For MVP, creates sample sheets until Story 8.3 integrates with GameState.
+
+    Args:
+        character_name: Character name or agent key.
+
+    Returns:
+        CharacterSheet instance or None if not found.
+    """
+    # First check if we have a stored sheet in session state
+    sheets = st.session_state.get("character_sheets", {})
+    if character_name in sheets:
+        return sheets[character_name]
+
+    # Get game state to look up character config
+    game = st.session_state.get("game", {})
+    characters = game.get("characters", {})
+
+    # Try to find character config
+    char_config = characters.get(character_name)
+    if not char_config:
+        # Try lowercase
+        char_config = characters.get(character_name.lower())
+    if not char_config:
+        # Search by name
+        for _key, config in characters.items():
+            if config.name.lower() == character_name.lower():
+                char_config = config
+                break
+
+    if char_config:
+        # Create sample sheet based on character config
+        sheet = create_sample_character_sheet(
+            char_config.character_class, char_config.name
+        )
+        # Store for future use
+        if "character_sheets" not in st.session_state:
+            st.session_state["character_sheets"] = {}
+        st.session_state["character_sheets"][character_name] = sheet
+        return sheet
+
+    return None
+
+
+@st.dialog("Character Sheet", width="large")
+def render_character_sheet_modal(character_name: str) -> None:
+    """Render character sheet modal for the specified character.
+
+    Uses @st.dialog decorator for modal container.
+    Follows Story 6.1 modal pattern.
+
+    Args:
+        character_name: Name or agent key of character to display.
+    """
+    sheet = get_character_sheet(character_name)
+    if sheet is None:
+        st.error(f"Character sheet not found for {character_name}")
+        return
+
+    # Header section
+    st.markdown(render_sheet_header_html(sheet), unsafe_allow_html=True)
+
+    # Use columns for layout
+    col1, col2 = st.columns([1, 1])
+
+    with col1:
+        # Ability scores
+        st.markdown(
+            '<div class="sheet-section-header">Ability Scores</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(render_ability_scores_html(sheet), unsafe_allow_html=True)
+
+        # Combat stats
+        st.markdown(
+            '<div class="sheet-section-header">Combat</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(render_combat_stats_html(sheet), unsafe_allow_html=True)
+
+        # Equipment
+        with st.expander("Equipment", expanded=False):
+            st.markdown(
+                render_equipment_section_html(
+                    sheet.equipment,
+                    sheet.weapons,
+                    sheet.armor,
+                    sheet.gold,
+                    sheet.silver,
+                    sheet.copper,
+                ),
+                unsafe_allow_html=True,
+            )
+
+    with col2:
+        # Skills (collapsible)
+        with st.expander("Skills", expanded=False):
+            st.markdown(render_skills_section_html(sheet), unsafe_allow_html=True)
+
+        # Spellcasting (if applicable)
+        spellcasting_html = render_spellcasting_section_html(sheet)
+        if spellcasting_html:
+            with st.expander("Spellcasting", expanded=True):
+                st.markdown(spellcasting_html, unsafe_allow_html=True)
+
+        # Features
+        with st.expander("Features & Traits", expanded=False):
+            st.markdown(render_features_section_html(sheet), unsafe_allow_html=True)
+
+        # Personality
+        with st.expander("Personality", expanded=False):
+            st.markdown(render_personality_section_html(sheet), unsafe_allow_html=True)
+
+
+def handle_view_character_sheet(agent_key: str) -> None:
+    """Handle click to view character sheet.
+
+    Args:
+        agent_key: Agent key of character to view.
+    """
+    st.session_state["viewing_character_sheet"] = agent_key
 
 
 # =============================================================================
@@ -4579,6 +5492,13 @@ def main() -> None:
             # Show config modal if open (Story 6.1)
             if st.session_state.get("config_modal_open"):
                 render_config_modal()
+
+            # Show character sheet modal if viewing (Story 8.2)
+            viewing_sheet = st.session_state.get("viewing_character_sheet")
+            if viewing_sheet:
+                render_character_sheet_modal(viewing_sheet)
+                # Clear after rendering to allow closing
+                st.session_state["viewing_character_sheet"] = None
 
             # Run autopilot step if active (Story 3.1)
             # This executes at end of render to trigger next turn

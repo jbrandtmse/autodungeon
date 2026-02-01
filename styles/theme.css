@@ -2636,3 +2636,447 @@ hr {
     font-size: 12px;
   }
 }
+
+/* ==========================================================================
+   Character Sheet Modal (Story 8.2)
+   ========================================================================== */
+
+.character-sheet-header {
+    text-align: center;
+    padding: 16px;
+    border-bottom: 2px solid var(--accent-warm, #E8A849);
+    margin-bottom: 16px;
+}
+
+.character-sheet-name {
+    font-family: Lora, Georgia, serif;
+    font-size: 24px;
+    font-weight: 600;
+    color: var(--text-primary, #F5E6D3);
+    margin: 0;
+}
+
+.character-sheet-subtitle {
+    font-family: Inter, system-ui, sans-serif;
+    font-size: 14px;
+    color: var(--text-secondary, #B8A896);
+    margin: 4px 0 0 0;
+}
+
+.proficiency-badge {
+    display: inline-block;
+    font-family: var(--font-mono, monospace);
+    font-size: 12px;
+    color: var(--accent-warm, #E8A849);
+    background: rgba(232, 168, 73, 0.15);
+    padding: 4px 8px;
+    border-radius: 4px;
+    margin-top: 8px;
+}
+
+/* Ability Score Cards */
+.ability-scores-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.ability-score-card {
+    background: var(--bg-message, #3D3530);
+    border-radius: 8px;
+    padding: 12px;
+    text-align: center;
+    border: 1px solid var(--bg-secondary, #2D2520);
+}
+
+.ability-name {
+    display: block;
+    font-family: Inter, system-ui, sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary, #B8A896);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.ability-modifier {
+    display: block;
+    font-family: JetBrains Mono, monospace;
+    font-size: 24px;
+    font-weight: 600;
+    color: var(--text-primary, #F5E6D3);
+}
+
+.ability-score {
+    display: block;
+    font-family: JetBrains Mono, monospace;
+    font-size: 14px;
+    color: var(--text-secondary, #B8A896);
+}
+
+/* Combat Stats */
+.combat-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.combat-stat {
+    background: var(--bg-message, #3D3530);
+    border-radius: 6px;
+    padding: 8px 12px;
+    text-align: center;
+    min-width: 60px;
+}
+
+.stat-label {
+    display: block;
+    font-family: Inter, system-ui, sans-serif;
+    font-size: 11px;
+    color: var(--text-secondary, #B8A896);
+    text-transform: uppercase;
+}
+
+.stat-value {
+    display: block;
+    font-family: JetBrains Mono, monospace;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-primary, #F5E6D3);
+}
+
+/* HP Bar */
+.hp-container {
+    width: 100%;
+    margin: 8px 0;
+}
+
+.hp-bar-bg {
+    background: var(--bg-secondary, #2D2520);
+    border-radius: 4px;
+    height: 20px;
+    overflow: hidden;
+}
+
+.hp-bar-fill {
+    height: 100%;
+    transition: width 0.3s ease;
+}
+
+.hp-text {
+    font-family: JetBrains Mono, monospace;
+    font-size: 14px;
+    color: var(--text-primary, #F5E6D3);
+    display: block;
+    text-align: center;
+    margin-top: 4px;
+}
+
+.hit-dice-info {
+    background: var(--bg-message, #3D3530);
+    border-radius: 6px;
+    padding: 8px 12px;
+    text-align: center;
+}
+
+/* Spell Slots */
+.spell-slots-container {
+    margin: 8px 0;
+}
+
+.spell-slot-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 4px 0;
+}
+
+.spell-level {
+    font-family: Inter, system-ui, sans-serif;
+    font-size: 13px;
+    color: var(--text-secondary, #B8A896);
+    min-width: 60px;
+}
+
+.spell-dots {
+    font-family: JetBrains Mono, monospace;
+    font-size: 14px;
+    color: var(--accent-warm, #E8A849);
+    letter-spacing: 2px;
+}
+
+/* Spellcasting Section */
+.spellcasting-section {
+    margin-bottom: 16px;
+}
+
+.spell-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-bottom: 12px;
+    font-family: Inter, system-ui, sans-serif;
+    font-size: 13px;
+    color: var(--text-secondary, #B8A896);
+}
+
+.spell-list {
+    font-family: Inter, system-ui, sans-serif;
+    font-size: 13px;
+    color: var(--text-primary, #F5E6D3);
+    margin-bottom: 8px;
+}
+
+.spell-entry {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--bg-secondary, #2D2520);
+}
+
+.spell-name {
+    font-family: Inter, system-ui, sans-serif;
+    font-size: 13px;
+    color: var(--text-primary, #F5E6D3);
+}
+
+.spell-level-label {
+    font-family: Inter, system-ui, sans-serif;
+    font-size: 12px;
+    color: var(--text-secondary, #B8A896);
+}
+
+/* Skill Section */
+.skills-section {
+    margin-bottom: 16px;
+}
+
+.skill-row {
+    display: flex;
+    align-items: center;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--bg-secondary, #2D2520);
+}
+
+.skill-proficiency {
+    width: 24px;
+    font-size: 12px;
+    color: var(--accent-warm, #E8A849);
+}
+
+.skill-name {
+    flex: 1;
+    font-family: Inter, system-ui, sans-serif;
+    font-size: 13px;
+    color: var(--text-primary, #F5E6D3);
+}
+
+.skill-modifier {
+    font-family: JetBrains Mono, monospace;
+    font-size: 13px;
+    color: var(--text-secondary, #B8A896);
+}
+
+/* Section Headers */
+.sheet-section-header {
+    font-family: Inter, system-ui, sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--accent-warm, #E8A849);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 16px 0 8px 0;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--bg-secondary, #2D2520);
+}
+
+/* Equipment Section */
+.equipment-section {
+    margin-bottom: 16px;
+}
+
+.equipment-item {
+    font-family: Inter, system-ui, sans-serif;
+    font-size: 13px;
+    color: var(--text-primary, #F5E6D3);
+    padding: 4px 0;
+    border-bottom: 1px solid var(--bg-secondary, #2D2520);
+}
+
+.equipment-detail {
+    font-size: 12px;
+    color: var(--text-secondary, #B8A896);
+    margin-left: 8px;
+}
+
+/* Features Section */
+.features-section {
+    margin-bottom: 16px;
+}
+
+.feature-item {
+    font-family: Inter, system-ui, sans-serif;
+    font-size: 13px;
+    color: var(--text-primary, #F5E6D3);
+    padding: 4px 0;
+    padding-left: 8px;
+    border-left: 2px solid var(--bg-secondary, #2D2520);
+    margin-bottom: 4px;
+}
+
+/* Personality Section */
+.personality-section {
+    margin-bottom: 16px;
+}
+
+.personality-item {
+    font-family: Inter, system-ui, sans-serif;
+    font-size: 13px;
+    color: var(--text-secondary, #B8A896);
+    font-style: italic;
+    padding: 4px 0;
+    line-height: 1.5;
+}
+
+.conditions-list {
+    font-family: Inter, system-ui, sans-serif;
+    font-size: 13px;
+    color: var(--color-fighter, #C45C4A);
+    font-weight: 500;
+}
+
+/* Clickable Character Name in Party Panel */
+.character-card-wrapper .stButton > button[data-testid*="view_sheet_"] {
+    background: transparent !important;
+    border: none !important;
+    color: inherit;
+    font-family: var(--font-ui);
+    font-size: var(--text-name);
+    font-weight: 600;
+    padding: 0;
+    margin: 0;
+    text-align: left;
+    cursor: pointer;
+    transition: color 0.2s ease;
+    width: auto !important;
+    height: auto !important;
+    min-height: 0 !important;
+}
+
+.character-card-wrapper .stButton > button[data-testid*="view_sheet_"]:hover {
+    color: var(--accent-warm, #E8A849) !important;
+    text-decoration: underline;
+    background: transparent !important;
+}
+
+/* Character-specific name colors in character card buttons */
+.character-card-wrapper.fighter .stButton > button[data-testid*="view_sheet_"] {
+    color: var(--color-fighter, #C45C4A);
+}
+
+.character-card-wrapper.rogue .stButton > button[data-testid*="view_sheet_"] {
+    color: var(--color-rogue, #6B8E6B);
+}
+
+.character-card-wrapper.wizard .stButton > button[data-testid*="view_sheet_"] {
+    color: var(--color-wizard, #7B68B8);
+}
+
+.character-card-wrapper.cleric .stButton > button[data-testid*="view_sheet_"] {
+    color: var(--color-cleric, #4A90A4);
+}
+
+/* Focus-visible styles for keyboard navigation (Story 8.2 accessibility) */
+.character-card-wrapper .stButton > button[data-testid*="view_sheet_"]:focus-visible {
+    outline: 2px solid var(--accent-warm, #E8A849);
+    outline-offset: 2px;
+    border-radius: 2px;
+}
+
+/* Screen reader only utility class */
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* Death Saves (Story 8.2 Task 4.7) */
+.death-saves {
+    background: rgba(196, 92, 74, 0.15);
+    border: 1px solid var(--color-fighter, #C45C4A);
+    border-radius: 6px;
+    padding: 12px;
+    margin: 8px 0;
+}
+
+.death-save-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 4px 0;
+}
+
+.death-save-label {
+    font-family: Inter, system-ui, sans-serif;
+    font-size: 12px;
+    color: var(--text-secondary, #B8A896);
+    min-width: 70px;
+}
+
+.death-save-dots {
+    font-family: JetBrains Mono, monospace;
+    font-size: 14px;
+    letter-spacing: 4px;
+}
+
+.death-save-dots.success {
+    color: var(--color-rogue, #6B8E6B);
+}
+
+.death-save-dots.failure {
+    color: var(--color-fighter, #C45C4A);
+}
+
+.death-save-stable {
+    display: block;
+    font-family: Inter, system-ui, sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-rogue, #6B8E6B);
+    text-transform: uppercase;
+    margin-top: 8px;
+}
+
+.death-save-dead {
+    display: block;
+    font-family: Inter, system-ui, sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-fighter, #C45C4A);
+    text-transform: uppercase;
+    margin-top: 8px;
+}
+
+/* Responsive Character Sheet (Story 8.2) */
+@media (max-width: 768px) {
+    .ability-scores-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .combat-stats {
+        flex-direction: column;
+    }
+
+    .spell-stats {
+        flex-direction: column;
+        gap: 8px;
+    }
+}

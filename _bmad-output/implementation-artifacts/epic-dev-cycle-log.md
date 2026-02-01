@@ -1050,11 +1050,40 @@
 
 | Story | Status | Phase |
 |-------|--------|-------|
-| 8-1-character-sheet-data-model | ⏳ in-progress | Starting |
-| 8-2-character-sheet-viewer-ui | ⬜ backlog | - |
+| 8-1-character-sheet-data-model | ✅ done | Full Cycle |
+| 8-2-character-sheet-viewer-ui | ⏳ in-progress | Starting |
 | 8-3-character-sheet-context-injection | ⬜ backlog | - |
 | 8-4-dm-tool-calls-for-sheet-updates | ⬜ backlog | - |
 | 8-5-sheet-change-notifications | ⬜ backlog | - |
+
+---
+
+## Story: 8-1-character-sheet-data-model
+
+**Status:** ✅ Completed
+**Duration:** 2026-02-01
+
+### Files Touched
+- `models.py` - 7 new Pydantic models: Weapon, Armor, EquipmentItem, Spell, SpellSlots, DeathSaves, CharacterSheet
+- `tests/test_story_8_1_character_sheet.py` - 176 comprehensive tests
+
+### Key Design Decisions
+- Full D&D 5e character sheet with all standard fields (abilities, combat, proficiencies, equipment, spells, personality)
+- Computed properties for ability modifiers: `(score - 10) // 2`
+- Computed proficiency bonus from level: `(level - 1) // 4 + 2`
+- `get_ability_modifier(ability)` helper with short form support (str/dex/con/int/wis/cha)
+- DeathSaves model with `is_stable` (3 successes) and `is_dead` (3 failures) computed properties
+- Cross-field validation: hit_points_current <= hit_points_max + hit_points_temp
+- Weapon damage_dice supports modifiers like "1d8+2" for magic weapons
+
+### Issues Auto-Resolved
+- **HIGH**: Added ge=0 constraint to hit_points_current (HP can't go negative)
+- **HIGH**: Added model_validator for HP cross-field validation
+- **MEDIUM**: Extended damage_dice pattern for magic weapon modifiers
+- **MEDIUM**: Fixed Armor.armor_class bounds for shields (ge=0 instead of ge=10)
+
+### User Input Required
+- None - all issues auto-resolved
 
 ---
 

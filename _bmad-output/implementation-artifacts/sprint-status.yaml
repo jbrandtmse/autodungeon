@@ -113,8 +113,8 @@ development_status:
 
   # Epic 8: Character Sheets (5 stories)
   epic-8: in-progress
-  8-1-character-sheet-data-model: review
-  8-2-character-sheet-viewer-ui: backlog
+  8-1-character-sheet-data-model: done
+  8-2-character-sheet-viewer-ui: done
   8-3-character-sheet-context-injection: backlog
   8-4-dm-tool-calls-for-sheet-updates: backlog
   8-5-sheet-change-notifications: backlog
