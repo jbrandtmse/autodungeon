@@ -849,8 +849,8 @@
 | Story | Status | Phase |
 |-------|--------|-------|
 | 7-1-module-discovery-via-llm-query | ✅ done | Full Cycle |
-| 7-2-module-selection-ui | ⏳ in-progress | Starting |
-| 7-3-module-context-injection | ⬜ backlog | - |
+| 7-2-module-selection-ui | ✅ done | Full Cycle |
+| 7-3-module-context-injection | ⏳ in-progress | Starting |
 | 7-4-new-adventure-flow-integration | ⬜ backlog | - |
 
 ---
@@ -883,6 +883,35 @@
 - **MEDIUM**: Incomplete test assertion → Fixed invalid entry handling test
 - **MEDIUM**: Missing empty response tests → Added 2 new tests
 - **MEDIUM**: Missing exports test update → Updated test_agents.py
+
+### User Input Required
+- None - all issues auto-resolved
+
+---
+
+## Story: 7-2-module-selection-ui
+
+**Status:** ✅ Completed
+**Duration:** 2026-02-01
+
+### Files Touched
+- `app.py` - filter_modules(), select_random_module(), render_module_card(), render_module_grid(), render_module_confirmation(), render_module_selection_ui()
+- `styles/theme.css` - .module-card, .module-grid, .module-confirmation, .random-module-btn styles
+- `tests/test_story_7_2_module_selection_ui.py` - 132 comprehensive tests
+
+### Key Design Decisions
+- Client-side filtering via filter_modules() with case-insensitive AND logic for search terms
+- Responsive 3-column grid layout for module cards using st.columns()
+- Module card shows truncated description (100 chars) with "Select" button
+- Random module selection stores in session state, shows confirmation view
+- Confirmation view shows full module details with Proceed/Back options
+- Session state keys: selected_module, module_search_query, module_selection_confirmed
+
+### Issues Auto-Resolved
+- **MEDIUM**: Missing HTML escaping for module.setting and module.level_range → Added escape_html()
+- **MEDIUM**: Misleading cursor:pointer on .module-card CSS → Removed, added clarifying comment
+- **MEDIUM**: Missing ARIA accessibility attributes on module cards → Added role="article", aria-label, aria-selected
+- **MEDIUM**: Missing ARIA accessibility on module confirmation → Added role="region", aria-label
 
 ### User Input Required
 - None - all issues auto-resolved

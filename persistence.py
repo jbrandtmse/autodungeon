@@ -26,6 +26,7 @@ from models import (
     DMConfig,
     GameConfig,
     GameState,
+    ModuleInfo,
     SessionMetadata,
     TranscriptEntry,
 )
@@ -178,6 +179,12 @@ def serialize_game_state(state: GameState) -> str:
     Returns:
         JSON string representation of the state.
     """
+    # Handle selected_module serialization (Story 7.3)
+    selected_module = state.get("selected_module")
+    selected_module_data = (
+        selected_module.model_dump() if selected_module is not None else None
+    )
+
     # Convert Pydantic models to dicts
     serializable: dict[str, Any] = {
         "ground_truth_log": state["ground_truth_log"],
@@ -195,6 +202,7 @@ def serialize_game_state(state: GameState) -> str:
         "session_number": state["session_number"],
         "session_id": state.get("session_id", "001"),
         "summarization_in_progress": state.get("summarization_in_progress", False),
+        "selected_module": selected_module_data,
     }
     return json.dumps(serializable, indent=2)
 
@@ -218,6 +226,13 @@ def deserialize_game_state(json_str: str) -> GameState:
     """
     data = json.loads(json_str)
 
+    # Handle selected_module deserialization (Story 7.3)
+    # Backward compatible: old checkpoints may not have this field
+    selected_module_data = data.get("selected_module")
+    selected_module = (
+        ModuleInfo(**selected_module_data) if selected_module_data is not None else None
+    )
+
     return GameState(
         ground_truth_log=data["ground_truth_log"],
         turn_queue=data["turn_queue"],
@@ -232,6 +247,7 @@ def deserialize_game_state(json_str: str) -> GameState:
         session_number=data["session_number"],
         session_id=data.get("session_id", "001"),
         summarization_in_progress=data.get("summarization_in_progress", False),
+        selected_module=selected_module,
     )
 
 
@@ -797,7 +813,9 @@ def generate_recap_summary(
                     if content.startswith("["):
                         inner_bracket_end = content.find("]")
                         if inner_bracket_end > 0:
-                            content = content[inner_bracket_end + 1 :].lstrip(": ").strip()
+                            content = (
+                                content[inner_bracket_end + 1 :].lstrip(": ").strip()
+                            )
                 else:
                     content = entry
             else:

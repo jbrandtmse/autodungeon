@@ -208,6 +208,7 @@ class TestGameStateSerialization:
             "session_number",
             "session_id",
             "summarization_in_progress",
+            "selected_module",  # Story 7.3: Module Context Injection
         }
         assert set(data.keys()) == expected_keys
 

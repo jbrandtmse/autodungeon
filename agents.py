@@ -60,6 +60,7 @@ __all__ = [
     "discover_modules",
     "dm_turn",
     "format_character_facts",
+    "format_module_context",
     "get_default_model",
     "get_llm",
     "pc_turn",
@@ -670,6 +671,33 @@ def format_character_facts(facts: CharacterFacts) -> str:
     return "\n".join(lines)
 
 
+def format_module_context(module: ModuleInfo) -> str:
+    """Format module info for DM system prompt injection.
+
+    Creates a formatted markdown section containing the module name and
+    description, along with guidance for how the DM should use the module
+    knowledge. This is injected into the DM's system prompt when a module
+    is selected.
+
+    Story 7.3: Module Context Injection.
+
+    Args:
+        module: The selected ModuleInfo object.
+
+    Returns:
+        Formatted markdown section for DM prompt.
+    """
+    return f"""## Campaign Module: {module.name}
+{module.description}
+
+You are running this official D&D module. Draw upon your knowledge of:
+- The setting, locations, and atmosphere
+- Key NPCs, their motivations, and personalities
+- The main plot hooks and story beats
+- Encounters, monsters, and challenges appropriate to this module
+"""
+
+
 def _build_dm_context(state: GameState) -> str:
     """Build the context string for the DM from all agent memories.
 
@@ -819,8 +847,16 @@ def dm_turn(state: GameState) -> GameState:
         # Build context from all agent memories
         context = _build_dm_context(state)
 
+        # Build system prompt with optional module context (Story 7.3)
+        # Module context is appended after base DM instructions
+        system_prompt_parts: list[str] = [DM_SYSTEM_PROMPT]
+        selected_module = state.get("selected_module")
+        if selected_module is not None:
+            system_prompt_parts.append(format_module_context(selected_module))
+        full_system_prompt = "\n\n".join(system_prompt_parts)
+
         # Build messages for the model
-        messages: list[BaseMessage] = [SystemMessage(content=DM_SYSTEM_PROMPT)]
+        messages: list[BaseMessage] = [SystemMessage(content=full_system_prompt)]
         if context:
             messages.append(HumanMessage(content=f"Current game context:\n\n{context}"))
         messages.append(HumanMessage(content="Continue the adventure."))
@@ -962,6 +998,7 @@ def dm_turn(state: GameState) -> GameState:
         session_number=state["session_number"],
         session_id=state["session_id"],
         summarization_in_progress=state.get("summarization_in_progress", False),
+        selected_module=state.get("selected_module"),
     )
 
 
@@ -1153,6 +1190,7 @@ def pc_turn(state: GameState, agent_name: str) -> GameState:
         session_number=state["session_number"],
         session_id=state["session_id"],
         summarization_in_progress=state.get("summarization_in_progress", False),
+        selected_module=state.get("selected_module"),
     )
 
 

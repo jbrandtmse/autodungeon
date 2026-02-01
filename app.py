@@ -4234,9 +4234,16 @@ def handle_new_session_click() -> None:
     """Handle new session button click.
 
     Creates a new session and initializes fresh game state.
+    Story 7.3: Passes selected_module from session_state to game initialization.
     """
-    # Create fresh game state
-    game = populate_game_state(include_sample_messages=False)
+    # Get selected module from session state (Story 7.3)
+    # Will be None for freeform adventures
+    selected_module = st.session_state.get("selected_module")
+
+    # Create fresh game state with optional module context
+    game = populate_game_state(
+        include_sample_messages=False, selected_module=selected_module
+    )
 
     # Get character names from game state
     characters = game.get("characters", {})

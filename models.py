@@ -584,6 +584,8 @@ class GameState(TypedDict):
         session_id: Unique session identifier for persistence (e.g., "001").
         summarization_in_progress: True while memory compression is running.
             Used by UI to show summarization indicator.
+        selected_module: Module for DM context injection (Story 7.3).
+            None for freeform adventures without a specific module.
     """
 
     ground_truth_log: list[str]
@@ -599,6 +601,7 @@ class GameState(TypedDict):
     session_number: int
     session_id: str
     summarization_in_progress: bool
+    selected_module: ModuleInfo | None
 
 
 class MessageSegment(BaseModel):
@@ -814,10 +817,14 @@ def create_initial_game_state() -> GameState:
         session_number=1,
         session_id="001",
         summarization_in_progress=False,
+        selected_module=None,
     )
 
 
-def populate_game_state(include_sample_messages: bool = True) -> GameState:
+def populate_game_state(
+    include_sample_messages: bool = True,
+    selected_module: ModuleInfo | None = None,
+) -> GameState:
     """Factory function to create a fully populated game state from config files.
 
     Loads character configs from YAML files in config/characters/, builds the
@@ -827,6 +834,8 @@ def populate_game_state(include_sample_messages: bool = True) -> GameState:
     Args:
         include_sample_messages: If True, includes sample messages in ground_truth_log
             to demonstrate message styling. Set to False for clean game starts.
+        selected_module: Optional module for DM context injection (Story 7.3).
+            None for freeform adventures without a specific module.
 
     Returns:
         A GameState populated with characters, turn queue, and agent memories.
@@ -874,6 +883,7 @@ def populate_game_state(include_sample_messages: bool = True) -> GameState:
         session_number=session_number,
         session_id=session_id,
         summarization_in_progress=False,
+        selected_module=selected_module,
     )
 
 

@@ -297,6 +297,8 @@ class TestModuleExports:
             "MODULE_DISCOVERY_MAX_RETRIES",
             "discover_modules",
             "_parse_module_json",
+            # Story 7.3: Module Context Injection
+            "format_module_context",
         }
 
         assert set(agents.__all__) == expected_exports
