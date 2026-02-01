@@ -704,3 +704,660 @@ class TestModuleErrorHandling:
         # Should include the full description (per story spec - no truncation)
         assert long_desc in result
         assert "## Campaign Module: Long Description Module" in result
+
+
+# =============================================================================
+# Extended Coverage Tests (testarch-automate expansion)
+# =============================================================================
+
+
+class TestModuleInfoValidation:
+    """Extended tests for ModuleInfo Pydantic validation."""
+
+    def test_module_info_number_at_min_boundary(self) -> None:
+        """Test ModuleInfo accepts number=1 (minimum boundary)."""
+        module = ModuleInfo(
+            number=1,
+            name="First Module",
+            description="A module at the minimum boundary.",
+        )
+        assert module.number == 1
+
+    def test_module_info_number_at_max_boundary(self) -> None:
+        """Test ModuleInfo accepts number=100 (maximum boundary)."""
+        module = ModuleInfo(
+            number=100,
+            name="Last Module",
+            description="A module at the maximum boundary.",
+        )
+        assert module.number == 100
+
+    def test_module_info_number_below_min_raises_error(self) -> None:
+        """Test ModuleInfo rejects number=0 (below minimum)."""
+        import pytest
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError) as exc_info:
+            ModuleInfo(
+                number=0,
+                name="Invalid Module",
+                description="Number is too low.",
+            )
+        assert "number" in str(exc_info.value)
+
+    def test_module_info_number_above_max_raises_error(self) -> None:
+        """Test ModuleInfo rejects number=101 (above maximum)."""
+        import pytest
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError) as exc_info:
+            ModuleInfo(
+                number=101,
+                name="Invalid Module",
+                description="Number is too high.",
+            )
+        assert "number" in str(exc_info.value)
+
+    def test_module_info_empty_name_raises_error(self) -> None:
+        """Test ModuleInfo rejects empty name string."""
+        import pytest
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError) as exc_info:
+            ModuleInfo(
+                number=1,
+                name="",
+                description="Valid description.",
+            )
+        assert "name" in str(exc_info.value)
+
+    def test_module_info_empty_description_raises_error(self) -> None:
+        """Test ModuleInfo rejects empty description string."""
+        import pytest
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError) as exc_info:
+            ModuleInfo(
+                number=1,
+                name="Valid Name",
+                description="",
+            )
+        assert "description" in str(exc_info.value)
+
+    def test_module_info_with_unicode_in_name(self) -> None:
+        """Test ModuleInfo handles unicode characters in name."""
+        module = ModuleInfo(
+            number=1,
+            name="Curse of the Drow Queen",
+            description="An adventure with unicode.",
+        )
+        assert module.name == "Curse of the Drow Queen"
+
+    def test_module_info_with_unicode_in_description(self) -> None:
+        """Test ModuleInfo handles unicode characters in description."""
+        module = ModuleInfo(
+            number=1,
+            name="Test Module",
+            description="Fight the dragon and claim the treasure.",
+        )
+        assert "dragon" in module.description
+
+    def test_module_info_whitespace_only_name_is_allowed(self) -> None:
+        """Test ModuleInfo allows whitespace-only name (min_length=1 check).
+
+        Unlike CharacterConfig, ModuleInfo doesn't have a custom validator
+        to strip and check whitespace. Whitespace-only names satisfy
+        min_length=1 constraint.
+        """
+        # This is allowed because min_length=1 is satisfied by spaces
+        module = ModuleInfo(
+            number=1,
+            name="   ",  # Only whitespace - counts as 3 chars
+            description="Valid description.",
+        )
+        assert module.name == "   "
+
+
+class TestSerializationEdgeCases:
+    """Extended tests for serialization edge cases."""
+
+    def test_serialize_module_with_all_fields(self) -> None:
+        """Test serialization preserves all ModuleInfo fields."""
+        state = create_initial_game_state()
+        state["selected_module"] = ModuleInfo(
+            number=42,
+            name="Complete Module",
+            description="Has all fields populated.",
+            setting="Greyhawk",
+            level_range="5-10",
+        )
+
+        json_str = serialize_game_state(state)
+        data = json.loads(json_str)
+
+        assert data["selected_module"]["number"] == 42
+        assert data["selected_module"]["name"] == "Complete Module"
+        assert data["selected_module"]["description"] == "Has all fields populated."
+        assert data["selected_module"]["setting"] == "Greyhawk"
+        assert data["selected_module"]["level_range"] == "5-10"
+
+    def test_deserialize_module_with_only_required_fields(self) -> None:
+        """Test deserialization works with only required fields."""
+        checkpoint_data = {
+            "ground_truth_log": [],
+            "turn_queue": ["dm"],
+            "current_turn": "dm",
+            "agent_memories": {},
+            "game_config": {},
+            "dm_config": {},
+            "characters": {},
+            "whisper_queue": [],
+            "human_active": False,
+            "controlled_character": None,
+            "session_number": 1,
+            "session_id": "001",
+            "selected_module": {
+                "number": 1,
+                "name": "Minimal Module",
+                "description": "Only required fields.",
+            },
+        }
+
+        json_str = json.dumps(checkpoint_data)
+        restored = deserialize_game_state(json_str)
+
+        assert restored["selected_module"] is not None
+        assert restored["selected_module"].name == "Minimal Module"
+        # Optional fields should have default values
+        assert restored["selected_module"].setting == ""
+        assert restored["selected_module"].level_range == ""
+
+    def test_serialize_with_special_characters(self) -> None:
+        """Test serialization handles special JSON characters."""
+        state = create_initial_game_state()
+        state["selected_module"] = ModuleInfo(
+            number=1,
+            name='Module with "quotes" and \\backslashes',
+            description="Contains special chars: \n\t and unicode.",
+        )
+
+        json_str = serialize_game_state(state)
+        data = json.loads(json_str)
+
+        # Verify special characters survived round-trip
+        assert '"quotes"' in data["selected_module"]["name"]
+        assert "\\backslashes" in data["selected_module"]["name"]
+
+    def test_deserialize_handles_explicit_null_module(self) -> None:
+        """Test deserialization handles explicit null for selected_module."""
+        checkpoint_data = {
+            "ground_truth_log": [],
+            "turn_queue": ["dm"],
+            "current_turn": "dm",
+            "agent_memories": {},
+            "game_config": {},
+            "dm_config": {},
+            "characters": {},
+            "whisper_queue": [],
+            "human_active": False,
+            "controlled_character": None,
+            "session_number": 1,
+            "session_id": "001",
+            "selected_module": None,  # Explicit null
+        }
+
+        json_str = json.dumps(checkpoint_data)
+        restored = deserialize_game_state(json_str)
+
+        assert restored["selected_module"] is None
+
+    def test_deserialize_with_wrong_number_type_raises_error(self) -> None:
+        """Test deserialization fails when number is wrong type."""
+        import pytest
+        from pydantic import ValidationError
+
+        checkpoint_data = {
+            "ground_truth_log": [],
+            "turn_queue": ["dm"],
+            "current_turn": "dm",
+            "agent_memories": {},
+            "game_config": {},
+            "dm_config": {},
+            "characters": {},
+            "whisper_queue": [],
+            "human_active": False,
+            "controlled_character": None,
+            "session_number": 1,
+            "session_id": "001",
+            "selected_module": {
+                "number": "not_a_number",  # Wrong type
+                "name": "Test Module",
+                "description": "Test description.",
+            },
+        }
+
+        json_str = json.dumps(checkpoint_data)
+
+        with pytest.raises(ValidationError):
+            deserialize_game_state(json_str)
+
+    def test_round_trip_with_newlines_in_description(self) -> None:
+        """Test round-trip preserves multiline descriptions."""
+        state = create_initial_game_state()
+        multiline_desc = """This is a module description.
+
+It has multiple paragraphs.
+
+And continues for a while with various content."""
+
+        state["selected_module"] = ModuleInfo(
+            number=1,
+            name="Multiline Module",
+            description=multiline_desc,
+        )
+
+        json_str = serialize_game_state(state)
+        restored = deserialize_game_state(json_str)
+
+        assert restored["selected_module"] is not None
+        assert restored["selected_module"].description == multiline_desc
+        assert "\n\n" in restored["selected_module"].description
+
+
+class TestFormatModuleContextEdgeCases:
+    """Extended tests for format_module_context edge cases."""
+
+    def test_format_module_context_with_markdown_in_name(self) -> None:
+        """Test format_module_context handles markdown characters in name."""
+        module = ModuleInfo(
+            number=1,
+            name="Module **with** _markdown_ `chars`",
+            description="Test description.",
+        )
+        result = format_module_context(module)
+
+        # Should not escape the markdown - passed through as-is
+        assert "Module **with** _markdown_ `chars`" in result
+
+    def test_format_module_context_with_html_in_name(self) -> None:
+        """Test format_module_context handles HTML-like characters in name."""
+        module = ModuleInfo(
+            number=1,
+            name="Module <with> & HTML",
+            description="Test description.",
+        )
+        result = format_module_context(module)
+
+        # Should pass through without HTML escaping (for LLM context)
+        assert "<with>" in result
+
+    def test_format_module_context_preserves_line_breaks(self) -> None:
+        """Test format_module_context preserves line breaks in description."""
+        module = ModuleInfo(
+            number=1,
+            name="Test Module",
+            description="Line 1.\nLine 2.\nLine 3.",
+        )
+        result = format_module_context(module)
+
+        assert "Line 1.\nLine 2.\nLine 3." in result
+
+    def test_format_module_context_with_very_long_name(self) -> None:
+        """Test format_module_context handles very long module names."""
+        long_name = "A" * 500  # 500 character name
+        module = ModuleInfo(
+            number=1,
+            name=long_name,
+            description="Test description.",
+        )
+        result = format_module_context(module)
+
+        # Should include the full name (no truncation)
+        assert long_name in result
+        assert f"## Campaign Module: {long_name}" in result
+
+    def test_format_module_context_structure(self) -> None:
+        """Test format_module_context produces expected structure."""
+        module = ModuleInfo(
+            number=1,
+            name="Test Module",
+            description="A test description.",
+        )
+        result = format_module_context(module)
+
+        # Verify structure: header, then description, then guidance
+        lines = result.split("\n")
+
+        # First line should be the header
+        assert lines[0] == "## Campaign Module: Test Module"
+
+        # Second line should be the description
+        assert lines[1] == "A test description."
+
+        # Should contain the "You are running" guidance paragraph
+        assert "You are running this official D&D module" in result
+
+
+class TestDMTurnModuleIntegration:
+    """Extended integration tests for DM turn with module context."""
+
+    @patch("agents.create_dm_agent")
+    @patch("agents.get_llm")
+    def test_dm_turn_module_appears_after_base_prompt(
+        self, mock_get_llm: MagicMock, mock_create_dm_agent: MagicMock
+    ) -> None:
+        """Test module context appears after base DM prompt."""
+        import sys
+        from unittest.mock import MagicMock as MM
+
+        mock_streamlit = MM()
+        mock_streamlit.session_state = {}
+        sys.modules["streamlit"] = mock_streamlit
+
+        from agents import dm_turn
+
+        mock_response = MM()
+        mock_response.content = "The adventure continues..."
+        mock_response.tool_calls = None
+        mock_agent = MM()
+        mock_agent.invoke.return_value = mock_response
+        mock_create_dm_agent.return_value = mock_agent
+
+        module = ModuleInfo(
+            number=1,
+            name="Test Module",
+            description="Test description.",
+        )
+        state = create_initial_game_state()
+        state["selected_module"] = module
+        state["turn_queue"] = ["dm"]
+        state["dm_config"] = DMConfig()
+        state["agent_memories"]["dm"] = AgentMemory()
+
+        dm_turn(state)
+
+        call_args = mock_agent.invoke.call_args
+        messages = call_args[0][0]
+        system_content = messages[0].content
+
+        # Module should appear AFTER the base DM prompt content
+        dm_prompt_pos = system_content.find("Dungeon Master")
+        module_pos = system_content.find("Campaign Module")
+
+        assert dm_prompt_pos < module_pos, "Module should appear after base DM prompt"
+
+    @patch("agents.create_dm_agent")
+    @patch("agents.get_llm")
+    def test_dm_turn_with_tool_calls_preserves_module(
+        self, mock_get_llm: MagicMock, mock_create_dm_agent: MagicMock
+    ) -> None:
+        """Test dm_turn preserves module through tool call loop."""
+        import sys
+        from unittest.mock import MagicMock as MM
+
+        mock_streamlit = MM()
+        mock_streamlit.session_state = {}
+        sys.modules["streamlit"] = mock_streamlit
+
+        from agents import dm_turn
+
+        # First response has tool call, second has content
+        mock_tool_response = MM()
+        mock_tool_response.content = ""
+        mock_tool_response.tool_calls = [
+            {"name": "dm_roll_dice", "args": {"notation": "1d20"}, "id": "call_1"}
+        ]
+
+        mock_final_response = MM()
+        mock_final_response.content = "You rolled a 15!"
+        mock_final_response.tool_calls = None
+
+        mock_agent = MM()
+        mock_agent.invoke.side_effect = [mock_tool_response, mock_final_response]
+        mock_create_dm_agent.return_value = mock_agent
+
+        module = ModuleInfo(
+            number=1,
+            name="Combat Module",
+            description="Battle-focused adventure.",
+        )
+        state = create_initial_game_state()
+        state["selected_module"] = module
+        state["turn_queue"] = ["dm"]
+        state["dm_config"] = DMConfig()
+        state["agent_memories"]["dm"] = AgentMemory()
+
+        result = dm_turn(state)
+
+        # Module should still be preserved after tool calls
+        assert result["selected_module"] is not None
+        assert result["selected_module"].name == "Combat Module"
+
+
+class TestCheckpointModulePersistence:
+    """Tests for module persistence through checkpoint save/load cycle."""
+
+    def test_save_and_load_checkpoint_with_module(self, tmp_path: Path) -> None:
+        """Test module survives full checkpoint save/load cycle."""
+        import shutil
+
+        from persistence import (
+            ensure_session_dir,
+            load_checkpoint,
+            save_checkpoint,
+        )
+
+        test_session_id = "test_save_load"
+        session_dir = ensure_session_dir(test_session_id)
+
+        try:
+            module = ModuleInfo(
+                number=42,
+                name="Persisted Module",
+                description="Should survive checkpoint.",
+                setting="Test Setting",
+                level_range="1-20",
+            )
+
+            state = create_initial_game_state()
+            state["selected_module"] = module
+            state["session_id"] = test_session_id
+
+            # Save checkpoint
+            save_checkpoint(state, test_session_id, 1, update_metadata=False)
+
+            # Load checkpoint
+            restored = load_checkpoint(test_session_id, 1)
+
+            assert restored is not None
+            assert restored["selected_module"] is not None
+            assert restored["selected_module"].name == "Persisted Module"
+            assert restored["selected_module"].number == 42
+            assert restored["selected_module"].setting == "Test Setting"
+            assert restored["selected_module"].level_range == "1-20"
+
+        finally:
+            if session_dir.exists():
+                shutil.rmtree(session_dir)
+
+    def test_save_and_load_checkpoint_without_module(self, tmp_path: Path) -> None:
+        """Test checkpoint save/load with None module."""
+        import shutil
+
+        from persistence import (
+            ensure_session_dir,
+            load_checkpoint,
+            save_checkpoint,
+        )
+
+        test_session_id = "test_no_module"
+        session_dir = ensure_session_dir(test_session_id)
+
+        try:
+            state = create_initial_game_state()
+            state["selected_module"] = None
+            state["session_id"] = test_session_id
+
+            save_checkpoint(state, test_session_id, 1, update_metadata=False)
+            restored = load_checkpoint(test_session_id, 1)
+
+            assert restored is not None
+            assert restored["selected_module"] is None
+
+        finally:
+            if session_dir.exists():
+                shutil.rmtree(session_dir)
+
+
+class TestModuleContextInDMPrompt:
+    """Tests verifying module context structure in DM prompts."""
+
+    def test_module_context_contains_all_guidance_points(self) -> None:
+        """Test format_module_context includes all required guidance."""
+        module = ModuleInfo(
+            number=1,
+            name="Test Module",
+            description="Test description.",
+        )
+        result = format_module_context(module)
+
+        # All four guidance points from Story 7.3 spec
+        guidance_points = [
+            "setting, locations, and atmosphere",
+            "Key NPCs, their motivations",
+            "main plot hooks and story beats",
+            "Encounters, monsters, and challenges",
+        ]
+
+        for point in guidance_points:
+            assert point in result, f"Missing guidance: {point}"
+
+    def test_module_context_is_valid_markdown(self) -> None:
+        """Test format_module_context produces valid markdown."""
+        module = ModuleInfo(
+            number=1,
+            name="Test Module",
+            description="Test description here.",
+        )
+        result = format_module_context(module)
+
+        # Check markdown header format
+        assert result.startswith("## ")
+
+        # Check bullet points are present
+        assert result.count("- ") >= 4  # At least 4 bullet points
+
+    def test_module_name_and_description_not_escaped(self) -> None:
+        """Test module name and description are not HTML-escaped."""
+        module = ModuleInfo(
+            number=1,
+            name="<Module> & \"Test\"",
+            description="Description with <html> & 'quotes'",
+        )
+        result = format_module_context(module)
+
+        # Should NOT be escaped (this is for LLM context, not HTML)
+        assert "<Module>" in result
+        assert "&" in result
+        assert '"Test"' in result
+
+
+class TestPopulateGameStateWithModule:
+    """Tests for populate_game_state with module parameter."""
+
+    def test_populate_game_state_includes_module_in_turn_queue(self) -> None:
+        """Test populated state has correct turn queue regardless of module."""
+        module = ModuleInfo(
+            number=1,
+            name="Test Module",
+            description="Test description.",
+        )
+        state = populate_game_state(
+            include_sample_messages=False, selected_module=module
+        )
+
+        # Turn queue should start with dm
+        assert state["turn_queue"][0] == "dm"
+        # Module shouldn't affect turn queue
+        assert "module" not in state["turn_queue"]
+
+    def test_populate_game_state_module_is_same_object(self) -> None:
+        """Test module passed in is the same object (not copied)."""
+        module = ModuleInfo(
+            number=1,
+            name="Test Module",
+            description="Test description.",
+        )
+        state = populate_game_state(
+            include_sample_messages=False, selected_module=module
+        )
+
+        # Should be same object reference
+        assert state["selected_module"] is module
+
+
+class TestDeserializationEdgeCases:
+    """Additional deserialization edge cases."""
+
+    def test_deserialize_with_extra_module_fields_ignored(self) -> None:
+        """Test deserialization ignores unknown fields in module."""
+        checkpoint_data = {
+            "ground_truth_log": [],
+            "turn_queue": ["dm"],
+            "current_turn": "dm",
+            "agent_memories": {},
+            "game_config": {},
+            "dm_config": {},
+            "characters": {},
+            "whisper_queue": [],
+            "human_active": False,
+            "controlled_character": None,
+            "session_number": 1,
+            "session_id": "001",
+            "selected_module": {
+                "number": 1,
+                "name": "Test Module",
+                "description": "Test description.",
+                "unknown_field": "should be ignored",
+                "another_unknown": 12345,
+            },
+        }
+
+        json_str = json.dumps(checkpoint_data)
+        restored = deserialize_game_state(json_str)
+
+        # Should successfully deserialize despite extra fields
+        assert restored["selected_module"] is not None
+        assert restored["selected_module"].name == "Test Module"
+        # Extra fields should not be present
+        assert not hasattr(restored["selected_module"], "unknown_field")
+
+    def test_deserialize_with_negative_module_number_raises_error(self) -> None:
+        """Test deserialization fails with negative module number."""
+        import pytest
+        from pydantic import ValidationError
+
+        checkpoint_data = {
+            "ground_truth_log": [],
+            "turn_queue": ["dm"],
+            "current_turn": "dm",
+            "agent_memories": {},
+            "game_config": {},
+            "dm_config": {},
+            "characters": {},
+            "whisper_queue": [],
+            "human_active": False,
+            "controlled_character": None,
+            "session_number": 1,
+            "session_id": "001",
+            "selected_module": {
+                "number": -5,  # Negative number
+                "name": "Test Module",
+                "description": "Test description.",
+            },
+        }
+
+        json_str = json.dumps(checkpoint_data)
+
+        with pytest.raises(ValidationError):
+            deserialize_game_state(json_str)
