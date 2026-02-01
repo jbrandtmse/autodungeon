@@ -995,6 +995,8 @@ class GameState(TypedDict):
             Used by UI to show summarization indicator.
         selected_module: Module for DM context injection (Story 7.3).
             None for freeform adventures without a specific module.
+        character_sheets: Character sheets keyed by character name (Story 8.3).
+            Used for context injection into agent prompts.
     """
 
     ground_truth_log: list[str]
@@ -1011,6 +1013,7 @@ class GameState(TypedDict):
     session_id: str
     summarization_in_progress: bool
     selected_module: ModuleInfo | None
+    character_sheets: dict[str, "CharacterSheet"]
 
 
 class MessageSegment(BaseModel):

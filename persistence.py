@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field, ValidationError
 from models import (
     AgentMemory,
     CharacterConfig,
+    CharacterSheet,
     DMConfig,
     GameConfig,
     GameState,
@@ -203,6 +204,10 @@ def serialize_game_state(state: GameState) -> str:
         "session_id": state.get("session_id", "001"),
         "summarization_in_progress": state.get("summarization_in_progress", False),
         "selected_module": selected_module_data,
+        # Story 8.3: Character sheets persistence
+        "character_sheets": {
+            k: v.model_dump() for k, v in state.get("character_sheets", {}).items()
+        },
     }
     return json.dumps(serializable, indent=2)
 
@@ -233,6 +238,13 @@ def deserialize_game_state(json_str: str) -> GameState:
         ModuleInfo(**selected_module_data) if selected_module_data is not None else None
     )
 
+    # Handle character_sheets deserialization (Story 8.3)
+    # Backward compatible: old checkpoints may not have this field
+    character_sheets_data = data.get("character_sheets", {})
+    character_sheets = {
+        k: CharacterSheet(**v) for k, v in character_sheets_data.items()
+    }
+
     return GameState(
         ground_truth_log=data["ground_truth_log"],
         turn_queue=data["turn_queue"],
@@ -248,6 +260,7 @@ def deserialize_game_state(json_str: str) -> GameState:
         session_id=data.get("session_id", "001"),
         summarization_in_progress=data.get("summarization_in_progress", False),
         selected_module=selected_module,
+        character_sheets=character_sheets,
     )
 
 
@@ -325,8 +338,9 @@ def load_checkpoint(session_id: str, turn_number: int) -> GameState | None:
     try:
         json_content = checkpoint_path.read_text(encoding="utf-8")
         return deserialize_game_state(json_content)
-    except (json.JSONDecodeError, KeyError, TypeError, ValidationError):
+    except (json.JSONDecodeError, KeyError, TypeError, AttributeError, ValidationError):
         # Invalid checkpoint - return None instead of crashing
+        # AttributeError handles cases where JSON is null or array instead of object
         return None
 
 

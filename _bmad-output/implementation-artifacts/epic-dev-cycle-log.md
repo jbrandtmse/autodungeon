@@ -1051,7 +1051,7 @@
 | Story | Status | Phase |
 |-------|--------|-------|
 | 8-1-character-sheet-data-model | ✅ done | Full Cycle |
-| 8-2-character-sheet-viewer-ui | ⏳ in-progress | Starting |
+| 8-2-character-sheet-viewer-ui | ✅ done | Full Cycle |
 | 8-3-character-sheet-context-injection | ⬜ backlog | - |
 | 8-4-dm-tool-calls-for-sheet-updates | ⬜ backlog | - |
 | 8-5-sheet-change-notifications | ⬜ backlog | - |
@@ -1081,6 +1081,56 @@
 - **HIGH**: Added model_validator for HP cross-field validation
 - **MEDIUM**: Extended damage_dice pattern for magic weapon modifiers
 - **MEDIUM**: Fixed Armor.armor_class bounds for shields (ge=0 instead of ge=10)
+
+### User Input Required
+- None - all issues auto-resolved
+
+---
+
+## Story: 8-2-character-sheet-viewer-ui
+
+**Status:** ✅ Completed
+**Duration:** 2026-02-01
+
+### Files Touched
+- `app.py` - 17 new functions for character sheet viewer UI
+- `styles/theme.css` - Character sheet CSS (sections, HP bar, spell slots, responsive)
+- `tests/test_story_8_2_character_sheet_viewer.py` - 123 comprehensive tests
+
+### Key Design Decisions
+- Uses Streamlit `@st.dialog` for modal rendering with full-width layout
+- HP bar with color-coded states: green (>50%), yellow (26-50%), red (≤25%)
+- Spell slots visualized as filled/empty dots with level grouping
+- Death saves display shown when character at 0 HP
+- Responsive layout with @media queries for 768px breakpoint
+- ARIA accessibility: role="meter", role="list", aria-label attributes
+- XSS prevention with escape_html() on all user-controlled content
+- get_character_sheet() retrieves from session state with fallback to sample
+
+### Functions Added
+- `get_hp_color(current, max)` - HP bar color calculation
+- `render_hp_bar_html(current, max, temp)` - HP bar with ARIA
+- `render_spell_slots_html(slots)` - Spell slot visualization
+- `calculate_skill_modifier(sheet, skill, ability)` - Skill modifier with proficiency
+- `create_sample_character_sheet()` - Demo character for testing
+- `render_sheet_header_html(sheet)` - Name, class, level, race
+- `render_ability_scores_html(sheet)` - Six ability scores with modifiers
+- `render_death_saves_html(sheet)` - Success/failure checkboxes
+- `render_combat_stats_html(sheet)` - AC, initiative, speed, HP
+- `render_skills_section_html(sheet)` - Skills with proficiency indicators
+- `render_equipment_section_html(sheet)` - Weapons, armor, inventory
+- `render_spellcasting_section_html(sheet)` - Cantrips, spells, slots
+- `render_features_section_html(sheet)` - Features and traits
+- `render_personality_section_html(sheet)` - Traits, ideals, bonds, flaws
+- `get_character_sheet(char_name)` - Retrieve sheet from session state
+- `render_character_sheet_modal(char_name)` - Main modal function
+- `handle_view_character_sheet(char_name)` - Handler for view button
+
+### Issues Auto-Resolved
+- **HIGH**: Missing death saves display when at 0 HP → Added render_death_saves_html()
+- **HIGH**: Missing ARIA accessibility labels → Added role and aria-label attributes
+- **MEDIUM**: Missing responsive CSS for small screens → Added @media queries at 768px
+- **MEDIUM**: Potential negative empty dots in spell slots → Added clamping with max(0, ...)
 
 ### User Input Required
 - None - all issues auto-resolved

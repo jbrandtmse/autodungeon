@@ -98,6 +98,9 @@ def sample_game_state() -> GameState:
         controlled_character=None,
         session_number=1,
         session_id="001",
+        summarization_in_progress=False,
+        selected_module=None,
+        character_sheets={},
     )
 
 
@@ -209,6 +212,7 @@ class TestGameStateSerialization:
             "session_id",
             "summarization_in_progress",
             "selected_module",  # Story 7.3: Module Context Injection
+            "character_sheets",  # Story 8.3: Character Sheet Context Injection
         }
         assert set(data.keys()) == expected_keys
 

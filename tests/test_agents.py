@@ -299,6 +299,9 @@ class TestModuleExports:
             "_parse_module_json",
             # Story 7.3: Module Context Injection
             "format_module_context",
+            # Story 8.3: Character Sheet Context Injection
+            "format_character_sheet_context",
+            "format_all_sheets_context",
         }
 
         assert set(agents.__all__) == expected_exports

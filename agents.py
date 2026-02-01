@@ -25,6 +25,7 @@ from models import (
     AgentMemory,
     CharacterConfig,
     CharacterFacts,
+    CharacterSheet,
     DMConfig,
     GameState,
     ModuleDiscoveryResult,
@@ -59,7 +60,9 @@ __all__ = [
     "detect_network_error",
     "discover_modules",
     "dm_turn",
+    "format_all_sheets_context",
     "format_character_facts",
+    "format_character_sheet_context",
     "format_module_context",
     "get_default_model",
     "get_llm",
@@ -702,6 +705,219 @@ You are running this official D&D module. Draw upon your knowledge of:
 """
 
 
+def _format_modifier(value: int) -> str:
+    """Format a modifier with explicit sign.
+
+    Args:
+        value: The modifier value.
+
+    Returns:
+        Formatted string with + or - prefix.
+    """
+    return f"+{value}" if value >= 0 else str(value)
+
+
+def format_character_sheet_context(sheet: CharacterSheet, for_own_character: bool = True) -> str:
+    """Format a CharacterSheet into a context string for agent prompts.
+
+    Creates a concise but complete text representation of a character sheet
+    suitable for injection into LLM prompts. The format is optimized for
+    token efficiency while maintaining readability.
+
+    Story 8.3: Character Sheet Context Injection.
+    FR62: Character sheet data is included in agent context.
+
+    Args:
+        sheet: The CharacterSheet to format.
+        for_own_character: If True, uses "Your Character Sheet" header.
+            If False, uses "Character Sheet: {name}" for DM context.
+
+    Returns:
+        Formatted character sheet string.
+    """
+    lines: list[str] = []
+
+    # Header
+    if for_own_character:
+        lines.append(
+            f"## Your Character Sheet: {sheet.name}, {sheet.race} {sheet.character_class} (Level {sheet.level})"
+        )
+    else:
+        lines.append(
+            f"### {sheet.name}, {sheet.race} {sheet.character_class} (Level {sheet.level})"
+        )
+
+    # HP line with temp HP if present
+    hp_parts = [f"HP: {sheet.hit_points_current}/{sheet.hit_points_max}"]
+    if sheet.hit_points_temp > 0:
+        hp_parts.append(f"(+{sheet.hit_points_temp} temp)")
+    hp_line = " ".join(hp_parts)
+    lines.append(f"{hp_line} | AC: {sheet.armor_class} | Speed: {sheet.speed}ft")
+
+    # Conditions (if any)
+    if sheet.conditions:
+        lines.append(f"Conditions: {', '.join(sheet.conditions)}")
+
+    # Empty line before abilities
+    lines.append("")
+
+    # Ability scores - all on one line for compactness
+    abilities = [
+        f"STR: {sheet.strength} ({_format_modifier(sheet.strength_modifier)})",
+        f"DEX: {sheet.dexterity} ({_format_modifier(sheet.dexterity_modifier)})",
+        f"CON: {sheet.constitution} ({_format_modifier(sheet.constitution_modifier)})",
+    ]
+    lines.append(" | ".join(abilities))
+
+    abilities2 = [
+        f"INT: {sheet.intelligence} ({_format_modifier(sheet.intelligence_modifier)})",
+        f"WIS: {sheet.wisdom} ({_format_modifier(sheet.wisdom_modifier)})",
+        f"CHA: {sheet.charisma} ({_format_modifier(sheet.charisma_modifier)})",
+    ]
+    lines.append(" | ".join(abilities2))
+
+    # Empty line
+    lines.append("")
+
+    # Proficiencies (consolidated)
+    prof_parts: list[str] = []
+    if sheet.armor_proficiencies:
+        prof_parts.append(f"Armor: {', '.join(sheet.armor_proficiencies)}")
+    if sheet.weapon_proficiencies:
+        prof_parts.append(f"Weapons: {', '.join(sheet.weapon_proficiencies)}")
+    if sheet.tool_proficiencies:
+        prof_parts.append(f"Tools: {', '.join(sheet.tool_proficiencies)}")
+    if prof_parts:
+        lines.append(f"Proficiencies: {'; '.join(prof_parts)}")
+
+    # Skills (with proficiency indicated)
+    if sheet.skill_proficiencies or sheet.skill_expertise:
+        skill_parts: list[str] = []
+        for skill in sheet.skill_proficiencies:
+            if skill in sheet.skill_expertise:
+                skill_parts.append(f"{skill} (expertise)")
+            else:
+                skill_parts.append(skill)
+        for skill in sheet.skill_expertise:
+            if skill not in sheet.skill_proficiencies:
+                skill_parts.append(f"{skill} (expertise)")
+        if skill_parts:
+            lines.append(f"Skills: {', '.join(skill_parts)}")
+
+    # Empty line
+    lines.append("")
+
+    # Equipment section
+    equipment_parts: list[str] = []
+
+    # Weapons with attack bonus and damage
+    for weapon in sheet.weapons:
+        # Calculate attack bonus based on weapon properties
+        attack_bonus = sheet.proficiency_bonus + weapon.attack_bonus
+        props_lower = [p.lower() for p in weapon.properties] if weapon.properties else []
+        if "finesse" in props_lower:
+            # Finesse weapons use higher of STR/DEX
+            attack_bonus += max(sheet.strength_modifier, sheet.dexterity_modifier)
+        elif "ranged" in props_lower or "ammunition" in props_lower:
+            attack_bonus += sheet.dexterity_modifier
+        else:
+            attack_bonus += sheet.strength_modifier
+        equipment_parts.append(
+            f"{weapon.name} ({_format_modifier(attack_bonus)}, {weapon.damage_dice} {weapon.damage_type})"
+        )
+
+    # Armor
+    if sheet.armor:
+        equipment_parts.append(sheet.armor.name)
+
+    if equipment_parts:
+        lines.append(f"Equipment: {', '.join(equipment_parts)}")
+
+    # Inventory (other items)
+    if sheet.equipment:
+        inv_parts = [
+            f"{item.name} ({item.quantity})" if item.quantity > 1 else item.name
+            for item in sheet.equipment
+        ]
+        lines.append(f"Inventory: {', '.join(inv_parts)}")
+
+    # Gold
+    if sheet.gold > 0 or sheet.silver > 0 or sheet.copper > 0:
+        currency_parts: list[str] = []
+        if sheet.gold > 0:
+            currency_parts.append(f"{sheet.gold} gold")
+        if sheet.silver > 0:
+            currency_parts.append(f"{sheet.silver} silver")
+        if sheet.copper > 0:
+            currency_parts.append(f"{sheet.copper} copper")
+        lines.append(f"Currency: {', '.join(currency_parts)}")
+
+    # Empty line
+    lines.append("")
+
+    # Features
+    features: list[str] = []
+    features.extend(sheet.class_features)
+    features.extend(sheet.racial_traits)
+    features.extend(sheet.feats)
+    if features:
+        lines.append(f"Features: {', '.join(features)}")
+
+    # Spellcasting section (if applicable)
+    if sheet.spellcasting_ability:
+        lines.append("")
+        lines.append(
+            f"Spellcasting: {sheet.spellcasting_ability.capitalize()} | "
+            f"DC: {sheet.spell_save_dc} | Attack: {_format_modifier(sheet.spell_attack_bonus or 0)}"
+        )
+
+        # Cantrips
+        if sheet.cantrips:
+            lines.append(f"Cantrips: {', '.join(sheet.cantrips)}")
+
+        # Spell slots
+        slot_parts: list[str] = []
+        for level in sorted(sheet.spell_slots.keys()):
+            slots = sheet.spell_slots[level]
+            slot_parts.append(f"L{level}: {slots.current}/{slots.max}")
+        if slot_parts:
+            lines.append(f"Spell Slots: {' | '.join(slot_parts)}")
+
+        # Prepared/known spells
+        if sheet.spells_known:
+            spell_names = [spell.name for spell in sheet.spells_known]
+            lines.append(f"Prepared Spells: {', '.join(spell_names)}")
+
+    return "\n".join(lines)
+
+
+def format_all_sheets_context(sheets: dict[str, CharacterSheet]) -> str:
+    """Format all character sheets for DM context injection.
+
+    Creates a consolidated view of all party character sheets for the DM.
+    The DM sees all character sheets to enable informed narrative decisions.
+
+    Story 8.3: Character Sheet Context Injection.
+    FR62: DM sees all character sheets.
+
+    Args:
+        sheets: Dictionary of character sheets keyed by character name.
+
+    Returns:
+        Formatted string with all character sheets, or empty string if none.
+    """
+    if not sheets:
+        return ""
+
+    parts: list[str] = ["## Party Character Sheets"]
+
+    for _name, sheet in sorted(sheets.items()):
+        parts.append("")
+        parts.append(format_character_sheet_context(sheet, for_own_character=False))
+
+    return "\n".join(parts)
+
+
 def _build_dm_context(state: GameState) -> str:
     """Build the context string for the DM from all agent memories.
 
@@ -738,6 +954,13 @@ def _build_dm_context(state: GameState) -> str:
 
     if character_facts_parts:
         context_parts.append("## Party Members\n" + "\n\n".join(character_facts_parts))
+
+    # Add ALL character sheets for DM (Story 8.3 - FR62: DM sees all)
+    character_sheets = state.get("character_sheets", {})
+    if character_sheets:
+        sheets_context = format_all_sheets_context(character_sheets)
+        if sheets_context:
+            context_parts.append(sheets_context)
 
     # DM reads ALL agent memories (asymmetric access per architecture)
     agent_knowledge: list[str] = []
@@ -807,6 +1030,16 @@ def _build_pc_context(state: GameState, agent_name: str) -> str:
                 pc_memory.short_term_buffer[-PC_CONTEXT_RECENT_EVENTS_LIMIT:]
             )
             context_parts.append(f"## Recent Events\n{recent}")
+
+    # Add PC's own character sheet (Story 8.3 - FR62: PC sees only own sheet)
+    # Find this PC's character sheet by matching character name
+    character_sheets = state.get("character_sheets", {})
+    character_config = state["characters"].get(agent_name)
+    if character_config:
+        # Look up sheet by character name (e.g., "Thorin" not "fighter")
+        sheet = character_sheets.get(character_config.name)
+        if sheet:
+            context_parts.append(format_character_sheet_context(sheet, for_own_character=True))
 
     return "\n\n".join(context_parts)
 
@@ -1003,6 +1236,7 @@ def dm_turn(state: GameState) -> GameState:
         session_id=state["session_id"],
         summarization_in_progress=state.get("summarization_in_progress", False),
         selected_module=state.get("selected_module"),
+        character_sheets=state.get("character_sheets", {}),
     )
 
 
@@ -1195,6 +1429,7 @@ def pc_turn(state: GameState, agent_name: str) -> GameState:
         session_id=state["session_id"],
         summarization_in_progress=state.get("summarization_in_progress", False),
         selected_module=state.get("selected_module"),
+        character_sheets=state.get("character_sheets", {}),
     )
 
 
