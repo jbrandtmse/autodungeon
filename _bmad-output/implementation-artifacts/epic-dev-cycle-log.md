@@ -848,10 +848,44 @@
 
 | Story | Status | Phase |
 |-------|--------|-------|
-| 7-1-module-discovery-via-llm-query | ⏳ in-progress | Starting |
-| 7-2-module-selection-ui | ⬜ backlog | - |
+| 7-1-module-discovery-via-llm-query | ✅ done | Full Cycle |
+| 7-2-module-selection-ui | ⏳ in-progress | Starting |
 | 7-3-module-context-injection | ⬜ backlog | - |
 | 7-4-new-adventure-flow-integration | ⬜ backlog | - |
+
+---
+
+## Story: 7-1-module-discovery-via-llm-query
+
+**Status:** ✅ Completed
+**Duration:** 2026-02-01
+
+### Files Touched
+- `models.py` - ModuleInfo, ModuleDiscoveryResult Pydantic models, ERROR_TYPES entry
+- `agents.py` - MODULE_DISCOVERY_PROMPT, discover_modules(), _parse_module_json()
+- `app.py` - start_module_discovery(), clear_module_discovery_state(), render_module_discovery_loading()
+- `styles/theme.css` - .module-discovery-loading with book-pulse animation
+- `tests/test_story_7_1_module_discovery.py` - 116 comprehensive tests
+
+### Key Design Decisions
+- ModuleInfo model validates number 1-100, required name/description, optional setting/level_range
+- discover_modules() uses existing get_llm() factory with DM provider/model config
+- Retry logic with more explicit JSON schema on parse failure (max 2 retries)
+- Session state caching: module_list, module_discovery_result, module_discovery_in_progress, module_discovery_error
+- JSON parsing handles markdown code blocks, extra text, and partial responses
+- Error type `module_discovery_failed` for campfire-style error messages
+
+### Issues Auto-Resolved
+- **HIGH**: Incorrect error type for module discovery failures → Changed to module_discovery_failed
+- **HIGH**: Missing exception handling for config loading → Added generic exception handler with logger
+- **MEDIUM**: Missing empty input validation → Added in _parse_module_json()
+- **MEDIUM**: Unsanitized error logging → Added error message truncation
+- **MEDIUM**: Incomplete test assertion → Fixed invalid entry handling test
+- **MEDIUM**: Missing empty response tests → Added 2 new tests
+- **MEDIUM**: Missing exports test update → Updated test_agents.py
+
+### User Input Required
+- None - all issues auto-resolved
 
 ---
 

@@ -5,6 +5,7 @@ This is the main application entry point. Run with:
 """
 
 import logging
+import random
 import re
 import time
 
@@ -46,6 +47,7 @@ from models import (
     DMConfig,
     GameConfig,
     GameState,
+    ModuleInfo,
     SessionMetadata,
     UserError,
     ValidationResult,
@@ -3925,6 +3927,307 @@ def render_module_discovery_loading() -> None:
     # Streamlit spinner as backup/accessibility
     with st.spinner(""):
         pass  # Just show spinner animation
+
+
+# =============================================================================
+# Module Selection UI (Story 7.2)
+# =============================================================================
+
+
+def filter_modules(modules: list[ModuleInfo], query: str) -> list[ModuleInfo]:
+    """Filter modules by search query.
+
+    Matches against name and description (case-insensitive).
+    Returns all modules if query is empty.
+
+    Args:
+        modules: Full list of modules to filter.
+        query: Search string (spaces treated as AND).
+
+    Returns:
+        Filtered list of modules.
+
+    Story 7.2: Module Selection UI.
+    """
+    if not query or not query.strip():
+        return modules
+
+    query_lower = query.lower().strip()
+    terms = query_lower.split()
+
+    results = []
+    for module in modules:
+        # Search in name, description, and setting
+        searchable = f"{module.name} {module.description} {module.setting}".lower()
+        if all(term in searchable for term in terms):
+            results.append(module)
+
+    return results
+
+
+def select_random_module() -> None:
+    """Select a random module from the available list.
+
+    Handles empty list gracefully. Sets selected_module in session state
+    and triggers rerun to navigate to confirmation view.
+
+    Story 7.2: Module Selection UI (Task 4).
+    """
+    modules = st.session_state.get("module_list", [])
+    if not modules:
+        st.warning("No modules available for random selection.")
+        return
+
+    selected = random.choice(modules)
+    st.session_state["selected_module"] = selected
+    st.rerun()
+
+
+def render_module_card_html(module: ModuleInfo, selected: bool = False) -> str:
+    """Generate HTML for a module card (testable without Streamlit).
+
+    Args:
+        module: The ModuleInfo object to display.
+        selected: Whether this module is currently selected.
+
+    Returns:
+        HTML string for the module card div.
+
+    Story 7.2: Module Selection UI (Task 1).
+    """
+    selected_class = " selected" if selected else ""
+
+    # Truncate description for card display (100 chars max)
+    desc = module.description
+    if len(desc) > 100:
+        desc = desc[:97] + "..."
+
+    # Build aria-label with module info for accessibility
+    aria_selected = "true" if selected else "false"
+
+    return (
+        f'<div class="module-card{selected_class}" role="article" '
+        f'aria-label="Module: {escape_html(module.name)}" '
+        f'aria-selected="{aria_selected}">'
+        f'<h4 class="module-name">{escape_html(module.name)}</h4>'
+        f'<p class="module-description">{escape_html(desc)}</p>'
+        f"</div>"
+    )
+
+
+def render_module_card(module: ModuleInfo) -> bool:
+    """Render a single module card with selection capability.
+
+    Args:
+        module: The ModuleInfo object to display.
+
+    Returns:
+        True if the user clicked "Select" on this card.
+
+    Story 7.2: Module Selection UI (Task 1).
+    """
+    card_key = f"module_card_{module.number}"
+
+    # Check if this module is currently selected
+    selected_module = st.session_state.get("selected_module")
+    is_selected = (
+        selected_module is not None and selected_module.number == module.number
+    )
+
+    # Render card HTML
+    st.markdown(
+        render_module_card_html(module, selected=is_selected), unsafe_allow_html=True
+    )
+
+    # Render select button
+    return st.button("Select", key=card_key, use_container_width=True)
+
+
+def render_module_grid(modules: list[ModuleInfo]) -> None:
+    """Render modules in a responsive grid layout.
+
+    Uses 3 columns for desktop (1024px+), fills row by row.
+    Empty states handled gracefully.
+
+    Story 7.2: Module Selection UI (Task 2).
+    """
+    if not modules:
+        st.info("No modules match your search. Try different keywords.")
+        return
+
+    # 3 columns for desktop
+    NUM_COLUMNS = 3
+
+    # Process modules in groups of 3
+    for row_start in range(0, len(modules), NUM_COLUMNS):
+        row_modules = modules[row_start : row_start + NUM_COLUMNS]
+        cols = st.columns(NUM_COLUMNS)
+
+        for idx, module in enumerate(row_modules):
+            with cols[idx]:
+                if render_module_card(module):
+                    st.session_state["selected_module"] = module
+                    st.rerun()
+
+
+def render_module_confirmation_html(module: ModuleInfo) -> str:
+    """Generate HTML for module confirmation view (testable without Streamlit).
+
+    Args:
+        module: The selected ModuleInfo object.
+
+    Returns:
+        HTML string for the confirmation container.
+
+    Story 7.2: Module Selection UI (Task 5).
+    """
+    return (
+        f'<div class="module-confirmation" role="region" '
+        f'aria-label="Selected module: {escape_html(module.name)}">'
+        f'<h2 class="module-title">{escape_html(module.name)}</h2>'
+        f'<p class="module-full-description">{escape_html(module.description)}</p>'
+        f"</div>"
+    )
+
+
+def render_module_confirmation(module: ModuleInfo) -> None:
+    """Render confirmation view for selected module.
+
+    Shows full module details with proceed/cancel options.
+
+    Story 7.2: Module Selection UI (Task 5).
+    """
+    st.markdown(render_module_confirmation_html(module), unsafe_allow_html=True)
+
+    # Optional metadata if available (escaped for safety)
+    if module.setting:
+        st.markdown(f"**Setting:** {escape_html(module.setting)}")
+    if module.level_range:
+        st.markdown(f"**Recommended Levels:** {escape_html(module.level_range)}")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("Choose Different Module", use_container_width=True):
+            st.session_state["selected_module"] = None
+            st.rerun()
+
+    with col2:
+        if st.button(
+            "Proceed to Party Setup", type="primary", use_container_width=True
+        ):
+            st.session_state["module_selection_confirmed"] = True
+            st.rerun()
+
+
+def render_module_discovery_error(error: UserError) -> None:
+    """Render error state with recovery options.
+
+    Follows campfire-style messaging pattern from Story 4.5.
+
+    Story 7.2: Module Selection UI (Task 7.3).
+    """
+    st.markdown(
+        f'<div class="error-panel">'
+        f'<h3 class="error-panel-title">{escape_html(error.title)}</h3>'
+        f'<p class="error-panel-message">{escape_html(error.message)}</p>'
+        f'<p class="error-panel-action">{escape_html(error.action)}</p>'
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("Try Again", use_container_width=True):
+            # Clear error and restart discovery
+            st.session_state["module_discovery_error"] = None
+            start_module_discovery()
+            st.rerun()
+
+    with col2:
+        if st.button("Start Freeform Adventure", use_container_width=True):
+            st.session_state["selected_module"] = None
+            st.session_state["module_selection_confirmed"] = True
+            st.session_state["module_discovery_error"] = None
+            st.rerun()
+
+
+def render_module_selection_ui() -> None:
+    """Main orchestrator for module selection flow.
+
+    Routes to appropriate view based on session state:
+    - Loading: Show discovery loading animation
+    - Error: Show error with retry/freeform options
+    - Confirmation: Show selected module confirmation
+    - Browse: Show search + grid interface
+
+    Story 7.2: Module Selection UI (Task 7).
+    """
+    # Check loading state (Story 7.1)
+    if st.session_state.get("module_discovery_in_progress", False):
+        render_module_discovery_loading()
+        return
+
+    # Check error state
+    error = st.session_state.get("module_discovery_error")
+    if error is not None:
+        render_module_discovery_error(error)
+        return
+
+    # Check if module is selected and awaiting confirmation
+    selected = st.session_state.get("selected_module")
+    if selected is not None:
+        render_module_confirmation(selected)
+        return
+
+    # Get module list
+    modules = st.session_state.get("module_list", [])
+    if not modules:
+        # No modules and no error - shouldn't happen, but handle gracefully
+        st.warning("No modules available. Starting freeform adventure...")
+        return
+
+    # Render browse interface
+    st.markdown("## Choose Your Adventure")
+    st.markdown("_Select a module to guide the Dungeon Master's storytelling._")
+
+    # Search and Random in same row
+    col1, col2 = st.columns([3, 1])
+
+    with col1:
+        query = st.text_input(
+            "Search modules",
+            value=st.session_state.get("module_search_query", ""),
+            placeholder="Search by name or description...",
+            key="module_search_input",
+            label_visibility="collapsed",
+        )
+        st.session_state["module_search_query"] = query
+
+    with col2:
+        if st.button("Random Module", use_container_width=True):
+            select_random_module()
+
+    # Filter and display
+    filtered = filter_modules(modules, query)
+
+    # Show results count when searching
+    if query:
+        st.markdown(
+            f'<p class="module-results-count">Showing {len(filtered)} of {len(modules)} modules</p>',
+            unsafe_allow_html=True,
+        )
+
+    # Render grid
+    render_module_grid(filtered)
+
+    # Freeform option at bottom
+    st.markdown("---")
+    if st.button("Skip - Start Freeform Adventure"):
+        st.session_state["selected_module"] = None
+        st.session_state["module_selection_confirmed"] = True
+        st.rerun()
 
 
 def handle_new_session_click() -> None:

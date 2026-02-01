@@ -2437,3 +2437,126 @@ hr {
 [data-testid="stSidebar"] [data-testid="stAlert"] p {
   color: var(--accent-warm) !important;
 }
+
+/* ==========================================================================
+   Module Selection UI (Story 7.2)
+   ========================================================================== */
+
+/* Module selection container */
+.module-selection-container {
+  padding: var(--space-lg);
+}
+
+/* Search bar styling */
+.module-search {
+  margin-bottom: var(--space-lg);
+}
+
+.module-search input {
+  background: var(--bg-secondary);
+  border: 1px solid var(--text-secondary);
+  border-radius: 6px;
+  color: var(--text-primary);
+  padding: var(--space-sm) var(--space-md);
+  font-family: var(--font-ui);
+}
+
+.module-search input:focus {
+  border-color: var(--accent-warm);
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(232, 168, 73, 0.2);
+}
+
+/* Module grid container */
+.module-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-md);
+}
+
+/* Module card styling - follows character-card pattern */
+.module-card {
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  padding: var(--space-md);
+  border: 1px solid var(--text-secondary);
+  transition: all 0.2s ease-in-out;
+  /* Note: Selection is handled by the Select button, not card click */
+}
+
+.module-card:hover {
+  border-color: var(--accent-warm);
+  box-shadow: 0 4px 12px rgba(232, 168, 73, 0.15);
+  transform: translateY(-2px);
+}
+
+.module-card.selected {
+  border-color: var(--accent-warm);
+  background: var(--bg-message);
+  box-shadow: 0 0 12px rgba(232, 168, 73, 0.25);
+}
+
+.module-name {
+  font-family: var(--font-narrative);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--space-sm);
+}
+
+.module-description {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: var(--space-sm);
+}
+
+/* Module confirmation view */
+.module-confirmation {
+  background: var(--bg-secondary);
+  border-radius: 12px;
+  padding: var(--space-xl);
+  margin-bottom: var(--space-lg);
+  border-left: 4px solid var(--accent-warm);
+}
+
+.module-title {
+  font-family: var(--font-narrative);
+  font-size: 28px;
+  color: var(--accent-warm);
+  margin-bottom: var(--space-md);
+}
+
+.module-full-description {
+  font-family: var(--font-narrative);
+  font-size: 16px;
+  color: var(--text-primary);
+  line-height: 1.7;
+  font-style: italic;
+}
+
+/* Random module button */
+.random-module-btn {
+  background: transparent;
+  border: 2px dashed var(--accent-warm);
+  color: var(--accent-warm);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: 6px;
+  font-family: var(--font-ui);
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+}
+
+.random-module-btn:hover {
+  background: rgba(232, 168, 73, 0.1);
+  border-style: solid;
+}
+
+/* Results count */
+.module-results-count {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-md);
+}
