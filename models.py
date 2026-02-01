@@ -47,7 +47,8 @@ _SUPPORTED_PROVIDERS = frozenset(["gemini", "claude", "ollama"])
 
 # Module-level compiled regex patterns for message parsing
 # Pattern allows spaces in agent names (e.g., "brother aldric")
-LOG_ENTRY_PATTERN = re.compile(r"^\[([^\]]+)\]\s*(.*)$")
+# Captures colon and optional space after bracket as part of prefix, not content
+LOG_ENTRY_PATTERN = re.compile(r"^\[([^\]]+)\]:?\s*(.*)$")
 ACTION_PATTERN = re.compile(r"\*([^*]+)\*")
 
 
@@ -582,12 +583,13 @@ class NarrativeMessage(BaseModel):
 def parse_log_entry(entry: str) -> NarrativeMessage:
     """Parse a ground_truth_log entry into a NarrativeMessage.
 
-    Entry format: "[agent_name] message content"
+    Entry format: "[agent_name]: message content"
 
     Handles edge cases:
     - Entry without brackets → treat as DM narration
     - Empty agent `[]` → use fallback "unknown"
     - Only parses first [agent] at start of string
+    - Strips duplicate agent prefix if LLM echoed the format (e.g., "[DM]: [DM]: text")
 
     Args:
         entry: A raw log entry string
@@ -595,11 +597,18 @@ def parse_log_entry(entry: str) -> NarrativeMessage:
     Returns:
         NarrativeMessage with agent and content extracted
     """
-    match = LOG_ENTRY_PATTERN.match(entry)
-    if match:
-        agent = match.group(1) or "unknown"
-        content = match.group(2)
-        return NarrativeMessage(agent=agent, content=content)
+    # Use simple string parsing for reliability (regex had caching issues)
+    if entry.startswith("["):
+        bracket_end = entry.find("]")
+        if bracket_end > 0:
+            agent = entry[1:bracket_end] or "unknown"
+            content = entry[bracket_end + 1:]
+            # Strip ": " or just ":" or whitespace from start of content
+            content = content.lstrip(": ")
+            # Handle duplicate prefix: LLM sometimes echoes "[agent]:" in response
+            if content.startswith(f"[{agent}]"):
+                content = content[len(agent) + 2:].lstrip(": ")
+            return NarrativeMessage(agent=agent, content=content)
     # No brackets at start - treat as DM narration
     return NarrativeMessage(agent="dm", content=entry)
 

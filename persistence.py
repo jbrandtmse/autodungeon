@@ -790,11 +790,22 @@ def generate_recap_summary(
             if entry.startswith("["):
                 bracket_end = entry.find("]")
                 if bracket_end > 0:
-                    content = entry[bracket_end + 1 :].strip()
+                    content = entry[bracket_end + 1 :]
+                    # Strip leading colon and whitespace (format is "[agent]: content")
+                    content = content.lstrip(": ").strip()
+                    # Handle duplicate prefix: LLM sometimes echoes "[agent]:" in response
+                    if content.startswith("["):
+                        inner_bracket_end = content.find("]")
+                        if inner_bracket_end > 0:
+                            content = content[inner_bracket_end + 1 :].lstrip(": ").strip()
                 else:
                     content = entry
             else:
                 content = entry
+
+            # Skip empty entries (from empty LLM responses)
+            if not content:
+                continue
 
             # Truncate long entries
             if len(content) > 150:
