@@ -104,11 +104,11 @@ development_status:
   # ===========================================
 
   # Epic 7: Module Selection & Campaign Setup (4 stories)
-  epic-7: in-progress
+  epic-7: done
   7-1-module-discovery-via-llm-query: done
   7-2-module-selection-ui: done
   7-3-module-context-injection: done
-  7-4-new-adventure-flow-integration: review
+  7-4-new-adventure-flow-integration: done
   epic-7-retrospective: optional
 
   # Epic 8: Character Sheets (5 stories)

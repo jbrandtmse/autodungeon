@@ -851,7 +851,7 @@
 | 7-1-module-discovery-via-llm-query | ✅ done | Full Cycle |
 | 7-2-module-selection-ui | ✅ done | Full Cycle |
 | 7-3-module-context-injection | ✅ done | Full Cycle |
-| 7-4-new-adventure-flow-integration | ⏳ in-progress | Starting |
+| 7-4-new-adventure-flow-integration | ✅ done | Full Cycle |
 
 ---
 
@@ -944,6 +944,93 @@
 
 ### User Input Required
 - None - all issues auto-resolved
+
+---
+
+## Story: 7-4-new-adventure-flow-integration
+
+**Status:** ✅ Completed
+**Duration:** 2026-02-01
+
+### Files Touched
+- `app.py` - handle_start_new_adventure(), render_module_selection_view(), render_module_banner(), view routing
+- `agents.py` - format_module_context() None handling for freeform adventures
+- `styles/theme.css` - .step-header, .module-banner, responsive styles
+- `tests/test_story_7_4_new_adventure_flow.py` - 63 comprehensive tests
+
+### Key Design Decisions
+- Added module_selection app_view state between session_browser and game
+- New Adventure button now triggers module discovery flow before game start
+- Module banner displayed in game view (collapsible expander)
+- Freeform adventures supported with selected_module=None
+- Clear state machine documentation in initialize_session_state()
+- format_module_context() returns empty string for None (freeform campaigns)
+
+### Issues Auto-Resolved
+- **HIGH**: XSS vulnerability in render_module_banner() for setting/level_range → Added escape_html()
+- **MEDIUM**: Missing XSS/HTML injection tests → Added TestXSSResilience class with 3 tests
+
+### User Input Required
+- None - all issues auto-resolved
+
+---
+
+# Epic 7 - Cycle Complete
+
+**Completion Time:** 2026-02-01
+**Total Stories Processed:** 4
+**Epic Status:** ✅ DONE
+
+## Overall Statistics
+- Total files touched: 14 unique files
+- Total design decisions: 22
+- Total issues auto-resolved: 18
+- Total user interventions: 0
+
+## Stories Completed This Cycle
+| Story | Tests Added | Issues Fixed |
+|-------|-------------|--------------|
+| 7-1-module-discovery-via-llm-query | 116 | 7 |
+| 7-2-module-selection-ui | 132 | 4 |
+| 7-3-module-context-injection | 61 | 3 |
+| 7-4-new-adventure-flow-integration | 63 | 4 |
+
+**Total Tests Added:** 372
+**Total Test Count:** ~2820 (estimated)
+
+## Key Features Delivered
+
+1. **Module Discovery (7.1)**
+   - LLM query for D&D modules from DM's knowledge
+   - JSON parsing with retry logic
+   - ModuleInfo Pydantic model
+
+2. **Module Selection UI (7.2)**
+   - Searchable/filterable module card grid
+   - Random module selection
+   - Confirmation view with proceed/back
+
+3. **Module Context Injection (7.3)**
+   - DM system prompt enhancement with module context
+   - Checkpoint persistence for session continuity
+   - Backward compatibility for old saves
+
+4. **New Adventure Flow Integration (7.4)**
+   - Seamless module selection in adventure creation
+   - Step-by-step guided experience
+   - Module banner in game view
+   - Freeform adventure option
+
+## FR Coverage Complete
+- FR56: Query DM LLM for known modules ✅
+- FR57: Browse and select from available modules ✅
+- FR58: Random module selection ✅
+- FR59: Module context injection into DM prompt ✅
+
+## Recommendations
+- Run epic retrospective: `/bmad-bmm-retrospective`
+- Check sprint status: `/bmad-bmm-sprint-status`
+- Continue with Epic 8: Character Sheets (v1.1 enhancements)
 
 ---
 
