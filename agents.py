@@ -671,7 +671,7 @@ def format_character_facts(facts: CharacterFacts) -> str:
     return "\n".join(lines)
 
 
-def format_module_context(module: ModuleInfo) -> str:
+def format_module_context(module: ModuleInfo | None) -> str:
     """Format module info for DM system prompt injection.
 
     Creates a formatted markdown section containing the module name and
@@ -680,13 +680,17 @@ def format_module_context(module: ModuleInfo) -> str:
     is selected.
 
     Story 7.3: Module Context Injection.
+    Story 7.4: Returns empty string for freeform adventures (None module).
 
     Args:
-        module: The selected ModuleInfo object.
+        module: The selected ModuleInfo object, or None for freeform adventures.
 
     Returns:
-        Formatted markdown section for DM prompt.
+        Formatted markdown section for DM prompt, or empty string if no module.
     """
+    if module is None:
+        return ""
+
     return f"""## Campaign Module: {module.name}
 {module.description}
 

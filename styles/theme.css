@@ -2560,3 +2560,79 @@ hr {
   color: var(--text-secondary);
   margin-bottom: var(--space-md);
 }
+
+/* ==========================================================================
+   New Adventure Flow (Story 7.4)
+   ========================================================================== */
+
+/* Step header for multi-step flow */
+.step-header {
+  font-family: var(--font-narrative);
+  font-size: 28px;
+  color: var(--accent-warm);
+  margin-bottom: var(--space-sm);
+}
+
+/* Module selection view container */
+.module-selection-view {
+  padding: var(--space-lg);
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* Module banner in game view */
+.module-banner {
+  background: var(--bg-secondary);
+  border-left: 3px solid var(--accent-warm);
+  padding: var(--space-sm) var(--space-md);
+  margin-bottom: var(--space-md);
+  border-radius: 0 6px 6px 0;
+}
+
+.module-banner-title {
+  font-family: var(--font-narrative);
+  font-size: 16px;
+  color: var(--accent-warm);
+  font-weight: 600;
+}
+
+.module-banner-description {
+  font-family: var(--font-narrative);
+  font-size: 14px;
+  color: var(--text-secondary);
+  font-style: italic;
+  line-height: 1.5;
+  margin-top: var(--space-sm);
+}
+
+/* Module banner collapsed state (expander header styling) */
+.module-banner-collapsed {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.module-banner-collapsed:hover {
+  background: var(--bg-message);
+}
+
+/* Module banner expanded state */
+.module-banner-expanded {
+  padding: var(--space-md);
+}
+
+/* Responsive behavior for module banner */
+@media (max-width: 768px) {
+  .module-banner {
+    padding: var(--space-xs) var(--space-sm);
+  }
+
+  .module-banner-title {
+    font-size: 14px;
+  }
+
+  .module-banner-description {
+    font-size: 12px;
+  }
+}

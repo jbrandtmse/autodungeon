@@ -850,8 +850,8 @@
 |-------|--------|-------|
 | 7-1-module-discovery-via-llm-query | ✅ done | Full Cycle |
 | 7-2-module-selection-ui | ✅ done | Full Cycle |
-| 7-3-module-context-injection | ⏳ in-progress | Starting |
-| 7-4-new-adventure-flow-integration | ⬜ backlog | - |
+| 7-3-module-context-injection | ✅ done | Full Cycle |
+| 7-4-new-adventure-flow-integration | ⏳ in-progress | Starting |
 
 ---
 
@@ -912,6 +912,35 @@
 - **MEDIUM**: Misleading cursor:pointer on .module-card CSS → Removed, added clarifying comment
 - **MEDIUM**: Missing ARIA accessibility attributes on module cards → Added role="article", aria-label, aria-selected
 - **MEDIUM**: Missing ARIA accessibility on module confirmation → Added role="region", aria-label
+
+### User Input Required
+- None - all issues auto-resolved
+
+---
+
+## Story: 7-3-module-context-injection
+
+**Status:** ✅ Completed
+**Duration:** 2026-02-01
+
+### Files Touched
+- `models.py` - GameState selected_module field, create_initial_game_state(), populate_game_state()
+- `persistence.py` - serialize_game_state(), deserialize_game_state() with ModuleInfo support
+- `agents.py` - format_module_context(), dm_turn() integration, pc_turn() preservation
+- `app.py` - handle_new_session_click() wiring selected_module from session state
+- `tests/test_story_7_3_module_context_injection.py` - 61 comprehensive tests
+
+### Key Design Decisions
+- Added selected_module: ModuleInfo | None to GameState TypedDict
+- format_module_context() produces exact prompt format from spec with guidance points
+- Module context injected after base DM system prompt, before memory context
+- Backward compatibility: old checkpoints without selected_module deserialize with None
+- Module preservation through dm_turn() and pc_turn() cycles
+
+### Issues Auto-Resolved
+- **MEDIUM**: Missing test for malformed module data deserialization → Added validation error test
+- **MEDIUM**: Missing test for invalid module number constraint → Added boundary test
+- **MEDIUM**: Missing test for load_checkpoint graceful degradation → Added error handling test
 
 ### User Input Required
 - None - all issues auto-resolved

@@ -1078,11 +1078,24 @@ def initialize_session_state() -> None:
                     "token_limit_overrides"
                 ]
 
-    # App view routing (Story 4.3)
+    # App view routing (Story 4.3, 7.4)
+    # View state machine:
+    #   session_browser -> module_selection -> game
+    #                          |
+    #                          +-> session_browser (cancel/back)
+    #
+    # Valid app_view values:
+    #   - "session_browser": List of sessions, "New Adventure" button
+    #   - "module_selection": Module discovery loading, grid selection UI (Story 7.4)
+    #   - "game": Active game view with narrative, controls, etc.
     if "app_view" not in st.session_state:
         # Default to session browser if sessions exist, otherwise start new session
         sessions = list_sessions()
         st.session_state["app_view"] = "session_browser" if sessions else "game"
+
+    # Module selection state (Story 7.4)
+    if "module_selection_confirmed" not in st.session_state:
+        st.session_state["module_selection_confirmed"] = False
 
     # Recap state (Story 4.3)
     if "show_recap" not in st.session_state:
@@ -3658,6 +3671,38 @@ def render_game_controls() -> None:
     st.markdown("</div>", unsafe_allow_html=True)
 
 
+def render_module_banner() -> None:
+    """Render selected module banner in game view.
+
+    Shows module name with collapsible description.
+    Hidden for freeform adventures (no module selected).
+
+    Story 7.4: AC #3.
+    """
+    game: GameState | None = st.session_state.get("game")
+    if not game:
+        return
+
+    selected_module = game.get("selected_module")
+    if selected_module is None:
+        # Freeform adventure - no banner
+        return
+
+    # Expandable banner with module info
+    with st.expander(
+        f"Campaign Module: {selected_module.name}",
+        expanded=False,
+    ):
+        st.markdown(
+            f'<p class="module-banner-description">{escape_html(selected_module.description)}</p>',
+            unsafe_allow_html=True,
+        )
+        if selected_module.setting:
+            st.markdown(f"**Setting:** {escape_html(selected_module.setting)}")
+        if selected_module.level_range:
+            st.markdown(f"**Levels:** {escape_html(selected_module.level_range)}")
+
+
 def render_main_content() -> None:
     """Render the main narrative area with session header and narrative container."""
     # Get game state for dynamic session header
@@ -3899,10 +3944,33 @@ def clear_module_discovery_state() -> None:
         "module_discovery_in_progress",
         "module_discovery_error",
         "selected_module",
+        "module_selection_confirmed",
+        "module_search_query",
     ]
     for key in keys_to_clear:
         if key in st.session_state:
             del st.session_state[key]
+
+
+def handle_start_new_adventure() -> None:
+    """Handle "New Adventure" button click.
+
+    Initiates the new adventure flow:
+    1. Clear any previous module selection state
+    2. Set app_view to module_selection
+    3. Trigger module discovery
+
+    Story 7.4: AC #1 - New adventure flow integration.
+    """
+    # Clear previous state
+    clear_module_discovery_state()
+
+    # Navigate to module selection
+    st.session_state["app_view"] = "module_selection"
+    st.session_state["module_selection_confirmed"] = False
+
+    # Start module discovery (Story 7.1)
+    start_module_discovery()
 
 
 def render_module_discovery_loading() -> None:
@@ -4230,6 +4298,41 @@ def render_module_selection_ui() -> None:
         st.rerun()
 
 
+def render_module_selection_view() -> None:
+    """Render the module selection step of new adventure creation.
+
+    Wraps render_module_selection_ui() with:
+    - Step header
+    - Back button navigation
+    - Confirmation handling to proceed to game
+
+    Story 7.4: AC #1-5 - New adventure flow integration.
+    """
+    # Step header
+    st.markdown(
+        '<h1 class="step-header">Step 1: Choose Your Adventure</h1>',
+        unsafe_allow_html=True,
+    )
+    st.caption("Select a D&D module to guide the Dungeon Master's storytelling.")
+
+    # Back button
+    if st.button("Back to Adventures", key="module_selection_back_btn"):
+        st.session_state["app_view"] = "session_browser"
+        clear_module_discovery_state()
+        st.rerun()
+
+    # Check if user confirmed selection (from Story 7.2 buttons)
+    if st.session_state.get("module_selection_confirmed"):
+        # Proceed to game initialization
+        handle_new_session_click()  # Already handles selected_module (Story 7.3)
+        clear_module_discovery_state()  # Cleanup
+        st.rerun()
+        return
+
+    # Render the module selection UI (Story 7.2)
+    render_module_selection_ui()
+
+
 def handle_new_session_click() -> None:
     """Handle new session button click.
 
@@ -4401,10 +4504,10 @@ def render_session_browser() -> None:
             unsafe_allow_html=True,
         )
 
-    # New Session button
+    # New Session button - triggers module selection flow (Story 7.4)
     st.markdown('<div class="new-session-container">', unsafe_allow_html=True)
     if st.button("+ New Adventure", key="new_session_btn"):
-        handle_new_session_click()
+        handle_start_new_adventure()
         st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -4437,7 +4540,8 @@ def main() -> None:
     # Wrap content in app-content div for responsive hiding
     st.markdown('<div class="app-content">', unsafe_allow_html=True)
 
-    # App view routing (Story 4.3)
+    # App view routing (Story 4.3, 7.4)
+    # Valid views: session_browser, module_selection, game
     app_view = st.session_state.get("app_view", "session_browser")
 
     if app_view == "session_browser":
@@ -4446,8 +4550,12 @@ def main() -> None:
         st.caption("Multi-agent D&D game engine")
         # Session browser view
         render_session_browser()
+    elif app_view == "module_selection":
+        # Module selection view (Story 7.4)
+        st.title("autodungeon")
+        render_module_selection_view()
     else:
-        # Game view
+        # Game view (app_view == "game")
         # Show recap modal if needed
         if st.session_state.get("show_recap"):
             render_recap_modal(st.session_state.get("recap_text", ""))
@@ -4458,6 +4566,9 @@ def main() -> None:
 
             # Render sidebar (Task 2.3, 2.5, 4.1, 4.2)
             render_sidebar(config)
+
+            # Module banner - shows selected module if present (Story 7.4)
+            render_module_banner()
 
             # Main narrative area (Task 2.4, 4.3, 4.4)
             render_main_content()

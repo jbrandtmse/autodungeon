@@ -107,8 +107,8 @@ development_status:
   epic-7: in-progress
   7-1-module-discovery-via-llm-query: done
   7-2-module-selection-ui: done
-  7-3-module-context-injection: review
-  7-4-new-adventure-flow-integration: backlog
+  7-3-module-context-injection: done
+  7-4-new-adventure-flow-integration: review
   epic-7-retrospective: optional
 
   # Epic 8: Character Sheets (5 stories)
