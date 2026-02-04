@@ -738,3 +738,919 @@ class TestDmTurnSheetUpdateIntegration:
 
         assert result["character_sheets"]["Thorin"].hit_points_current == 35
         assert "[DM]: The goblin strikes Thorin" in result["ground_truth_log"][-1]
+
+
+# =============================================================================
+# Extended _apply_list_updates Edge Cases
+# =============================================================================
+
+
+class TestApplyListUpdatesExtended:
+    """Extended edge case tests for _apply_list_updates."""
+
+    def test_add_then_remove_same_item_in_one_call(self) -> None:
+        """Adding then immediately removing should result in item absent."""
+        result = _apply_list_updates([], ["+poisoned", "-poisoned"])
+        assert result == []
+
+    def test_remove_then_add_same_item_in_one_call(self) -> None:
+        """Removing then adding should result in item present."""
+        result = _apply_list_updates(["poisoned"], ["-poisoned", "+poisoned"])
+        assert result == ["poisoned"]
+
+    def test_add_same_item_multiple_times(self) -> None:
+        """Adding duplicates should not create duplicates."""
+        result = _apply_list_updates([], ["+poisoned", "+poisoned", "+poisoned"])
+        assert result == ["poisoned"]
+
+    def test_remove_from_empty_list(self) -> None:
+        """Removing from an empty list should not error."""
+        result = _apply_list_updates([], ["-poisoned"])
+        assert result == []
+
+    def test_add_with_only_whitespace_prefix(self) -> None:
+        """Whitespace-only items should be skipped."""
+        result = _apply_list_updates([], ["  ", "\t", "  \n  "])
+        assert result == []
+
+    def test_add_item_with_plus_and_whitespace(self) -> None:
+        """Items like '+ stunned' (space after +) should work."""
+        result = _apply_list_updates([], ["+ stunned"])
+        assert result == ["stunned"]
+
+    def test_remove_item_with_minus_and_whitespace(self) -> None:
+        """Items like '- poisoned' (space after -) should work."""
+        result = _apply_list_updates(["poisoned"], ["- poisoned"])
+        assert result == []
+
+    def test_many_items_add_and_remove(self) -> None:
+        """Test a large batch of add/remove operations."""
+        updates = [f"+item_{i}" for i in range(20)]
+        result = _apply_list_updates([], updates)
+        assert len(result) == 20
+        # Now remove every other one
+        removals = [f"-item_{i}" for i in range(0, 20, 2)]
+        result = _apply_list_updates(result, removals)
+        assert len(result) == 10
+
+    def test_remove_only_first_match(self) -> None:
+        """If there are manual duplicates in the list, only the first is removed."""
+        # Manually construct a list with duplicates
+        result = _apply_list_updates(["poisoned", "poisoned"], ["-poisoned"])
+        assert result == ["poisoned"]
+
+    def test_add_item_with_special_characters(self) -> None:
+        """Items with special chars like parentheses should work."""
+        result = _apply_list_updates([], ["+Exhaustion (Level 2)"])
+        assert result == ["Exhaustion (Level 2)"]
+
+    def test_remove_item_with_special_characters(self) -> None:
+        result = _apply_list_updates(
+            ["Exhaustion (Level 2)"], ["-Exhaustion (Level 2)"]
+        )
+        assert result == []
+
+
+# =============================================================================
+# Extended _apply_equipment_updates Edge Cases
+# =============================================================================
+
+
+class TestApplyEquipmentUpdatesExtended:
+    """Extended edge case tests for _apply_equipment_updates."""
+
+    def test_add_equipment_with_special_characters(self) -> None:
+        """Equipment names with apostrophes and commas."""
+        result = _apply_equipment_updates([], ["+Dragon's Tooth"])
+        assert len(result) == 1
+        assert result[0].name == "Dragon's Tooth"
+
+    def test_add_equipment_with_parentheses(self) -> None:
+        result = _apply_equipment_updates([], ["+Rope (50 feet)"])
+        assert result[0].name == "Rope (50 feet)"
+
+    def test_add_equipment_with_numbers(self) -> None:
+        result = _apply_equipment_updates([], ["+Potion x3"])
+        assert result[0].name == "Potion x3"
+
+    def test_remove_equipment_with_special_characters(self) -> None:
+        items = [EquipmentItem(name="Dragon's Tooth")]
+        result = _apply_equipment_updates(items, ["-Dragon's Tooth"])
+        assert result == []
+
+    def test_add_many_equipment_items(self) -> None:
+        """Add a large batch of equipment items."""
+        updates = [f"+Item_{i}" for i in range(50)]
+        result = _apply_equipment_updates([], updates)
+        assert len(result) == 50
+
+    def test_add_then_remove_same_equipment(self) -> None:
+        result = _apply_equipment_updates([], ["+Torch", "-Torch"])
+        assert result == []
+
+    def test_remove_then_add_same_equipment(self) -> None:
+        items = [EquipmentItem(name="Torch")]
+        result = _apply_equipment_updates(items, ["-Torch", "+Torch"])
+        assert len(result) == 1
+        assert result[0].name == "Torch"
+
+    def test_empty_string_in_equipment_updates(self) -> None:
+        result = _apply_equipment_updates([], ["", "  ", "+Rope"])
+        assert len(result) == 1
+        assert result[0].name == "Rope"
+
+    def test_does_not_add_duplicate_without_prefix(self) -> None:
+        items = [EquipmentItem(name="Rope")]
+        result = _apply_equipment_updates(items, ["Rope"])
+        assert len(result) == 1
+
+    def test_whitespace_only_items_skipped(self) -> None:
+        result = _apply_equipment_updates([], ["   ", "\t"])
+        assert result == []
+
+    def test_equipment_with_unicode(self) -> None:
+        result = _apply_equipment_updates([], ["+Staff of Cha\u00f1a"])
+        assert len(result) == 1
+        assert result[0].name == "Staff of Cha\u00f1a"
+
+    def test_add_equipment_with_plus_in_name(self) -> None:
+        """Equipment like '+1 Longsword' starts with + which is the add prefix."""
+        result = _apply_equipment_updates([], ["++1 Longsword"])
+        assert len(result) == 1
+        assert result[0].name == "+1 Longsword"
+
+
+# =============================================================================
+# Extended HP / Temp HP Boundary Tests
+# =============================================================================
+
+
+class TestApplySheetUpdateHPBoundary:
+    """Boundary condition tests for HP clamping with temp HP."""
+
+    def test_hp_exact_max(self, fighter_sheet: CharacterSheet) -> None:
+        """Setting HP to exact max should work without clamping."""
+        updated, msg = apply_character_sheet_update(
+            fighter_sheet, {"hit_points_current": 52}
+        )
+        assert updated.hit_points_current == 52
+
+    def test_hp_one_over_max(self, fighter_sheet: CharacterSheet) -> None:
+        """Setting HP to max+1 should clamp to max."""
+        updated, _ = apply_character_sheet_update(
+            fighter_sheet, {"hit_points_current": 53}
+        )
+        assert updated.hit_points_current == 52
+
+    def test_hp_zero(self, fighter_sheet: CharacterSheet) -> None:
+        """Setting HP to exactly 0."""
+        updated, msg = apply_character_sheet_update(
+            fighter_sheet, {"hit_points_current": 0}
+        )
+        assert updated.hit_points_current == 0
+        assert "HP:" in msg
+
+    def test_hp_negative_one_clamps_to_zero(self, fighter_sheet: CharacterSheet) -> None:
+        updated, _ = apply_character_sheet_update(
+            fighter_sheet, {"hit_points_current": -1}
+        )
+        assert updated.hit_points_current == 0
+
+    def test_temp_hp_changes_effective_max(self, fighter_sheet: CharacterSheet) -> None:
+        """With temp HP=10, effective max is 62, so 55 should stay 55."""
+        fighter_sheet.hit_points_temp = 10
+        updated, _ = apply_character_sheet_update(
+            fighter_sheet, {"hit_points_current": 55}
+        )
+        assert updated.hit_points_current == 55
+
+    def test_temp_hp_exact_effective_max(self, fighter_sheet: CharacterSheet) -> None:
+        """Setting HP to exact effective max (max + temp)."""
+        fighter_sheet.hit_points_temp = 10
+        updated, _ = apply_character_sheet_update(
+            fighter_sheet, {"hit_points_current": 62}
+        )
+        assert updated.hit_points_current == 62
+
+    def test_temp_hp_over_effective_max(self, fighter_sheet: CharacterSheet) -> None:
+        """Over effective max should clamp to max + temp."""
+        fighter_sheet.hit_points_temp = 10
+        updated, _ = apply_character_sheet_update(
+            fighter_sheet, {"hit_points_current": 63}
+        )
+        assert updated.hit_points_current == 62
+
+    def test_temp_hp_zero_does_not_change_max(self, fighter_sheet: CharacterSheet) -> None:
+        """With temp HP 0, max stays at hit_points_max."""
+        fighter_sheet.hit_points_temp = 0
+        updated, _ = apply_character_sheet_update(
+            fighter_sheet, {"hit_points_current": 100}
+        )
+        assert updated.hit_points_current == 52
+
+    def test_very_large_hp(self, fighter_sheet: CharacterSheet) -> None:
+        """Very large HP value should clamp to max."""
+        updated, _ = apply_character_sheet_update(
+            fighter_sheet, {"hit_points_current": 999999}
+        )
+        assert updated.hit_points_current == 52
+
+    def test_very_negative_hp(self, fighter_sheet: CharacterSheet) -> None:
+        """Very negative HP value should clamp to 0."""
+        updated, _ = apply_character_sheet_update(
+            fighter_sheet, {"hit_points_current": -999999}
+        )
+        assert updated.hit_points_current == 0
+
+    def test_temp_hp_large_value(self, fighter_sheet: CharacterSheet) -> None:
+        """Setting temp HP to a large value should be accepted as-is (no upper clamp)."""
+        updated, msg = apply_character_sheet_update(
+            fighter_sheet, {"hit_points_temp": 1000}
+        )
+        assert updated.hit_points_temp == 1000
+        assert "Temp HP: 0 -> 1000" in msg
+
+    def test_temp_hp_bool_rejected(self, fighter_sheet: CharacterSheet) -> None:
+        with pytest.raises(ValueError, match="integer"):
+            apply_character_sheet_update(
+                fighter_sheet, {"hit_points_temp": True}
+            )
+
+    def test_hp_float_rejected(self, fighter_sheet: CharacterSheet) -> None:
+        with pytest.raises(ValueError, match="integer"):
+            apply_character_sheet_update(
+                fighter_sheet, {"hit_points_current": 30.5}
+            )
+
+    def test_temp_hp_float_rejected(self, fighter_sheet: CharacterSheet) -> None:
+        with pytest.raises(ValueError, match="integer"):
+            apply_character_sheet_update(
+                fighter_sheet, {"hit_points_temp": 5.5}
+            )
+
+
+# =============================================================================
+# Extended Spell Slot Edge Cases
+# =============================================================================
+
+
+class TestApplySheetUpdateSpellSlotsExtended:
+    """Extended edge case tests for spell slot updates."""
+
+    def test_non_numeric_level_key_raises(self, wizard_sheet: CharacterSheet) -> None:
+        """A level key like 'cantrip' that cannot be parsed as int."""
+        with pytest.raises(ValueError):
+            apply_character_sheet_update(
+                wizard_sheet, {"spell_slots": {"cantrip": {"current": 0}}}
+            )
+
+    def test_float_level_key_raises(self, wizard_sheet: CharacterSheet) -> None:
+        """A level key like '1.5' that is not a valid level."""
+        with pytest.raises(ValueError):
+            apply_character_sheet_update(
+                wizard_sheet, {"spell_slots": {"1.5": {"current": 0}}}
+            )
+
+    def test_empty_string_level_key_raises(self, wizard_sheet: CharacterSheet) -> None:
+        with pytest.raises(ValueError):
+            apply_character_sheet_update(
+                wizard_sheet, {"spell_slots": {"": {"current": 0}}}
+            )
+
+    def test_slot_current_bool_rejected(self, wizard_sheet: CharacterSheet) -> None:
+        with pytest.raises(ValueError, match="int"):
+            apply_character_sheet_update(
+                wizard_sheet, {"spell_slots": {"1": {"current": True}}}
+            )
+
+    def test_slot_current_string_rejected(self, wizard_sheet: CharacterSheet) -> None:
+        with pytest.raises(ValueError, match="int"):
+            apply_character_sheet_update(
+                wizard_sheet, {"spell_slots": {"1": {"current": "full"}}}
+            )
+
+    def test_slot_update_without_dict_raises(self, wizard_sheet: CharacterSheet) -> None:
+        """Passing a non-dict like an int for a slot level."""
+        with pytest.raises(ValueError, match="'current' key"):
+            apply_character_sheet_update(
+                wizard_sheet, {"spell_slots": {"1": 3}}
+            )
+
+    def test_update_all_slot_levels_at_once(self, wizard_sheet: CharacterSheet) -> None:
+        """Update all three spell levels in a single call."""
+        updated, msg = apply_character_sheet_update(
+            wizard_sheet,
+            {
+                "spell_slots": {
+                    "1": {"current": 0},
+                    "2": {"current": 0},
+                    "3": {"current": 0},
+                }
+            },
+        )
+        assert updated.spell_slots[1].current == 0
+        assert updated.spell_slots[2].current == 0
+        assert updated.spell_slots[3].current == 0
+        assert "L1:" in msg
+        assert "L2:" in msg
+        assert "L3:" in msg
+
+    def test_restore_spell_slot_to_max(self, wizard_sheet: CharacterSheet) -> None:
+        """Restoring a slot to max after using it."""
+        wizard_sheet.spell_slots[1] = SpellSlots(current=1, max=4)
+        updated, msg = apply_character_sheet_update(
+            wizard_sheet, {"spell_slots": {"1": {"current": 4}}}
+        )
+        assert updated.spell_slots[1].current == 4
+        assert "L1: 1/4 -> 4/4" in msg
+
+    def test_slot_unchanged(self, wizard_sheet: CharacterSheet) -> None:
+        """Setting slot to the same current value should still produce output."""
+        updated, msg = apply_character_sheet_update(
+            wizard_sheet, {"spell_slots": {"1": {"current": 4}}}
+        )
+        assert updated.spell_slots[1].current == 4
+        assert "L1: 4/4 -> 4/4" in msg
+
+    def test_negative_level_key(self, wizard_sheet: CharacterSheet) -> None:
+        """Negative level numbers should raise an error."""
+        with pytest.raises(ValueError, match="No spell slot at level"):
+            apply_character_sheet_update(
+                wizard_sheet, {"spell_slots": {"-1": {"current": 0}}}
+            )
+
+    def test_zero_level_key(self, wizard_sheet: CharacterSheet) -> None:
+        """Level 0 is not a valid spell level (cantrips don't use slots)."""
+        with pytest.raises(ValueError, match="No spell slot at level"):
+            apply_character_sheet_update(
+                wizard_sheet, {"spell_slots": {"0": {"current": 0}}}
+            )
+
+
+# =============================================================================
+# Extended Currency Tests
+# =============================================================================
+
+
+class TestApplySheetUpdateCurrencyExtended:
+    """Extended currency edge case tests."""
+
+    def test_very_large_gold(self, fighter_sheet: CharacterSheet) -> None:
+        updated, msg = apply_character_sheet_update(
+            fighter_sheet, {"gold": 1_000_000}
+        )
+        assert updated.gold == 1_000_000
+        assert "+999953" in msg
+
+    def test_gold_unchanged(self, fighter_sheet: CharacterSheet) -> None:
+        _, msg = apply_character_sheet_update(fighter_sheet, {"gold": 47})
+        assert "unchanged" in msg
+
+    def test_silver_clamped_to_zero(self, fighter_sheet: CharacterSheet) -> None:
+        updated, _ = apply_character_sheet_update(fighter_sheet, {"silver": -100})
+        assert updated.silver == 0
+
+    def test_copper_clamped_to_zero(self, fighter_sheet: CharacterSheet) -> None:
+        updated, _ = apply_character_sheet_update(fighter_sheet, {"copper": -100})
+        assert updated.copper == 0
+
+    def test_silver_float_rejected(self, fighter_sheet: CharacterSheet) -> None:
+        with pytest.raises(ValueError, match="integer"):
+            apply_character_sheet_update(fighter_sheet, {"silver": 3.5})
+
+    def test_copper_float_rejected(self, fighter_sheet: CharacterSheet) -> None:
+        with pytest.raises(ValueError, match="integer"):
+            apply_character_sheet_update(fighter_sheet, {"copper": 2.5})
+
+    def test_all_currencies_at_once(self, fighter_sheet: CharacterSheet) -> None:
+        updated, msg = apply_character_sheet_update(
+            fighter_sheet, {"gold": 100, "silver": 50, "copper": 200}
+        )
+        assert updated.gold == 100
+        assert updated.silver == 50
+        assert updated.copper == 200
+        assert "Gold:" in msg
+        assert "Silver:" in msg
+        assert "Copper:" in msg
+
+
+# =============================================================================
+# Extended Conditions Tests
+# =============================================================================
+
+
+class TestApplySheetUpdateConditionsExtended:
+    """Extended condition edge case tests."""
+
+    def test_add_and_remove_same_condition_simultaneously(
+        self, fighter_sheet: CharacterSheet
+    ) -> None:
+        """Adding and removing the same condition in one update."""
+        fighter_sheet.conditions = ["poisoned"]
+        updated, _ = apply_character_sheet_update(
+            fighter_sheet, {"conditions": ["+poisoned", "-poisoned"]}
+        )
+        # + poisoned is no-op (already exists), then - poisoned removes it
+        assert "poisoned" not in updated.conditions
+
+    def test_add_new_and_remove_same_in_one_call(
+        self, fighter_sheet: CharacterSheet
+    ) -> None:
+        """Adding new condition then immediately removing it."""
+        updated, _ = apply_character_sheet_update(
+            fighter_sheet, {"conditions": ["+stunned", "-stunned"]}
+        )
+        assert "stunned" not in updated.conditions
+
+    def test_many_conditions(self, fighter_sheet: CharacterSheet) -> None:
+        """Add many conditions at once."""
+        conditions = [
+            "+blinded", "+charmed", "+deafened", "+frightened",
+            "+grappled", "+incapacitated", "+invisible", "+paralyzed",
+            "+petrified", "+poisoned", "+prone", "+restrained",
+            "+stunned", "+unconscious",
+        ]
+        updated, _ = apply_character_sheet_update(
+            fighter_sheet, {"conditions": conditions}
+        )
+        assert len(updated.conditions) == 14
+
+    def test_conditions_with_integer_values_raises(
+        self, fighter_sheet: CharacterSheet
+    ) -> None:
+        """Conditions list should only contain strings."""
+        with pytest.raises((ValueError, AttributeError)):
+            apply_character_sheet_update(
+                fighter_sheet, {"conditions": [1, 2, 3]}
+            )
+
+
+# =============================================================================
+# Extended Equipment Tests
+# =============================================================================
+
+
+class TestApplySheetUpdateEquipmentExtended:
+    """Extended equipment edge case tests."""
+
+    def test_add_many_equipment_items(self, fighter_sheet: CharacterSheet) -> None:
+        updates = [f"+Item_{i}" for i in range(25)]
+        updated, msg = apply_character_sheet_update(
+            fighter_sheet, {"equipment": updates}
+        )
+        names = [e.name for e in updated.equipment]
+        assert "Item_0" in names
+        assert "Item_24" in names
+        # Original 3 + 25 new
+        assert len(updated.equipment) == 28
+
+    def test_equipment_with_comma_in_name(self, fighter_sheet: CharacterSheet) -> None:
+        updated, _ = apply_character_sheet_update(
+            fighter_sheet, {"equipment": ["+Rope, 50 feet"]}
+        )
+        names = [e.name for e in updated.equipment]
+        assert "Rope, 50 feet" in names
+
+    def test_equipment_with_unicode(self, fighter_sheet: CharacterSheet) -> None:
+        updated, _ = apply_character_sheet_update(
+            fighter_sheet, {"equipment": ["+M\u00f6bius Ring"]}
+        )
+        names = [e.name for e in updated.equipment]
+        assert "M\u00f6bius Ring" in names
+
+    def test_remove_nonexistent_equipment_no_error(
+        self, fighter_sheet: CharacterSheet
+    ) -> None:
+        """Removing equipment that doesn't exist should not error."""
+        updated, msg = apply_character_sheet_update(
+            fighter_sheet, {"equipment": ["-Nonexistent Widget"]}
+        )
+        assert len(updated.equipment) == 3  # Original items unchanged
+        assert "lost Nonexistent Widget" in msg
+
+    def test_add_equipment_empty_string_skipped(
+        self, fighter_sheet: CharacterSheet
+    ) -> None:
+        """Empty strings in equipment updates should be skipped."""
+        updated, _ = apply_character_sheet_update(
+            fighter_sheet, {"equipment": ["", "  ", "+Lantern"]}
+        )
+        names = [e.name for e in updated.equipment]
+        assert "Lantern" in names
+        # Should be original 3 + 1 new = 4
+        assert len(updated.equipment) == 4
+
+
+# =============================================================================
+# Extended XP Tests
+# =============================================================================
+
+
+class TestApplySheetUpdateXPExtended:
+    """Extended XP edge case tests."""
+
+    def test_xp_very_large(self, fighter_sheet: CharacterSheet) -> None:
+        updated, msg = apply_character_sheet_update(
+            fighter_sheet, {"experience_points": 355000}
+        )
+        assert updated.experience_points == 355000
+        assert "XP: 0 -> 355000" in msg
+
+    def test_xp_bool_rejected(self, fighter_sheet: CharacterSheet) -> None:
+        with pytest.raises(ValueError, match="integer"):
+            apply_character_sheet_update(
+                fighter_sheet, {"experience_points": True}
+            )
+
+    def test_xp_float_rejected(self, fighter_sheet: CharacterSheet) -> None:
+        with pytest.raises(ValueError, match="integer"):
+            apply_character_sheet_update(
+                fighter_sheet, {"experience_points": 100.5}
+            )
+
+    def test_xp_string_rejected(self, fighter_sheet: CharacterSheet) -> None:
+        with pytest.raises(ValueError, match="integer"):
+            apply_character_sheet_update(
+                fighter_sheet, {"experience_points": "1000"}
+            )
+
+    def test_xp_unchanged(self, fighter_sheet: CharacterSheet) -> None:
+        _, msg = apply_character_sheet_update(
+            fighter_sheet, {"experience_points": 0}
+        )
+        assert "XP: 0 -> 0" in msg
+
+
+# =============================================================================
+# Extended General / Multi-Update Tests
+# =============================================================================
+
+
+class TestApplySheetUpdateGeneralExtended:
+    """Extended general tests for apply_character_sheet_update."""
+
+    def test_all_supported_fields_at_once(
+        self, wizard_sheet: CharacterSheet
+    ) -> None:
+        """Update every supported field type in a single call."""
+        wizard_sheet.conditions = ["frightened"]
+        updated, msg = apply_character_sheet_update(
+            wizard_sheet,
+            {
+                "hit_points_current": 20,
+                "hit_points_temp": 5,
+                "conditions": ["-frightened", "+charmed"],
+                "equipment": ["+Staff of Power"],
+                "gold": 200,
+                "silver": 30,
+                "copper": 10,
+                "spell_slots": {"1": {"current": 2}},
+                "experience_points": 10000,
+            },
+        )
+        assert updated.hit_points_current == 20
+        assert updated.hit_points_temp == 5
+        assert "charmed" in updated.conditions
+        assert "frightened" not in updated.conditions
+        names = [e.name for e in updated.equipment]
+        assert "Staff of Power" in names
+        assert updated.gold == 200
+        assert updated.silver == 30
+        assert updated.copper == 10
+        assert updated.spell_slots[1].current == 2
+        assert updated.experience_points == 10000
+        assert "Elara" in msg
+
+    def test_multiple_unsupported_fields_first_one_raises(
+        self, fighter_sheet: CharacterSheet
+    ) -> None:
+        """First unsupported field should raise immediately."""
+        with pytest.raises(ValueError, match="Unsupported"):
+            apply_character_sheet_update(
+                fighter_sheet, {"name": "Bad", "level": 10}
+            )
+
+    def test_mixed_valid_and_invalid_field_raises(
+        self, fighter_sheet: CharacterSheet
+    ) -> None:
+        """A mix of valid and invalid fields - should raise on the invalid one."""
+        with pytest.raises(ValueError, match="Unsupported"):
+            apply_character_sheet_update(
+                fighter_sheet,
+                {"hit_points_current": 40, "name": "Bad"},
+            )
+
+    def test_original_conditions_not_mutated(self, fighter_sheet: CharacterSheet) -> None:
+        fighter_sheet.conditions = ["poisoned"]
+        original_conditions = fighter_sheet.conditions.copy()
+        apply_character_sheet_update(
+            fighter_sheet, {"conditions": ["+stunned"]}
+        )
+        assert fighter_sheet.conditions == original_conditions
+
+    def test_original_equipment_not_mutated(self, fighter_sheet: CharacterSheet) -> None:
+        original_count = len(fighter_sheet.equipment)
+        apply_character_sheet_update(
+            fighter_sheet, {"equipment": ["+New Item"]}
+        )
+        assert len(fighter_sheet.equipment) == original_count
+
+    def test_original_spell_slots_not_mutated(
+        self, wizard_sheet: CharacterSheet
+    ) -> None:
+        original_current = wizard_sheet.spell_slots[1].current
+        apply_character_sheet_update(
+            wizard_sheet, {"spell_slots": {"1": {"current": 0}}}
+        )
+        assert wizard_sheet.spell_slots[1].current == original_current
+
+
+# =============================================================================
+# Extended _execute_sheet_update Edge Cases
+# =============================================================================
+
+
+class TestExecuteSheetUpdateExtended:
+    """Extended edge case tests for _execute_sheet_update."""
+
+    def test_updates_as_list_returns_error(
+        self, fighter_sheet: CharacterSheet
+    ) -> None:
+        """updates passed as a list should return an error."""
+        sheets: dict[str, CharacterSheet] = {"Thorin": fighter_sheet}
+        result = _execute_sheet_update(
+            {"character_name": "Thorin", "updates": [1, 2, 3]},
+            sheets,
+        )
+        assert "Error" in result
+
+    def test_updates_as_int_returns_error(
+        self, fighter_sheet: CharacterSheet
+    ) -> None:
+        sheets: dict[str, CharacterSheet] = {"Thorin": fighter_sheet}
+        result = _execute_sheet_update(
+            {"character_name": "Thorin", "updates": 42},
+            sheets,
+        )
+        assert "Error" in result
+
+    def test_character_name_case_sensitive(
+        self, fighter_sheet: CharacterSheet
+    ) -> None:
+        """Character name lookup is case-sensitive."""
+        sheets: dict[str, CharacterSheet] = {"Thorin": fighter_sheet}
+        result = _execute_sheet_update(
+            {"character_name": "thorin", "updates": '{"gold": 100}'},
+            sheets,
+        )
+        assert "Error" in result
+
+    def test_empty_json_object_updates(
+        self, fighter_sheet: CharacterSheet
+    ) -> None:
+        """An empty JSON object should produce no changes."""
+        sheets: dict[str, CharacterSheet] = {"Thorin": fighter_sheet}
+        result = _execute_sheet_update(
+            {"character_name": "Thorin", "updates": "{}"},
+            sheets,
+        )
+        assert "No changes" in result
+
+    def test_sequential_updates_same_character(
+        self, fighter_sheet: CharacterSheet
+    ) -> None:
+        """Multiple sequential updates to the same character accumulate."""
+        sheets: dict[str, CharacterSheet] = {"Thorin": fighter_sheet}
+        _execute_sheet_update(
+            {"character_name": "Thorin", "updates": '{"hit_points_current": 40}'},
+            sheets,
+        )
+        assert sheets["Thorin"].hit_points_current == 40
+
+        _execute_sheet_update(
+            {"character_name": "Thorin", "updates": '{"gold": 100}'},
+            sheets,
+        )
+        assert sheets["Thorin"].gold == 100
+        # HP should remain from previous update
+        assert sheets["Thorin"].hit_points_current == 40
+
+    def test_sequential_updates_different_characters(
+        self, fighter_sheet: CharacterSheet, wizard_sheet: CharacterSheet
+    ) -> None:
+        """Updates to different characters don't interfere."""
+        sheets = {"Thorin": fighter_sheet, "Elara": wizard_sheet}
+        result1 = _execute_sheet_update(
+            {"character_name": "Thorin", "updates": '{"hit_points_current": 30}'},
+            sheets,
+        )
+        result2 = _execute_sheet_update(
+            {"character_name": "Elara", "updates": '{"hit_points_current": 20}'},
+            sheets,
+        )
+        assert "Updated Thorin" in result1
+        assert "Updated Elara" in result2
+        assert sheets["Thorin"].hit_points_current == 30
+        assert sheets["Elara"].hit_points_current == 20
+
+    def test_updates_json_string_with_whitespace(
+        self, fighter_sheet: CharacterSheet
+    ) -> None:
+        """JSON string with extra whitespace should still parse."""
+        sheets: dict[str, CharacterSheet] = {"Thorin": fighter_sheet}
+        result = _execute_sheet_update(
+            {"character_name": "Thorin", "updates": '  { "gold" :  100 }  '},
+            sheets,
+        )
+        assert "Updated Thorin" in result
+        assert sheets["Thorin"].gold == 100
+
+    def test_invalid_field_in_json_returns_error(
+        self, fighter_sheet: CharacterSheet
+    ) -> None:
+        sheets: dict[str, CharacterSheet] = {"Thorin": fighter_sheet}
+        result = _execute_sheet_update(
+            {"character_name": "Thorin", "updates": '{"level": 10}'},
+            sheets,
+        )
+        assert "Error" in result
+        # Sheet should remain unchanged
+        assert sheets["Thorin"].level == 5
+
+    def test_missing_updates_key_uses_default(
+        self, fighter_sheet: CharacterSheet
+    ) -> None:
+        """If 'updates' key is missing, should default to empty dict string."""
+        sheets: dict[str, CharacterSheet] = {"Thorin": fighter_sheet}
+        result = _execute_sheet_update(
+            {"character_name": "Thorin"},
+            sheets,
+        )
+        assert "No changes" in result
+
+    def test_none_updates(self, fighter_sheet: CharacterSheet) -> None:
+        """If updates is None, should return an error."""
+        sheets: dict[str, CharacterSheet] = {"Thorin": fighter_sheet}
+        result = _execute_sheet_update(
+            {"character_name": "Thorin", "updates": None},
+            sheets,
+        )
+        assert "Error" in result
+
+
+# =============================================================================
+# Multiple Tool Calls in dm_turn Integration
+# =============================================================================
+
+
+class TestDmTurnMultipleToolCalls:
+    """Tests for multiple sequential tool calls through dm_turn."""
+
+    @patch("agents.get_llm")
+    def test_dm_turn_processes_two_sheet_updates(
+        self, mock_get_llm: MagicMock, fighter_sheet: CharacterSheet, wizard_sheet: CharacterSheet
+    ) -> None:
+        """Test dm_turn handles multiple sheet update tool calls in one turn."""
+        from langchain_core.messages import AIMessage
+
+        from agents import dm_turn
+        from models import AgentMemory, GameConfig
+
+        state: GameState = {
+            "ground_truth_log": [],
+            "turn_queue": ["dm", "fighter", "wizard"],
+            "current_turn": "dm",
+            "agent_memories": {"dm": AgentMemory()},
+            "game_config": GameConfig(),
+            "dm_config": DMConfig(provider="gemini", model="gemini-1.5-flash"),
+            "characters": {
+                "Thorin": CharacterConfig(
+                    name="Thorin",
+                    character_class="Fighter",
+                    race="Dwarf",
+                    personality="Brave warrior",
+                    color="#FF0000",
+                    provider="gemini",
+                    model="gemini-1.5-flash",
+                ),
+                "Elara": CharacterConfig(
+                    name="Elara",
+                    character_class="Wizard",
+                    race="Elf",
+                    personality="Scholarly mage",
+                    color="#0000FF",
+                    provider="gemini",
+                    model="gemini-1.5-flash",
+                ),
+            },
+            "whisper_queue": [],
+            "human_active": False,
+            "controlled_character": None,
+            "session_number": 1,
+            "session_id": "001",
+            "character_sheets": {"Thorin": fighter_sheet, "Elara": wizard_sheet},
+        }
+
+        # First response: two tool calls in one message
+        tool_call_response = AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "dm_update_character_sheet",
+                    "args": {
+                        "character_name": "Thorin",
+                        "updates": {"hit_points_current": 30},
+                    },
+                    "id": "call_001",
+                },
+                {
+                    "name": "dm_update_character_sheet",
+                    "args": {
+                        "character_name": "Elara",
+                        "updates": {"spell_slots": {"1": {"current": 2}}},
+                    },
+                    "id": "call_002",
+                },
+            ],
+        )
+        final_response = AIMessage(
+            content="The battle rages on! Thorin takes a hit and Elara expends a spell.",
+        )
+
+        mock_model = MagicMock()
+        mock_model.bind_tools.return_value = mock_model
+        mock_model.invoke.side_effect = [tool_call_response, final_response]
+        mock_get_llm.return_value = mock_model
+
+        result = dm_turn(state)
+
+        assert result["character_sheets"]["Thorin"].hit_points_current == 30
+        assert result["character_sheets"]["Elara"].spell_slots[1].current == 2
+        assert "[DM]: The battle rages on" in result["ground_truth_log"][-1]
+
+    @patch("agents.get_llm")
+    def test_dm_turn_dice_and_sheet_update(
+        self, mock_get_llm: MagicMock, fighter_sheet: CharacterSheet
+    ) -> None:
+        """Test dm_turn handles a dice roll followed by a sheet update."""
+        from langchain_core.messages import AIMessage
+
+        from agents import dm_turn
+        from models import AgentMemory, GameConfig
+
+        state: GameState = {
+            "ground_truth_log": [],
+            "turn_queue": ["dm", "fighter"],
+            "current_turn": "dm",
+            "agent_memories": {"dm": AgentMemory()},
+            "game_config": GameConfig(),
+            "dm_config": DMConfig(provider="gemini", model="gemini-1.5-flash"),
+            "characters": {"Thorin": CharacterConfig(
+                name="Thorin",
+                character_class="Fighter",
+                race="Dwarf",
+                personality="Brave warrior",
+                color="#FF0000",
+                provider="gemini",
+                model="gemini-1.5-flash",
+            )},
+            "whisper_queue": [],
+            "human_active": False,
+            "controlled_character": None,
+            "session_number": 1,
+            "session_id": "001",
+            "character_sheets": {"Thorin": fighter_sheet},
+        }
+
+        # First call: dice + sheet update
+        tool_call_response = AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "dm_roll_dice",
+                    "args": {"notation": "1d6"},
+                    "id": "call_dice",
+                },
+                {
+                    "name": "dm_update_character_sheet",
+                    "args": {
+                        "character_name": "Thorin",
+                        "updates": {"hit_points_current": 40},
+                    },
+                    "id": "call_sheet",
+                },
+            ],
+        )
+        final_response = AIMessage(
+            content="The trap springs! Thorin takes damage.",
+        )
+
+        mock_model = MagicMock()
+        mock_model.bind_tools.return_value = mock_model
+        mock_model.invoke.side_effect = [tool_call_response, final_response]
+        mock_get_llm.return_value = mock_model
+
+        result = dm_turn(state)
+
+        assert result["character_sheets"]["Thorin"].hit_points_current == 40
+        assert "[DM]: The trap springs" in result["ground_truth_log"][-1]
