@@ -1236,6 +1236,7 @@ def create_initial_game_state() -> GameState:
         session_id="001",
         summarization_in_progress=False,
         selected_module=None,
+        character_sheets={},
     )
 
 
@@ -1302,6 +1303,7 @@ def populate_game_state(
         session_id=session_id,
         summarization_in_progress=False,
         selected_module=selected_module,
+        character_sheets={},
     )
 
 
