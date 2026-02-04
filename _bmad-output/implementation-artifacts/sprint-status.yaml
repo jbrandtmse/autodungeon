@@ -112,12 +112,12 @@ development_status:
   epic-7-retrospective: optional
 
   # Epic 8: Character Sheets (5 stories)
-  epic-8: in-progress
+  epic-8: done
   8-1-character-sheet-data-model: done
   8-2-character-sheet-viewer-ui: done
   8-3-character-sheet-context-injection: done
   8-4-dm-tool-calls-for-sheet-updates: done
-  8-5-sheet-change-notifications: in-progress
+  8-5-sheet-change-notifications: done
   epic-8-retrospective: optional
 
   # Epic 9: Character Creation UI (4 stories)

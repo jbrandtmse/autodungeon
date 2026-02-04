@@ -43,6 +43,8 @@ This project has completed comprehensive planning and architecture design. Imple
 
 ### Epic Progress
 
+#### MVP (v1.0) - Complete
+
 | Epic | Description | Status |
 |------|-------------|--------|
 | 1 | Core Game Engine | ✅ Complete |
@@ -52,11 +54,23 @@ This project has completed comprehensive planning and architecture design. Imple
 | 5 | Memory & Narrative Continuity | ✅ Complete |
 | 6 | LLM Configuration UI | ✅ Complete |
 
+#### Enhancements (v1.1) - Planned
+
+| Epic | Description | Status |
+|------|-------------|--------|
+| 7 | Module Selection & Campaign Setup | ✅ Complete |
+| 8 | Character Sheets | ✅ Complete |
+| 9 | Character Creation UI | 📋 Planned |
+| 10 | DM Whisper & Secrets System | 📋 Planned |
+| 11 | Callback Tracker | 📋 Planned |
+| 12 | Fork Gameplay | 📋 Planned |
+
 See the [planning artifacts](_bmad-output/planning-artifacts/) for:
 
 - [Product Requirements Document](_bmad-output/planning-artifacts/prd.md) - 55 functional requirements
 - [Architecture Decisions](_bmad-output/planning-artifacts/architecture.md) - Technical design choices
-- [Epic/Story Breakdown](_bmad-output/planning-artifacts/epics.md) - Implementation roadmap
+- [Epic/Story Breakdown (MVP)](_bmad-output/planning-artifacts/epics.md) - v1.0 implementation roadmap
+- [Epic/Story Breakdown (v1.1)](_bmad-output/planning-artifacts/epics-v1.1.md) - Enhancement roadmap
 
 ## Getting Started
 

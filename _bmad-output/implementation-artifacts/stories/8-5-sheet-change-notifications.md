@@ -8,7 +8,7 @@ So that **I know when someone takes damage, gains loot, or levels up**.
 
 ## Status
 
-**Status:** in-progress
+**Status:** done
 **Epic:** 8 - Character Sheets
 **Created:** 2026-02-04
 
@@ -54,9 +54,32 @@ So that **I know when someone takes damage, gains loot, or levels up**.
 
 ## Tasks
 
-1. [ ] Add sheet change entries to ground_truth_log in dm_turn()
-2. [ ] Add CSS styling for sheet change notifications
-3. [ ] Update narrative display to render sheet changes distinctively
-4. [ ] Add change detection for character sheet viewer highlighting
-5. [ ] Add tests for sheet change notification rendering
-6. [ ] Add tests for ground_truth_log integration
+1. [x] Add sheet change entries to ground_truth_log in dm_turn()
+2. [x] Add CSS styling for sheet change notifications
+3. [x] Update narrative display to render sheet changes distinctively
+4. [x] Add change detection for character sheet viewer highlighting
+5. [x] Add tests for sheet change notification rendering
+6. [x] Add tests for ground_truth_log integration
+
+## Dev Agent Record
+
+### Implementation Summary
+- Added `[SHEET]` prefix log entries in dm_turn() for successful sheet updates
+- Added `NarrativeMessage.message_type` support for `"sheet_update"` type
+- Added `render_sheet_message_html()` and `render_sheet_message()` in app.py
+- Added `.sheet-notification` CSS class with amber accent styling
+- Updated `render_narrative_messages()` to route `[SHEET]` entries
+- Fixed `create_initial_game_state()` and `populate_game_state()` to include `character_sheets`
+
+### Files Touched
+- models.py (NarrativeMessage.message_type, factory functions)
+- agents.py (sheet_notifications list in dm_turn)
+- app.py (render_sheet_message_html, render_sheet_message, routing)
+- styles/theme.css (.sheet-notification CSS)
+- tests/test_story_8_5_sheet_notifications.py (87 tests)
+
+### Code Review Fixes
+- H2: Added character_sheets={} to create_initial_game_state() and populate_game_state()
+- L6: Removed dead .sheet-icon CSS rule
+
+### Tests: 87 passing

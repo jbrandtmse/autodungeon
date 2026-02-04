@@ -1054,7 +1054,7 @@
 | 8-2-character-sheet-viewer-ui | ✅ done | Full Cycle |
 | 8-3-character-sheet-context-injection | ✅ done | Full Cycle |
 | 8-4-dm-tool-calls-for-sheet-updates | ✅ done | Full Cycle |
-| 8-5-sheet-change-notifications | ⬜ backlog | - |
+| 8-5-sheet-change-notifications | ✅ done | Full Cycle |
 
 ---
 
@@ -1199,6 +1199,47 @@
 
 ### User Input Required
 - None - all issues auto-resolved
+
+---
+
+## Story: 8-5-sheet-change-notifications
+
+**Status:** ✅ Completed
+**Duration:** 2026-02-04
+
+### Files Touched
+- `models.py` - NarrativeMessage.message_type "sheet_update", factory functions
+- `agents.py` - sheet_notifications list in dm_turn(), [SHEET] log entries
+- `app.py` - render_sheet_message_html(), render_sheet_message(), routing
+- `styles/theme.css` - .sheet-notification CSS class
+- `tests/test_story_8_5_sheet_notifications.py` - 87 tests
+
+### Key Design Decisions
+- [SHEET] prefix in ground_truth_log distinguishes sheet changes from DM/PC messages
+- Sheet notifications appear before DM narrative in the log (chronological order)
+- Amber accent styling (--accent-warm) differentiates from DM gold and PC class colors
+- UI font (Inter) used instead of narrative font (Lora) for mechanical data
+- Smaller font size (14px) and subtle background for "notification" feel
+- Only successful updates generate notifications (errors are suppressed)
+
+### Issues Auto-Resolved
+- **HIGH**: create_initial_game_state() missing character_sheets → Added character_sheets={}
+- **LOW**: Dead .sheet-icon CSS rule → Removed
+
+### User Input Required
+- None - all issues auto-resolved
+
+---
+
+## Epic 8: Character Sheets - COMPLETED 🎉
+
+**All 5 stories completed:**
+- 8-1: Character Sheet Data Model (176 tests)
+- 8-2: Character Sheet Viewer UI (123 tests)
+- 8-3: Character Sheet Context Injection (72 tests)
+- 8-4: DM Tool Calls for Sheet Updates (157 tests)
+- 8-5: Sheet Change Notifications (87 tests)
+- **Total: 615 tests across Epic 8**
 
 ---
 
