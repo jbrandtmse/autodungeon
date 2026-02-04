@@ -1048,13 +1048,19 @@ class NarrativeMessage(BaseModel):
     timestamp: str | None = None
 
     @property
-    def message_type(self) -> Literal["dm_narration", "pc_dialogue"]:
+    def message_type(self) -> Literal["dm_narration", "pc_dialogue", "sheet_update"]:
         """Determine message type based on agent name.
 
         Returns:
-            "dm_narration" if agent is "dm" or "DM", otherwise "pc_dialogue"
+            "dm_narration" if agent is "dm" or "DM",
+            "sheet_update" if agent is "SHEET",
+            otherwise "pc_dialogue"
         """
-        return "dm_narration" if self.agent.lower() == "dm" else "pc_dialogue"
+        if self.agent.lower() == "dm":
+            return "dm_narration"
+        if self.agent.upper() == "SHEET":
+            return "sheet_update"
+        return "pc_dialogue"
 
 
 def parse_log_entry(entry: str) -> NarrativeMessage:

@@ -8,7 +8,7 @@ So that **game mechanics are reflected in character data**.
 
 ## Status
 
-**Status:** in-progress
+**Status:** done
 **Epic:** 8 - Character Sheets
 **Created:** 2026-02-04
 
@@ -72,13 +72,38 @@ def update_character_sheet(
 
 ## Tasks
 
-1. [ ] Add `update_character_sheet()` tool function to tools.py
-2. [ ] Implement HP update logic (with validation against max HP)
-3. [ ] Implement equipment add/remove with +/- prefix
-4. [ ] Implement condition add/remove with +/- prefix
-5. [ ] Implement spell slot update logic
-6. [ ] Implement currency (gold/silver/copper) updates
-7. [ ] Bind tool to DM agent in agents.py
-8. [ ] Integrate tool call handling in dm_turn() loop
-9. [ ] Add tests for update tool
-10. [ ] Add tests for DM agent integration
+1. [x] Add `update_character_sheet()` tool function to tools.py
+2. [x] Implement HP update logic (with validation against max HP)
+3. [x] Implement equipment add/remove with +/- prefix
+4. [x] Implement condition add/remove with +/- prefix
+5. [x] Implement spell slot update logic
+6. [x] Implement currency (gold/silver/copper) updates
+7. [x] Bind tool to DM agent in agents.py
+8. [x] Integrate tool call handling in dm_turn() loop
+9. [x] Add tests for update tool
+10. [x] Add tests for DM agent integration
+
+## Dev Agent Record
+
+### Implementation Summary
+- Added `apply_character_sheet_update()` core logic with full validation in tools.py
+- Added `_apply_list_updates()` and `_apply_equipment_updates()` helpers with duplicate protection
+- Added `dm_update_character_sheet` @tool with dict schema for LangChain binding
+- Added `_execute_sheet_update()` integration function in agents.py
+- Modified `dm_turn()` to handle sheet update tool calls alongside dice rolls
+- Increased max_tool_iterations from 3 to 5
+
+### Files Touched
+- tools.py (add sheet update functions)
+- agents.py (DM agent binding + dm_turn integration)
+- tests/test_story_8_4_dm_tool_calls.py (157 tests)
+- tests/test_agents.py (export test update)
+
+### Code Review Fixes
+- H1: Changed tool updates param from str to dict[str, Any]
+- H2: Added bool rejection in integer validation
+- M1: Added duplicate protection for conditions/equipment
+- M2: Validated character_name is actually a string
+- M3: Added dm_turn end-to-end integration test
+
+### Tests: 157 passing

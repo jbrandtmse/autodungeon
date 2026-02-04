@@ -1130,6 +1130,9 @@ def dm_turn(state: GameState) -> GameState:
         # Track any dice results for fallback response
         dice_results: list[str] = []
 
+        # Track sheet update notifications for narrative display (Story 8.5)
+        sheet_notifications: list[str] = []
+
         # Track character sheet updates from tool calls (Story 8.4)
         updated_sheets: dict[str, "CharacterSheet"] = {
             k: v for k, v in state.get("character_sheets", {}).items()
@@ -1171,6 +1174,9 @@ def dm_turn(state: GameState) -> GameState:
                         tool_args,
                         tool_result,
                     )
+                    # Collect successful update notifications (Story 8.5)
+                    if not tool_result.startswith("Error"):
+                        sheet_notifications.append(tool_result)
 
                 else:
                     tool_result = f"Unknown tool: {tool_name}"
@@ -1251,6 +1257,9 @@ def dm_turn(state: GameState) -> GameState:
 
     # Create new state (never mutate input)
     new_log = state["ground_truth_log"].copy()
+    # Append sheet change notifications before DM narrative (Story 8.5)
+    for notification in sheet_notifications:
+        new_log.append(f"[SHEET]: {notification}")
     new_log.append(f"[DM]: {response_content}")
 
     # Update DM's memory

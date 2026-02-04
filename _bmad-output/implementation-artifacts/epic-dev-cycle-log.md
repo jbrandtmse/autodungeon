@@ -1053,7 +1053,7 @@
 | 8-1-character-sheet-data-model | ✅ done | Full Cycle |
 | 8-2-character-sheet-viewer-ui | ✅ done | Full Cycle |
 | 8-3-character-sheet-context-injection | ✅ done | Full Cycle |
-| 8-4-dm-tool-calls-for-sheet-updates | ⬜ backlog | - |
+| 8-4-dm-tool-calls-for-sheet-updates | ✅ done | Full Cycle |
 | 8-5-sheet-change-notifications | ⬜ backlog | - |
 
 ---
@@ -1165,6 +1165,37 @@
 - **MEDIUM**: Currency on separate line instead of in Inventory → Merged into Inventory line
 - **MEDIUM**: Test imports private `_format_modifier` → Replaced with public API tests
 - **LOW**: Double quantity display potential → Documented as edge case
+
+### User Input Required
+- None - all issues auto-resolved
+
+---
+
+## Story: 8-4-dm-tool-calls-for-sheet-updates
+
+**Status:** ✅ Completed
+**Duration:** 2026-02-04
+
+### Files Touched
+- `tools.py` - apply_character_sheet_update(), _apply_list_updates(), _apply_equipment_updates(), dm_update_character_sheet @tool
+- `agents.py` - _execute_sheet_update(), dm_turn() tool call handling, create_dm_agent() tool binding
+- `tests/test_story_8_4_dm_tool_calls.py` - 157 tests
+- `tests/test_agents.py` - export test update
+
+### Key Design Decisions
+- Tool intercept pattern: @tool for LangChain schema, execution in dm_turn() for game state access
+- Mutable updated_sheets dict in dm_turn() accumulates changes across multiple tool calls
+- +/- prefix convention for list add/remove (conditions, equipment)
+- Value clamping: HP to 0..max+temp, currency to >=0, spell slots to 0..max
+- Duplicate protection: conditions and equipment skip duplicates on add
+- Bool rejection: isinstance(value, int) and not isinstance(value, bool)
+
+### Issues Auto-Resolved
+- **HIGH**: Tool updates param typed as str instead of dict → Changed to dict[str, Any]
+- **HIGH**: Bool values pass isinstance(int) checks → Added bool exclusion
+- **MEDIUM**: No duplicate condition/equipment protection → Added dedup on add
+- **MEDIUM**: None character_name not validated → Added isinstance(str) check
+- **MEDIUM**: No dm_turn integration test → Added end-to-end test
 
 ### User Input Required
 - None - all issues auto-resolved

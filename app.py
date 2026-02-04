@@ -840,6 +840,43 @@ def render_dm_message(content: str, is_current: bool = False) -> None:
     st.markdown(render_dm_message_html(content, is_current), unsafe_allow_html=True)
 
 
+def render_sheet_message_html(content: str, is_current: bool = False) -> str:
+    """Generate HTML for sheet change notification.
+
+    Creates HTML with sheet-notification CSS class for amber-styled
+    mechanical game updates (HP changes, equipment, conditions).
+
+    Story 8.5: Sheet Change Notifications.
+
+    Args:
+        content: The sheet update notification text.
+        is_current: If True, adds current-turn class for highlight animation.
+
+    Returns:
+        HTML string for the sheet notification div.
+    """
+    escaped_content = escape_html(content)
+    current_class = " current-turn" if is_current else ""
+    return (
+        f'<div class="sheet-notification{current_class}">'
+        f"<p>{escaped_content}</p></div>"
+    )
+
+
+def render_sheet_message(content: str, is_current: bool = False) -> None:
+    """Render sheet change notification to Streamlit.
+
+    Story 8.5: Sheet Change Notifications.
+
+    Args:
+        content: The sheet update notification text.
+        is_current: If True, adds current-turn class for highlight animation.
+    """
+    st.markdown(
+        render_sheet_message_html(content, is_current), unsafe_allow_html=True
+    )
+
+
 def format_pc_content(content: str) -> str:
     """Format PC message content with action styling.
 
@@ -1037,7 +1074,9 @@ def render_narrative_messages(state: GameState) -> None:
         message = parse_log_entry(entry)
         is_current = i == last_index
 
-        if message.message_type == "dm_narration":
+        if message.message_type == "sheet_update":
+            render_sheet_message(message.content, is_current)
+        elif message.message_type == "dm_narration":
             render_dm_message(message.content, is_current)
         else:
             # PC dialogue - look up character info

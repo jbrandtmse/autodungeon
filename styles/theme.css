@@ -310,6 +310,27 @@ h2, h3, h4 {
 .pc-attribution.wizard { color: var(--color-wizard); }
 .pc-attribution.cleric { color: var(--color-cleric); }
 
+/* Sheet Change Notification (Story 8.5) */
+.sheet-notification {
+  background: rgba(232, 168, 73, 0.08);
+  border-left: 3px solid var(--accent-warm);
+  padding: var(--space-sm) var(--space-md);
+  margin-bottom: var(--space-sm);
+  border-radius: 0 6px 6px 0;
+}
+
+.sheet-notification p {
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--accent-warm);
+  margin: 0;
+}
+
+.sheet-notification .sheet-icon {
+  margin-right: var(--space-xs);
+}
+
 /* ==========================================================================
    Session Header (Story 2.2)
    ========================================================================== */
