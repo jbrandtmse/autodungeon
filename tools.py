@@ -309,9 +309,12 @@ def _apply_list_updates(current: list[str], updates: list[str]) -> list[str]:
                     result.pop(i)
                     break
         elif item.startswith("+"):
-            result.append(item[1:].strip())
+            name = item[1:].strip()
+            if not any(existing.lower() == name.lower() for existing in result):
+                result.append(name)
         else:
-            result.append(item)
+            if not any(existing.lower() == item.lower() for existing in result):
+                result.append(item)
     return result
 
 
@@ -342,9 +345,12 @@ def _apply_equipment_updates(
                     result.pop(i)
                     break
         elif item.startswith("+"):
-            result.append(EquipmentItem(name=item[1:].strip()))
+            name = item[1:].strip()
+            if not any(existing.name.lower() == name.lower() for existing in result):
+                result.append(EquipmentItem(name=name))
         else:
-            result.append(EquipmentItem(name=item))
+            if not any(existing.name.lower() == item.lower() for existing in result):
+                result.append(EquipmentItem(name=item))
     return result
 
 
@@ -380,7 +386,7 @@ def apply_character_sheet_update(
 
     for key, value in updates.items():
         if key == "hit_points_current":
-            if not isinstance(value, int):
+            if not isinstance(value, int) or isinstance(value, bool):
                 raise ValueError(f"hit_points_current must be an integer, got {type(value).__name__}")
             max_hp = sheet.hit_points_max + sheet.hit_points_temp
             clamped = max(0, min(value, max_hp))
@@ -394,7 +400,7 @@ def apply_character_sheet_update(
                 changes.append(f"HP: unchanged at {clamped}")
 
         elif key == "hit_points_temp":
-            if not isinstance(value, int):
+            if not isinstance(value, int) or isinstance(value, bool):
                 raise ValueError(f"hit_points_temp must be an integer, got {type(value).__name__}")
             clamped = max(0, value)
             update_dict["hit_points_temp"] = clamped
@@ -429,7 +435,7 @@ def apply_character_sheet_update(
             changes.append(f"Equipment: {'; '.join(parts_eq) if parts_eq else 'unchanged'}")
 
         elif key in ("gold", "silver", "copper"):
-            if not isinstance(value, int):
+            if not isinstance(value, int) or isinstance(value, bool):
                 raise ValueError(f"{key} must be an integer, got {type(value).__name__}")
             clamped = max(0, value)
             update_dict[key] = clamped
@@ -454,7 +460,7 @@ def apply_character_sheet_update(
                 if not isinstance(slot_update, dict) or "current" not in slot_update:
                     raise ValueError(f"spell_slots[{level}] must have 'current' key")
                 new_current = slot_update["current"]
-                if not isinstance(new_current, int):
+                if not isinstance(new_current, int) or isinstance(new_current, bool):
                     raise ValueError(f"spell_slots[{level}].current must be int")
                 old_slot = new_slots[level]
                 clamped_current = max(0, min(new_current, old_slot.max))
@@ -464,7 +470,7 @@ def apply_character_sheet_update(
             changes.append(f"Spell Slots: {', '.join(slot_changes)}")
 
         elif key == "experience_points":
-            if not isinstance(value, int):
+            if not isinstance(value, int) or isinstance(value, bool):
                 raise ValueError(f"experience_points must be an integer, got {type(value).__name__}")
             clamped = max(0, value)
             update_dict["experience_points"] = clamped
@@ -482,7 +488,7 @@ def apply_character_sheet_update(
 
 
 @tool
-def dm_update_character_sheet(character_name: str, updates: str) -> str:
+def dm_update_character_sheet(character_name: str, updates: dict[str, Any]) -> str:
     """Update a character's sheet with game mechanic changes.
 
     Use this tool when game events change a character's stats, such as:
@@ -497,7 +503,7 @@ def dm_update_character_sheet(character_name: str, updates: str) -> str:
 
     Args:
         character_name: The character's name (e.g., "Thorin", "Elara").
-        updates: JSON string describing the changes. Supported fields:
+        updates: Dictionary describing the changes. Supported fields:
             - "hit_points_current": integer (new HP value)
             - "hit_points_temp": integer (new temp HP value)
             - "conditions": list of strings with +/- prefix
@@ -515,11 +521,11 @@ def dm_update_character_sheet(character_name: str, updates: str) -> str:
         Confirmation of changes or error message.
 
     Examples:
-        - Damage: character_name="Thorin", updates='{"hit_points_current": 35}'
-        - Loot: character_name="Thorin", updates='{"gold": 100, "equipment": ["+Potion of Healing"]}'
-        - Condition: character_name="Elara", updates='{"conditions": ["+poisoned"]}'
-        - Spell usage: character_name="Elara", updates='{"spell_slots": {"1": {"current": 2}}}'
-        - Healing: character_name="Thorin", updates='{"hit_points_current": 52}'
+        - Damage: character_name="Thorin", updates={"hit_points_current": 35}
+        - Loot: character_name="Thorin", updates={"gold": 100, "equipment": ["+Potion of Healing"]}
+        - Condition: character_name="Elara", updates={"conditions": ["+poisoned"]}
+        - Spell usage: character_name="Elara", updates={"spell_slots": {"1": {"current": 2}}}
+        - Healing: character_name="Thorin", updates={"hit_points_current": 52}
     """
     # This tool's execution is intercepted in dm_turn() which has access to game state.
     # The @tool decorator is for LangChain schema binding only.

@@ -170,6 +170,14 @@ class TestApplyListUpdates:
         _apply_list_updates(original, ["+exhausted"])
         assert original == ["poisoned"]
 
+    def test_no_duplicate_add(self) -> None:
+        result = _apply_list_updates(["poisoned"], ["+poisoned"])
+        assert result == ["poisoned"]
+
+    def test_no_duplicate_add_case_insensitive(self) -> None:
+        result = _apply_list_updates(["Poisoned"], ["+poisoned"])
+        assert result == ["Poisoned"]
+
 
 # =============================================================================
 # _apply_equipment_updates Tests
@@ -204,6 +212,16 @@ class TestApplyEquipmentUpdates:
         original = [EquipmentItem(name="Rope")]
         _apply_equipment_updates(original, ["+Torch"])
         assert len(original) == 1
+
+    def test_no_duplicate_equipment_add(self) -> None:
+        items = [EquipmentItem(name="Rope")]
+        result = _apply_equipment_updates(items, ["+Rope"])
+        assert len(result) == 1
+
+    def test_no_duplicate_equipment_case_insensitive(self) -> None:
+        items = [EquipmentItem(name="Rope")]
+        result = _apply_equipment_updates(items, ["+rope"])
+        assert len(result) == 1
 
 
 # =============================================================================
@@ -250,6 +268,12 @@ class TestApplySheetUpdateHP:
         with pytest.raises(ValueError, match="integer"):
             apply_character_sheet_update(
                 fighter_sheet, {"hit_points_current": "full"}
+            )
+
+    def test_hp_bool_rejected(self, fighter_sheet: CharacterSheet) -> None:
+        with pytest.raises(ValueError, match="integer"):
+            apply_character_sheet_update(
+                fighter_sheet, {"hit_points_current": True}
             )
 
     def test_hp_with_temp_hp_clamped_to_max_plus_temp(
@@ -378,6 +402,10 @@ class TestApplySheetUpdateCurrency:
     def test_currency_invalid_type(self, fighter_sheet: CharacterSheet) -> None:
         with pytest.raises(ValueError, match="integer"):
             apply_character_sheet_update(fighter_sheet, {"gold": "lots"})
+
+    def test_currency_bool_rejected(self, fighter_sheet: CharacterSheet) -> None:
+        with pytest.raises(ValueError, match="integer"):
+            apply_character_sheet_update(fighter_sheet, {"gold": False})
 
 
 # =============================================================================
@@ -581,6 +609,14 @@ class TestExecuteSheetUpdate:
         assert "Error" in result
         assert "none" in result
 
+    def test_none_character_name(self, fighter_sheet: CharacterSheet) -> None:
+        sheets: dict[str, CharacterSheet] = {"Thorin": fighter_sheet}
+        result = _execute_sheet_update(
+            {"character_name": None, "updates": '{"gold": 100}'},
+            sheets,
+        )
+        assert "Error" in result
+
 
 # =============================================================================
 # dm_update_character_sheet Tool Tests
@@ -633,3 +669,72 @@ class TestDMAgentToolBinding:
         tool_names = [t.name for t in tools]
         assert "dm_roll_dice" in tool_names
         assert "dm_update_character_sheet" in tool_names
+
+
+# =============================================================================
+# dm_turn Integration Test
+# =============================================================================
+
+
+class TestDmTurnSheetUpdateIntegration:
+    """End-to-end integration test for sheet updates through dm_turn."""
+
+    @patch("agents.get_llm")
+    def test_dm_turn_processes_sheet_update_tool_call(
+        self, mock_get_llm: MagicMock, fighter_sheet: CharacterSheet
+    ) -> None:
+        """Test dm_turn handles sheet update tool calls and propagates changes."""
+        from langchain_core.messages import AIMessage
+
+        from agents import dm_turn
+        from models import AgentMemory, GameConfig
+
+        state: GameState = {
+            "ground_truth_log": [],
+            "turn_queue": ["dm", "fighter"],
+            "current_turn": "dm",
+            "agent_memories": {"dm": AgentMemory()},
+            "game_config": GameConfig(),
+            "dm_config": DMConfig(provider="gemini", model="gemini-1.5-flash"),
+            "characters": {"Thorin": CharacterConfig(
+                name="Thorin",
+                character_class="Fighter",
+                race="Dwarf",
+                personality="Brave warrior",
+                color="#FF0000",
+                provider="gemini",
+                model="gemini-1.5-flash",
+            )},
+            "whisper_queue": [],
+            "human_active": False,
+            "controlled_character": None,
+            "session_number": 1,
+            "session_id": "001",
+            "character_sheets": {"Thorin": fighter_sheet},
+        }
+
+        # First invoke returns tool call, second returns narrative
+        tool_call_response = AIMessage(
+            content="",
+            tool_calls=[{
+                "name": "dm_update_character_sheet",
+                "args": {
+                    "character_name": "Thorin",
+                    "updates": {"hit_points_current": 35},
+                },
+                "id": "call_001",
+            }],
+        )
+        final_response = AIMessage(
+            content="The goblin strikes Thorin for 10 damage!",
+        )
+
+        mock_model = MagicMock()
+        mock_model.bind_tools.return_value = mock_model
+        mock_model.invoke.side_effect = [tool_call_response, final_response]
+        mock_get_llm.return_value = mock_model
+
+        result = dm_turn(state)
+
+        assert result["character_sheets"]["Thorin"].hit_points_current == 35
+        assert "[DM]: The goblin strikes Thorin" in result["ground_truth_log"][-1]

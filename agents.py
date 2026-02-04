@@ -1309,8 +1309,8 @@ def _execute_sheet_update(
     character_name = tool_args.get("character_name", "")
     updates_raw = tool_args.get("updates", "{}")
 
-    if not character_name:
-        return "Error: character_name is required."
+    if not character_name or not isinstance(character_name, str):
+        return "Error: character_name is required and must be a string."
 
     # Parse updates JSON string
     if isinstance(updates_raw, str):
