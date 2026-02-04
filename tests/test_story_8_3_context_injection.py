@@ -14,7 +14,6 @@ import pytest
 from agents import (
     _build_dm_context,
     _build_pc_context,
-    _format_modifier,
     format_all_sheets_context,
     format_character_sheet_context,
 )
@@ -213,28 +212,45 @@ def sample_game_state_with_sheets(
 
 
 # =============================================================================
-# _format_modifier Tests
+# Modifier Formatting Tests (via public API)
 # =============================================================================
 
 
-class TestFormatModifier:
-    """Tests for _format_modifier helper function."""
+class TestModifierFormatting:
+    """Tests for modifier formatting through format_character_sheet_context."""
 
-    def test_positive_modifier(self) -> None:
-        """Test positive modifier formatting."""
-        assert _format_modifier(5) == "+5"
-        assert _format_modifier(1) == "+1"
-        assert _format_modifier(10) == "+10"
+    def test_positive_modifier_in_ability_scores(self) -> None:
+        """Test positive modifiers appear correctly in ability scores."""
+        sheet = CharacterSheet(
+            name="Hero", race="Human", character_class="Fighter", level=1,
+            strength=18, dexterity=10, constitution=10, intelligence=10,
+            wisdom=10, charisma=10, armor_class=10, hit_points_max=10,
+            hit_points_current=10, hit_dice="1d10", hit_dice_remaining=1,
+        )
+        result = format_character_sheet_context(sheet)
+        assert "(+4)" in result  # STR 18 = +4
 
-    def test_negative_modifier(self) -> None:
-        """Test negative modifier formatting."""
-        assert _format_modifier(-2) == "-2"
-        assert _format_modifier(-1) == "-1"
-        assert _format_modifier(-5) == "-5"
+    def test_negative_modifier_in_ability_scores(self) -> None:
+        """Test negative modifiers appear correctly in ability scores."""
+        sheet = CharacterSheet(
+            name="Hero", race="Human", character_class="Fighter", level=1,
+            strength=8, dexterity=10, constitution=10, intelligence=10,
+            wisdom=10, charisma=10, armor_class=10, hit_points_max=10,
+            hit_points_current=10, hit_dice="1d10", hit_dice_remaining=1,
+        )
+        result = format_character_sheet_context(sheet)
+        assert "(-1)" in result  # STR 8 = -1
 
-    def test_zero_modifier(self) -> None:
-        """Test zero modifier formatting."""
-        assert _format_modifier(0) == "+0"
+    def test_zero_modifier_in_ability_scores(self) -> None:
+        """Test zero modifiers appear correctly in ability scores."""
+        sheet = CharacterSheet(
+            name="Hero", race="Human", character_class="Fighter", level=1,
+            strength=10, dexterity=10, constitution=10, intelligence=10,
+            wisdom=10, charisma=10, armor_class=10, hit_points_max=10,
+            hit_points_current=10, hit_dice="1d10", hit_dice_remaining=1,
+        )
+        result = format_character_sheet_context(sheet)
+        assert "(+0)" in result  # STR 10 = +0
 
 
 # =============================================================================
@@ -292,10 +308,16 @@ class TestFormatCharacterSheetContext:
         assert "All armor" in result
         assert "Simple weapons" in result
 
-    def test_skills_listed(self, fighter_sheet: CharacterSheet) -> None:
-        """Test skills are included."""
+    def test_skills_listed_with_modifiers(self, fighter_sheet: CharacterSheet) -> None:
+        """Test skills are included with calculated modifiers per AC3."""
         result = format_character_sheet_context(fighter_sheet)
-        assert "Skills: Athletics, Intimidation, Perception" in result
+        # Fighter level 5: proficiency +3
+        # Athletics: STR +4, prof +3 = +7
+        # Intimidation: CHA -1, prof +3 = +2
+        # Perception: WIS +2, prof +3 = +5
+        assert "Athletics (+7)" in result
+        assert "Intimidation (+2)" in result
+        assert "Perception (+5)" in result
 
     def test_equipment_listed(self, fighter_sheet: CharacterSheet) -> None:
         """Test weapons and armor are included."""
@@ -349,10 +371,15 @@ class TestFormatCharacterSheetContext:
         assert "Torches (5)" in result
         assert "Rations (3)" in result
 
-    def test_currency_listed(self, fighter_sheet: CharacterSheet) -> None:
-        """Test currency is included."""
+    def test_currency_in_inventory(self, fighter_sheet: CharacterSheet) -> None:
+        """Test currency is included in the Inventory line per AC3."""
         result = format_character_sheet_context(fighter_sheet)
         assert "47 gold" in result
+        # Currency should be part of Inventory line, not separate
+        for line in result.split("\n"):
+            if "47 gold" in line:
+                assert line.startswith("Inventory:")
+                break
 
     def test_features_listed(self, fighter_sheet: CharacterSheet) -> None:
         """Test class features are included."""
@@ -631,7 +658,11 @@ class TestCharacterSheetContextEdgeCases:
             skill_expertise=["Stealth"],
         )
         result = format_character_sheet_context(sheet)
-        assert "Stealth (expertise)" in result
+        # Rogue level 1: proficiency +2, DEX +3
+        # Stealth expertise: DEX +3, prof x2 = +3 + 4 = +7
+        # Perception proficiency: WIS +1, prof +2 = +3
+        assert "Stealth (+7)" in result
+        assert "Perception (+3)" in result
 
     def test_sheet_with_magic_weapon(self) -> None:
         """Test formatting sheet with magic weapon bonus."""

@@ -8,7 +8,7 @@ So that **I can make decisions based on actual character capabilities**.
 
 ## Status
 
-**Status:** ready-for-dev
+**Status:** done
 **Epic:** 8 - Character Sheets
 **Created:** 2026-02-01
 
@@ -61,10 +61,33 @@ Conditions: None
 
 ## Tasks
 
-1. [ ] Add `format_character_sheet_context(sheet: CharacterSheet) -> str` function to agents.py
-2. [ ] Add `format_all_sheets_context(sheets: dict[str, CharacterSheet]) -> str` function to agents.py
-3. [ ] Integrate sheet context into `pc_turn()` function (own sheet only)
-4. [ ] Integrate sheet context into `dm_turn()` function (all sheets)
-5. [ ] Add spellcasting section with spell slots and prepared spells
-6. [ ] Add tests for context formatting functions
-7. [ ] Add tests for agent integration
+1. [x] Add `format_character_sheet_context(sheet: CharacterSheet) -> str` function to agents.py
+2. [x] Add `format_all_sheets_context(sheets: dict[str, CharacterSheet]) -> str` function to agents.py
+3. [x] Integrate sheet context into `pc_turn()` function (own sheet only)
+4. [x] Integrate sheet context into `dm_turn()` function (all sheets)
+5. [x] Add spellcasting section with spell slots and prepared spells
+6. [x] Add tests for context formatting functions
+7. [x] Add tests for agent integration
+
+## Dev Agent Record
+
+### File List
+
+| File | Changes |
+|------|---------|
+| agents.py | Added `_SKILL_ABILITY_MAP`, `_format_modifier()`, `format_character_sheet_context()`, `format_all_sheets_context()`; integrated sheets into `_build_dm_context()` and `_build_pc_context()`; updated `dm_turn()` and `pc_turn()` return states |
+| persistence.py | Updated serialization/deserialization for `character_sheets` field; added `AttributeError` to exception handling |
+| models.py | Added `character_sheets` field to `GameState` TypedDict |
+| tests/test_story_8_3_context_injection.py | 42 tests covering formatting, spellcasting, DM/PC context integration, edge cases |
+| tests/test_agents.py | Added new exports to expected exports set |
+| tests/test_persistence.py | Updated fixture and assertions for `character_sheets` field |
+
+### Change Log
+
+- Implemented `format_character_sheet_context()` with HP, AC, abilities, proficiencies, skills (with calculated modifiers), equipment, weapons (with attack bonuses), inventory (with currency), features, and spellcasting sections
+- Implemented `format_all_sheets_context()` for DM context (all sheets, sorted alphabetically)
+- Integrated into `_build_dm_context()` - DM sees all party sheets (FR62)
+- Integrated into `_build_pc_context()` - PC sees only own sheet, looked up by character name (FR62)
+- Updated `dm_turn()` and `pc_turn()` to preserve `character_sheets` in returned state
+- Added backward-compatible serialization in persistence.py
+- Code review fixes: skill modifiers calculated per AC3, "Conditions: None" always shown, currency merged into Inventory line, removed private function imports from tests

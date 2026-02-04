@@ -705,6 +705,29 @@ You are running this official D&D module. Draw upon your knowledge of:
 """
 
 
+# D&D 5e skill-to-ability mapping for modifier calculation
+_SKILL_ABILITY_MAP: dict[str, str] = {
+    "Acrobatics": "dexterity",
+    "Animal Handling": "wisdom",
+    "Arcana": "intelligence",
+    "Athletics": "strength",
+    "Deception": "charisma",
+    "History": "intelligence",
+    "Insight": "wisdom",
+    "Intimidation": "charisma",
+    "Investigation": "intelligence",
+    "Medicine": "wisdom",
+    "Nature": "intelligence",
+    "Perception": "wisdom",
+    "Performance": "charisma",
+    "Persuasion": "charisma",
+    "Religion": "intelligence",
+    "Sleight of Hand": "dexterity",
+    "Stealth": "dexterity",
+    "Survival": "wisdom",
+}
+
+
 def _format_modifier(value: int) -> str:
     """Format a modifier with explicit sign.
 
@@ -754,9 +777,11 @@ def format_character_sheet_context(sheet: CharacterSheet, for_own_character: boo
     hp_line = " ".join(hp_parts)
     lines.append(f"{hp_line} | AC: {sheet.armor_class} | Speed: {sheet.speed}ft")
 
-    # Conditions (if any)
+    # Conditions (always shown per AC3)
     if sheet.conditions:
         lines.append(f"Conditions: {', '.join(sheet.conditions)}")
+    else:
+        lines.append("Conditions: None")
 
     # Empty line before abilities
     lines.append("")
@@ -790,17 +815,22 @@ def format_character_sheet_context(sheet: CharacterSheet, for_own_character: boo
     if prof_parts:
         lines.append(f"Proficiencies: {'; '.join(prof_parts)}")
 
-    # Skills (with proficiency indicated)
+    # Skills (with calculated modifiers per AC3)
     if sheet.skill_proficiencies or sheet.skill_expertise:
         skill_parts: list[str] = []
-        for skill in sheet.skill_proficiencies:
-            if skill in sheet.skill_expertise:
-                skill_parts.append(f"{skill} (expertise)")
-            else:
-                skill_parts.append(skill)
+        all_skills = list(sheet.skill_proficiencies)
         for skill in sheet.skill_expertise:
-            if skill not in sheet.skill_proficiencies:
-                skill_parts.append(f"{skill} (expertise)")
+            if skill not in all_skills:
+                all_skills.append(skill)
+        for skill in all_skills:
+            # Calculate skill modifier: ability mod + proficiency (or double for expertise)
+            ability = _SKILL_ABILITY_MAP.get(skill)
+            ability_mod = sheet.get_ability_modifier(ability) if ability else 0
+            if skill in sheet.skill_expertise:
+                total_mod = ability_mod + (sheet.proficiency_bonus * 2)
+            else:
+                total_mod = ability_mod + sheet.proficiency_bonus
+            skill_parts.append(f"{skill} ({_format_modifier(total_mod)})")
         if skill_parts:
             lines.append(f"Skills: {', '.join(skill_parts)}")
 
@@ -833,24 +863,22 @@ def format_character_sheet_context(sheet: CharacterSheet, for_own_character: boo
     if equipment_parts:
         lines.append(f"Equipment: {', '.join(equipment_parts)}")
 
-    # Inventory (other items)
+    # Inventory (other items + currency per AC3)
+    inv_parts: list[str] = []
     if sheet.equipment:
-        inv_parts = [
+        inv_parts.extend(
             f"{item.name} ({item.quantity})" if item.quantity > 1 else item.name
             for item in sheet.equipment
-        ]
+        )
+    # Currency appended to inventory line per AC3 format
+    if sheet.gold > 0:
+        inv_parts.append(f"{sheet.gold} gold")
+    if sheet.silver > 0:
+        inv_parts.append(f"{sheet.silver} silver")
+    if sheet.copper > 0:
+        inv_parts.append(f"{sheet.copper} copper")
+    if inv_parts:
         lines.append(f"Inventory: {', '.join(inv_parts)}")
-
-    # Gold
-    if sheet.gold > 0 or sheet.silver > 0 or sheet.copper > 0:
-        currency_parts: list[str] = []
-        if sheet.gold > 0:
-            currency_parts.append(f"{sheet.gold} gold")
-        if sheet.silver > 0:
-            currency_parts.append(f"{sheet.silver} silver")
-        if sheet.copper > 0:
-            currency_parts.append(f"{sheet.copper} copper")
-        lines.append(f"Currency: {', '.join(currency_parts)}")
 
     # Empty line
     lines.append("")
