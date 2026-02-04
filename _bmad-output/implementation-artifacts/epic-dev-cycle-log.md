@@ -1052,7 +1052,7 @@
 |-------|--------|-------|
 | 8-1-character-sheet-data-model | ✅ done | Full Cycle |
 | 8-2-character-sheet-viewer-ui | ✅ done | Full Cycle |
-| 8-3-character-sheet-context-injection | ⬜ backlog | - |
+| 8-3-character-sheet-context-injection | ✅ done | Full Cycle |
 | 8-4-dm-tool-calls-for-sheet-updates | ⬜ backlog | - |
 | 8-5-sheet-change-notifications | ⬜ backlog | - |
 
@@ -1131,6 +1131,40 @@
 - **HIGH**: Missing ARIA accessibility labels → Added role and aria-label attributes
 - **MEDIUM**: Missing responsive CSS for small screens → Added @media queries at 768px
 - **MEDIUM**: Potential negative empty dots in spell slots → Added clamping with max(0, ...)
+
+### User Input Required
+- None - all issues auto-resolved
+
+---
+
+## Story: 8-3-character-sheet-context-injection
+
+**Status:** ✅ Completed
+**Duration:** 2026-02-04
+
+### Files Touched
+- `agents.py` - `_SKILL_ABILITY_MAP`, `_format_modifier()`, `format_character_sheet_context()`, `format_all_sheets_context()`, `_build_dm_context()`, `_build_pc_context()`, `dm_turn()`, `pc_turn()`
+- `models.py` - Added `character_sheets` field to `GameState` TypedDict
+- `persistence.py` - Serialization/deserialization for `character_sheets`, `AttributeError` handling
+- `tests/test_story_8_3_context_injection.py` - 72 comprehensive tests
+- `tests/test_agents.py` - Updated expected exports
+- `tests/test_persistence.py` - Updated fixtures for character_sheets field
+
+### Key Design Decisions
+- PC agents receive only their own sheet via `format_character_sheet_context(sheet)`
+- DM receives all sheets via `format_all_sheets_context(sheets)` (FR62)
+- Sheet lookup by character name (e.g., "Thorin") not agent name (e.g., "fighter")
+- Skill modifiers calculated: ability_mod + proficiency_bonus (doubled for expertise)
+- Currency merged into Inventory line per AC3 format
+- Backward compatibility via `state.get("character_sheets", {})`
+
+### Issues Auto-Resolved
+- **HIGH**: Skills showed names without modifiers (AC3 non-compliance) → Added `_SKILL_ABILITY_MAP` and calculated modifiers
+- **HIGH**: Story file tasks not marked complete → Marked all 7 tasks as [x]
+- **MEDIUM**: Missing "Conditions: None" when no conditions → Added else branch
+- **MEDIUM**: Currency on separate line instead of in Inventory → Merged into Inventory line
+- **MEDIUM**: Test imports private `_format_modifier` → Replaced with public API tests
+- **LOW**: Double quantity display potential → Documented as edge case
 
 ### User Input Required
 - None - all issues auto-resolved

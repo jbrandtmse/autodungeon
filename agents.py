@@ -31,7 +31,7 @@ from models import (
     ModuleDiscoveryResult,
     ModuleInfo,
 )
-from tools import dm_roll_dice, pc_roll_dice
+from tools import apply_character_sheet_update, dm_roll_dice, dm_update_character_sheet, pc_roll_dice
 
 # Logger for error tracking (technical details logged internally per FR40)
 logger = logging.getLogger("autodungeon")
@@ -52,6 +52,7 @@ __all__ = [
     "SUPPORTED_PROVIDERS",
     "_build_dm_context",
     "_build_pc_context",
+    "_execute_sheet_update",
     "_parse_module_json",
     "build_pc_system_prompt",
     "categorize_error",
@@ -603,7 +604,7 @@ def create_dm_agent(config: DMConfig) -> Runnable:  # type: ignore[type-arg]
         Configured chat model with dice rolling tool bound.
     """
     base_model = get_llm(config.provider, config.model)
-    return base_model.bind_tools([dm_roll_dice])
+    return base_model.bind_tools([dm_roll_dice, dm_update_character_sheet])
 
 
 def build_pc_system_prompt(config: CharacterConfig) -> str:
@@ -1129,8 +1130,13 @@ def dm_turn(state: GameState) -> GameState:
         # Track any dice results for fallback response
         dice_results: list[str] = []
 
+        # Track character sheet updates from tool calls (Story 8.4)
+        updated_sheets: dict[str, "CharacterSheet"] = {
+            k: v for k, v in state.get("character_sheets", {}).items()
+        }
+
         # Invoke the model with tool call handling loop
-        max_tool_iterations = 3  # Prevent infinite loops
+        max_tool_iterations = 5  # Increased for sheet updates alongside dice rolls
         for _ in range(max_tool_iterations):
             response = dm_agent.invoke(messages)
 
@@ -1154,6 +1160,18 @@ def dm_turn(state: GameState) -> GameState:
                     tool_result = str(result)
                     dice_results.append(tool_result)
                     logger.info("DM rolled dice: %s -> %s", tool_args, tool_result)
+
+                # Execute the character sheet update tool (Story 8.4)
+                elif tool_name == "dm_update_character_sheet":
+                    tool_result = _execute_sheet_update(
+                        tool_args, updated_sheets
+                    )
+                    logger.info(
+                        "DM updated character sheet: %s -> %s",
+                        tool_args,
+                        tool_result,
+                    )
+
                 else:
                     tool_result = f"Unknown tool: {tool_name}"
 
@@ -1264,8 +1282,63 @@ def dm_turn(state: GameState) -> GameState:
         session_id=state["session_id"],
         summarization_in_progress=state.get("summarization_in_progress", False),
         selected_module=state.get("selected_module"),
-        character_sheets=state.get("character_sheets", {}),
+        character_sheets=updated_sheets,
     )
+
+
+def _execute_sheet_update(
+    tool_args: dict[str, object],
+    sheets: dict[str, "CharacterSheet"],
+) -> str:
+    """Execute a character sheet update from DM tool call.
+
+    Parses the tool arguments, finds the character sheet, applies updates,
+    and returns a confirmation message.
+
+    Story 8.4: DM Tool Calls for Sheet Updates.
+
+    Args:
+        tool_args: Tool call arguments with "character_name" and "updates".
+        sheets: Mutable dict of character sheets (updated in place).
+
+    Returns:
+        Confirmation or error message string.
+    """
+    import json
+
+    character_name = tool_args.get("character_name", "")
+    updates_raw = tool_args.get("updates", "{}")
+
+    if not character_name:
+        return "Error: character_name is required."
+
+    # Parse updates JSON string
+    if isinstance(updates_raw, str):
+        try:
+            updates = json.loads(updates_raw)
+        except json.JSONDecodeError as e:
+            return f"Error: Invalid JSON in updates: {e}"
+    elif isinstance(updates_raw, dict):
+        updates = updates_raw
+    else:
+        return f"Error: updates must be a JSON string or dict, got {type(updates_raw).__name__}"
+
+    if not isinstance(updates, dict):
+        return f"Error: updates must be a JSON object, got {type(updates).__name__}"
+
+    # Find the character sheet
+    sheet = sheets.get(str(character_name))
+    if sheet is None:
+        available = ", ".join(sheets.keys()) if sheets else "none"
+        return f"Error: No character sheet found for '{character_name}'. Available: {available}"
+
+    # Apply updates
+    try:
+        updated_sheet, confirmation = apply_character_sheet_update(sheet, updates)
+        sheets[str(character_name)] = updated_sheet
+        return confirmation
+    except (ValueError, TypeError) as e:
+        return f"Error updating {character_name}: {e}"
 
 
 def pc_turn(state: GameState, agent_name: str) -> GameState:

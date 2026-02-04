@@ -302,6 +302,8 @@ class TestModuleExports:
             # Story 8.3: Character Sheet Context Injection
             "format_character_sheet_context",
             "format_all_sheets_context",
+            # Story 8.4: DM Tool Calls for Sheet Updates
+            "_execute_sheet_update",
         }
 
         assert set(agents.__all__) == expected_exports

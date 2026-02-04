@@ -116,7 +116,7 @@ development_status:
   8-1-character-sheet-data-model: done
   8-2-character-sheet-viewer-ui: done
   8-3-character-sheet-context-injection: done
-  8-4-dm-tool-calls-for-sheet-updates: backlog
+  8-4-dm-tool-calls-for-sheet-updates: in-progress
   8-5-sheet-change-notifications: backlog
   epic-8-retrospective: optional
 
