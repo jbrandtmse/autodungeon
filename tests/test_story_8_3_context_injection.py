@@ -21,6 +21,7 @@ from models import (
     AgentMemory,
     Armor,
     CharacterConfig,
+    CharacterFacts,
     CharacterSheet,
     DMConfig,
     EquipmentItem,
@@ -716,3 +717,841 @@ class TestCharacterSheetContextEdgeCases:
         )
         result = format_character_sheet_context(sheet)
         assert "HP: 0/12" in result
+
+
+# =============================================================================
+# Additional Edge Cases for format_character_sheet_context
+# =============================================================================
+
+
+class TestFormatCharacterSheetContextAdditionalEdgeCases:
+    """Additional edge case tests for format_character_sheet_context."""
+
+    def test_sheet_with_only_racial_traits(self) -> None:
+        """Test formatting sheet with only racial traits (no class features or feats)."""
+        sheet = CharacterSheet(
+            name="Elf Scout",
+            race="Wood Elf",
+            character_class="Ranger",
+            level=1,
+            strength=10,
+            dexterity=16,
+            constitution=12,
+            intelligence=12,
+            wisdom=14,
+            charisma=10,
+            armor_class=14,
+            hit_points_max=11,
+            hit_points_current=11,
+            hit_dice="1d10",
+            hit_dice_remaining=1,
+            racial_traits=["Darkvision", "Keen Senses", "Fey Ancestry", "Mask of the Wild"],
+            class_features=[],
+            feats=[],
+        )
+        result = format_character_sheet_context(sheet)
+        assert "Features:" in result
+        assert "Darkvision" in result
+        assert "Keen Senses" in result
+        assert "Fey Ancestry" in result
+        assert "Mask of the Wild" in result
+
+    def test_sheet_with_all_three_feature_types(self) -> None:
+        """Test formatting sheet with class features, racial traits, and feats."""
+        sheet = CharacterSheet(
+            name="Veteran",
+            race="Half-Orc",
+            character_class="Fighter",
+            level=4,
+            strength=18,
+            dexterity=12,
+            constitution=16,
+            intelligence=10,
+            wisdom=10,
+            charisma=8,
+            armor_class=18,
+            hit_points_max=40,
+            hit_points_current=40,
+            hit_dice="4d10",
+            hit_dice_remaining=4,
+            class_features=["Second Wind", "Action Surge"],
+            racial_traits=["Darkvision", "Relentless Endurance", "Savage Attacks"],
+            feats=["Great Weapon Master"],
+        )
+        result = format_character_sheet_context(sheet)
+        assert "Features:" in result
+        # All features should be listed together
+        assert "Second Wind" in result
+        assert "Action Surge" in result
+        assert "Darkvision" in result
+        assert "Relentless Endurance" in result
+        assert "Great Weapon Master" in result
+
+    def test_sheet_with_multiple_armor_and_tool_proficiencies(self) -> None:
+        """Test formatting with multiple armor proficiencies and tool proficiencies."""
+        sheet = CharacterSheet(
+            name="Artisan",
+            race="Dwarf",
+            character_class="Fighter",
+            level=1,
+            strength=16,
+            dexterity=10,
+            constitution=14,
+            intelligence=12,
+            wisdom=10,
+            charisma=8,
+            armor_class=16,
+            hit_points_max=12,
+            hit_points_current=12,
+            hit_dice="1d10",
+            hit_dice_remaining=1,
+            armor_proficiencies=["Light armor", "Medium armor", "Heavy armor", "Shields"],
+            tool_proficiencies=["Smith's tools", "Brewer's supplies", "Mason's tools"],
+        )
+        result = format_character_sheet_context(sheet)
+        assert "Proficiencies:" in result
+        assert "Light armor" in result
+        assert "Heavy armor" in result
+        assert "Shields" in result
+        assert "Smith's tools" in result
+        assert "Brewer's supplies" in result
+        assert "Mason's tools" in result
+        # Verify tools are in the Tools section
+        assert "Tools: Smith's tools, Brewer's supplies, Mason's tools" in result
+
+    def test_sheet_with_ranged_weapon_uses_dex(self) -> None:
+        """Test ranged weapons use DEX modifier for attack bonus."""
+        sheet = CharacterSheet(
+            name="Archer",
+            race="Human",
+            character_class="Ranger",
+            level=5,
+            strength=10,
+            dexterity=18,
+            constitution=12,
+            intelligence=10,
+            wisdom=14,
+            charisma=10,
+            armor_class=15,
+            hit_points_max=38,
+            hit_points_current=38,
+            hit_dice="5d10",
+            hit_dice_remaining=5,
+            weapons=[
+                Weapon(
+                    name="Longbow",
+                    damage_dice="1d8",
+                    damage_type="piercing",
+                    properties=["ammunition", "heavy", "two-handed"],
+                ),
+            ],
+        )
+        result = format_character_sheet_context(sheet)
+        # Level 5 proficiency +3, DEX +4 = +7
+        assert "(+7, 1d8 piercing)" in result
+
+    def test_sheet_with_no_skills(self) -> None:
+        """Test formatting sheet with no skills at all."""
+        sheet = CharacterSheet(
+            name="Unskilled",
+            race="Human",
+            character_class="Fighter",
+            level=1,
+            strength=14,
+            dexterity=10,
+            constitution=12,
+            intelligence=10,
+            wisdom=10,
+            charisma=10,
+            armor_class=16,
+            hit_points_max=12,
+            hit_points_current=12,
+            hit_dice="1d10",
+            hit_dice_remaining=1,
+            skill_proficiencies=[],
+            skill_expertise=[],
+        )
+        result = format_character_sheet_context(sheet)
+        assert "Skills:" not in result
+
+    def test_sheet_with_only_expertise_skills(self) -> None:
+        """Test formatting sheet with only expertise skills (no regular proficiencies)."""
+        sheet = CharacterSheet(
+            name="Expert Rogue",
+            race="Human",
+            character_class="Rogue",
+            level=1,
+            strength=10,
+            dexterity=16,
+            constitution=10,
+            intelligence=14,
+            wisdom=12,
+            charisma=12,
+            armor_class=14,
+            hit_points_max=8,
+            hit_points_current=8,
+            hit_dice="1d8",
+            hit_dice_remaining=1,
+            skill_proficiencies=[],
+            skill_expertise=["Stealth", "Thieves' Tools"],
+        )
+        result = format_character_sheet_context(sheet)
+        assert "Skills:" in result
+        # Expertise: ability mod + proficiency * 2
+        # Stealth: DEX +3, prof 2x2=4 = +7
+        assert "Stealth (+7)" in result
+
+    def test_sheet_with_multiple_conditions(self) -> None:
+        """Test formatting sheet with multiple conditions."""
+        sheet = CharacterSheet(
+            name="Afflicted",
+            race="Human",
+            character_class="Fighter",
+            level=1,
+            strength=14,
+            dexterity=10,
+            constitution=12,
+            intelligence=10,
+            wisdom=10,
+            charisma=10,
+            armor_class=16,
+            hit_points_max=12,
+            hit_points_current=8,
+            hit_dice="1d10",
+            hit_dice_remaining=1,
+            conditions=["poisoned", "frightened", "exhausted"],
+        )
+        result = format_character_sheet_context(sheet)
+        assert "Conditions: poisoned, frightened, exhausted" in result
+
+    def test_sheet_with_zero_gold_but_silver_copper(self) -> None:
+        """Test formatting sheet with 0 gold but silver/copper present."""
+        sheet = CharacterSheet(
+            name="Poor",
+            race="Human",
+            character_class="Fighter",
+            level=1,
+            strength=14,
+            dexterity=10,
+            constitution=12,
+            intelligence=10,
+            wisdom=10,
+            charisma=10,
+            armor_class=16,
+            hit_points_max=12,
+            hit_points_current=12,
+            hit_dice="1d10",
+            hit_dice_remaining=1,
+            gold=0,
+            silver=15,
+            copper=30,
+        )
+        result = format_character_sheet_context(sheet)
+        # Gold should NOT appear since it's 0
+        assert "gold" not in result.lower() or "0 gold" not in result
+        assert "15 silver" in result
+        assert "30 copper" in result
+
+    def test_sheet_with_temp_hp_displayed_correctly(self) -> None:
+        """Test temp HP is displayed correctly in the HP line."""
+        sheet = CharacterSheet(
+            name="Buffed",
+            race="Human",
+            character_class="Fighter",
+            level=5,
+            strength=16,
+            dexterity=12,
+            constitution=14,
+            intelligence=10,
+            wisdom=10,
+            charisma=10,
+            armor_class=18,
+            hit_points_max=44,
+            hit_points_current=44,
+            hit_dice="5d10",
+            hit_dice_remaining=5,
+            hit_points_temp=15,
+        )
+        result = format_character_sheet_context(sheet)
+        assert "HP: 44/44 (+15 temp)" in result
+
+    def test_sheet_at_level_1_proficiency_bonus(self) -> None:
+        """Test level 1 character has +2 proficiency bonus."""
+        sheet = CharacterSheet(
+            name="Novice",
+            race="Human",
+            character_class="Fighter",
+            level=1,
+            strength=16,
+            dexterity=10,
+            constitution=14,
+            intelligence=10,
+            wisdom=10,
+            charisma=10,
+            armor_class=16,
+            hit_points_max=12,
+            hit_points_current=12,
+            hit_dice="1d10",
+            hit_dice_remaining=1,
+            skill_proficiencies=["Athletics"],
+            weapons=[
+                Weapon(name="Longsword", damage_dice="1d8", damage_type="slashing"),
+            ],
+        )
+        result = format_character_sheet_context(sheet)
+        # Level 1 proficiency +2, STR +3
+        # Athletics: STR +3 + prof +2 = +5
+        assert "Athletics (+5)" in result
+        # Weapon: prof +2 + STR +3 = +5
+        assert "(+5, 1d8 slashing)" in result
+
+    def test_sheet_at_level_17_proficiency_bonus(self) -> None:
+        """Test level 17 character has +6 proficiency bonus."""
+        sheet = CharacterSheet(
+            name="Legend",
+            race="Human",
+            character_class="Fighter",
+            level=17,
+            strength=20,
+            dexterity=10,
+            constitution=16,
+            intelligence=10,
+            wisdom=10,
+            charisma=10,
+            armor_class=20,
+            hit_points_max=180,
+            hit_points_current=180,
+            hit_dice="17d10",
+            hit_dice_remaining=17,
+            skill_proficiencies=["Athletics"],
+            weapons=[
+                Weapon(name="Greatsword", damage_dice="2d6", damage_type="slashing"),
+            ],
+        )
+        result = format_character_sheet_context(sheet)
+        # Level 17 proficiency +6, STR +5
+        # Athletics: STR +5 + prof +6 = +11
+        assert "Athletics (+11)" in result
+        # Weapon: prof +6 + STR +5 = +11
+        assert "(+11, 2d6 slashing)" in result
+
+
+# =============================================================================
+# Additional format_all_sheets_context Tests
+# =============================================================================
+
+
+class TestFormatAllSheetsContextAdditional:
+    """Additional tests for format_all_sheets_context function."""
+
+    def test_single_character_sheet(self, fighter_sheet: CharacterSheet) -> None:
+        """Test format_all_sheets_context with a single character sheet."""
+        sheets = {"Thorin": fighter_sheet}
+        result = format_all_sheets_context(sheets)
+        assert "## Party Character Sheets" in result
+        assert "Thorin" in result
+        # Should use DM format (not "Your Character Sheet")
+        assert "## Your Character Sheet" not in result
+
+    def test_three_or_more_sheets_sorted(self, fighter_sheet: CharacterSheet, wizard_sheet: CharacterSheet) -> None:
+        """Test three or more character sheets are sorted alphabetically."""
+        rogue_sheet = CharacterSheet(
+            name="Shadowmere",
+            race="Halfling",
+            character_class="Rogue",
+            level=5,
+            strength=10,
+            dexterity=18,
+            constitution=12,
+            intelligence=14,
+            wisdom=12,
+            charisma=14,
+            armor_class=15,
+            hit_points_max=33,
+            hit_points_current=33,
+            hit_dice="5d8",
+            hit_dice_remaining=5,
+        )
+        # Provide sheets in non-alphabetical order
+        sheets = {
+            "Thorin": fighter_sheet,
+            "Shadowmere": rogue_sheet,
+            "Elara": wizard_sheet,
+        }
+        result = format_all_sheets_context(sheets)
+        # Should be sorted: Elara, Shadowmere, Thorin
+        elara_pos = result.find("Elara")
+        shadow_pos = result.find("Shadowmere")
+        thorin_pos = result.find("Thorin")
+        assert elara_pos < shadow_pos < thorin_pos
+
+    def test_mixed_spellcasters_and_non_spellcasters(
+        self, fighter_sheet: CharacterSheet, wizard_sheet: CharacterSheet
+    ) -> None:
+        """Test sheets with both spellcasters and non-spellcasters mixed."""
+        sheets = {"Thorin": fighter_sheet, "Elara": wizard_sheet}
+        result = format_all_sheets_context(sheets)
+        # Fighter shouldn't have spellcasting section
+        # Find Thorin's section and check no spellcasting before next header
+        thorin_start = result.find("### Thorin")
+        elara_start = result.find("### Elara")
+        # Since Elara comes before Thorin alphabetically
+        assert elara_start < thorin_start
+        thorin_section = result[thorin_start:]
+        # Thorin (fighter) section should NOT have "Spellcasting:"
+        assert "Spellcasting:" not in thorin_section
+        # Elara's section (wizard) should have spellcasting
+        elara_section = result[elara_start:thorin_start]
+        assert "Spellcasting:" in elara_section
+
+
+# =============================================================================
+# Additional _build_dm_context Integration Tests
+# =============================================================================
+
+
+class TestBuildDMContextWithSheetsAdditional:
+    """Additional integration tests for _build_dm_context with character sheets."""
+
+    def test_dm_context_with_sheets_and_character_facts(
+        self, sample_game_state_with_sheets: GameState
+    ) -> None:
+        """Test DM context includes both character sheets AND character facts."""
+        # Add character facts to fighter memory
+        fighter_memory = sample_game_state_with_sheets["agent_memories"]["fighter"]
+        updated_memory = fighter_memory.model_copy(
+            update={
+                "character_facts": CharacterFacts(
+                    name="Thorin",
+                    character_class="Fighter",
+                    key_traits=["Brave", "Stubborn"],
+                    relationships={"Elara": "Trusted ally"},
+                    notable_events=["Defeated the goblin king"],
+                ),
+            }
+        )
+        sample_game_state_with_sheets["agent_memories"]["fighter"] = updated_memory
+
+        result = _build_dm_context(sample_game_state_with_sheets)
+        # Both sections should be present
+        assert "## Party Character Sheets" in result
+        assert "## Party Members" in result
+        assert "Brave" in result
+        assert "Trusted ally" in result
+
+    def test_dm_context_with_sheets_and_long_term_summary_and_buffer(
+        self, sample_game_state_with_sheets: GameState
+    ) -> None:
+        """Test DM context includes sheets, long-term summary, AND short-term buffer."""
+        # Add long-term summary and buffer entries to DM memory
+        dm_memory = sample_game_state_with_sheets["agent_memories"]["dm"]
+        updated_dm = dm_memory.model_copy(
+            update={
+                "long_term_summary": "The party entered the dungeon and fought goblins.",
+                "short_term_buffer": [
+                    "[DM]: You enter a dark corridor.",
+                    "[Thorin]: I draw my sword.",
+                    "[Elara]: I cast Light.",
+                ],
+            }
+        )
+        sample_game_state_with_sheets["agent_memories"]["dm"] = updated_dm
+
+        result = _build_dm_context(sample_game_state_with_sheets)
+        assert "## Story So Far" in result
+        assert "The party entered the dungeon" in result
+        assert "## Recent Events" in result
+        assert "dark corridor" in result
+        assert "## Party Character Sheets" in result
+        assert "Thorin, Dwarf Fighter" in result
+        assert "Elara, Elf Wizard" in result
+
+
+# =============================================================================
+# Additional _build_pc_context Integration Tests
+# =============================================================================
+
+
+class TestBuildPCContextWithSheetsAdditional:
+    """Additional integration tests for _build_pc_context with character sheets."""
+
+    def test_pc_context_with_sheet_and_facts_and_memory(
+        self, sample_game_state_with_sheets: GameState
+    ) -> None:
+        """Test PC context includes sheet AND character facts AND memory."""
+        # Add character facts and memory to fighter
+        fighter_memory = sample_game_state_with_sheets["agent_memories"]["fighter"]
+        updated_memory = fighter_memory.model_copy(
+            update={
+                "character_facts": CharacterFacts(
+                    name="Thorin",
+                    character_class="Fighter",
+                    key_traits=["Brave"],
+                ),
+                "long_term_summary": "We entered the dungeon yesterday.",
+                "short_term_buffer": ["[DM]: A dragon appears!"],
+            }
+        )
+        sample_game_state_with_sheets["agent_memories"]["fighter"] = updated_memory
+
+        result = _build_pc_context(sample_game_state_with_sheets, "fighter")
+        # Should have character identity section
+        assert "## Character Identity" in result
+        assert "Brave" in result
+        # Should have memory sections
+        assert "## What You Remember" in result
+        assert "We entered the dungeon" in result
+        assert "## Recent Events" in result
+        assert "dragon appears" in result
+        # Should have own character sheet
+        assert "## Your Character Sheet: Thorin" in result
+
+    def test_pc_agent_with_no_matching_character_config(
+        self, sample_game_state_with_sheets: GameState
+    ) -> None:
+        """Test PC context when agent has no matching character config in state."""
+        # Add a memory for an agent that isn't in characters dict
+        sample_game_state_with_sheets["agent_memories"]["ranger"] = AgentMemory(
+            token_limit=4000,
+            short_term_buffer=["[DM]: The forest is dense."],
+        )
+
+        result = _build_pc_context(sample_game_state_with_sheets, "ranger")
+        # Should not crash, but no character sheet should be present
+        assert "## Your Character Sheet" not in result
+        # Should still have recent events from its own memory
+        assert "The forest is dense" in result
+
+    def test_pc_cannot_see_other_pc_sheets(
+        self, sample_game_state_with_sheets: GameState
+    ) -> None:
+        """Verify PC can't see other PC sheets (cross-check multiple agents)."""
+        # Fighter should only see Thorin's sheet
+        fighter_result = _build_pc_context(sample_game_state_with_sheets, "fighter")
+        assert "Thorin" in fighter_result
+        assert "Elara" not in fighter_result
+
+        # Wizard should only see Elara's sheet
+        wizard_result = _build_pc_context(sample_game_state_with_sheets, "wizard")
+        assert "Elara" in wizard_result
+        assert "Thorin" not in wizard_result
+
+    def test_pc_context_with_sheet_shows_correct_format(
+        self, sample_game_state_with_sheets: GameState
+    ) -> None:
+        """Test PC context uses 'Your Character Sheet' format for own sheet."""
+        result = _build_pc_context(sample_game_state_with_sheets, "fighter")
+        assert "## Your Character Sheet: Thorin, Dwarf Fighter (Level 5)" in result
+        # Should NOT use the DM format (###)
+        assert "### Thorin" not in result
+
+
+# =============================================================================
+# Spellcasting Edge Cases
+# =============================================================================
+
+
+class TestSpellcastingEdgeCases:
+    """Edge case tests for spellcasting section in format_character_sheet_context."""
+
+    def test_caster_with_no_spells_known_but_with_slots(self) -> None:
+        """Test caster with spell slots but no spells known."""
+        sheet = CharacterSheet(
+            name="Forgetful Wizard",
+            race="Human",
+            character_class="Wizard",
+            level=3,
+            strength=8,
+            dexterity=14,
+            constitution=12,
+            intelligence=16,
+            wisdom=10,
+            charisma=10,
+            armor_class=12,
+            hit_points_max=17,
+            hit_points_current=17,
+            hit_dice="3d6",
+            hit_dice_remaining=3,
+            spellcasting_ability="intelligence",
+            spell_save_dc=13,
+            spell_attack_bonus=5,
+            spell_slots={
+                1: SpellSlots(current=4, max=4),
+                2: SpellSlots(current=2, max=2),
+            },
+            spells_known=[],
+            cantrips=[],
+        )
+        result = format_character_sheet_context(sheet)
+        assert "Spellcasting:" in result
+        assert "Spell Slots:" in result
+        assert "L1: 4/4" in result
+        assert "L2: 2/2" in result
+        # No prepared spells section since none known
+        assert "Prepared Spells:" not in result
+
+    def test_caster_with_cantrips_only(self) -> None:
+        """Test caster with cantrips but no spell slots."""
+        sheet = CharacterSheet(
+            name="Cantrip Master",
+            race="High Elf",
+            character_class="Wizard",
+            level=1,
+            strength=8,
+            dexterity=14,
+            constitution=12,
+            intelligence=16,
+            wisdom=10,
+            charisma=10,
+            armor_class=12,
+            hit_points_max=7,
+            hit_points_current=7,
+            hit_dice="1d6",
+            hit_dice_remaining=1,
+            spellcasting_ability="intelligence",
+            spell_save_dc=13,
+            spell_attack_bonus=5,
+            cantrips=["Fire Bolt", "Mage Hand", "Prestidigitation"],
+            spell_slots={},
+            spells_known=[],
+        )
+        result = format_character_sheet_context(sheet)
+        assert "Spellcasting:" in result
+        assert "Cantrips:" in result
+        assert "Fire Bolt" in result
+        # No spell slots section since dict is empty
+        assert "Spell Slots:" not in result
+
+    def test_spell_attack_bonus_of_zero(self) -> None:
+        """Test spell attack bonus of 0 shows '+0'."""
+        sheet = CharacterSheet(
+            name="Weak Caster",
+            race="Human",
+            character_class="Wizard",
+            level=1,
+            strength=10,
+            dexterity=10,
+            constitution=10,
+            intelligence=10,
+            wisdom=10,
+            charisma=10,
+            armor_class=10,
+            hit_points_max=6,
+            hit_points_current=6,
+            hit_dice="1d6",
+            hit_dice_remaining=1,
+            spellcasting_ability="intelligence",
+            spell_save_dc=10,
+            spell_attack_bonus=0,
+            cantrips=["Fire Bolt"],
+        )
+        result = format_character_sheet_context(sheet)
+        assert "Attack: +0" in result
+
+    def test_empty_spell_slots_dict(self) -> None:
+        """Test caster with empty spell_slots dict (no slots at all)."""
+        sheet = CharacterSheet(
+            name="Slotless",
+            race="Human",
+            character_class="Warlock",
+            level=1,
+            strength=10,
+            dexterity=14,
+            constitution=12,
+            intelligence=10,
+            wisdom=10,
+            charisma=16,
+            armor_class=12,
+            hit_points_max=9,
+            hit_points_current=9,
+            hit_dice="1d8",
+            hit_dice_remaining=1,
+            spellcasting_ability="charisma",
+            spell_save_dc=13,
+            spell_attack_bonus=5,
+            spell_slots={},
+            cantrips=["Eldritch Blast"],
+            spells_known=[
+                Spell(
+                    name="Hex",
+                    level=1,
+                    school="enchantment",
+                    description="Curse a creature",
+                ),
+            ],
+        )
+        result = format_character_sheet_context(sheet)
+        assert "Spellcasting:" in result
+        assert "Spell Slots:" not in result
+        assert "Prepared Spells:" in result
+        assert "Hex" in result
+
+
+# =============================================================================
+# Boundary Tests
+# =============================================================================
+
+
+class TestBoundaryTests:
+    """Boundary tests for character sheet context formatting."""
+
+    def test_very_long_character_name(self) -> None:
+        """Test formatting with a very long character name."""
+        long_name = "Bartholomew Ignatius Cornelius Von Stravaganza III"
+        sheet = CharacterSheet(
+            name=long_name,
+            race="Human",
+            character_class="Fighter",
+            level=1,
+            strength=14,
+            dexterity=10,
+            constitution=12,
+            intelligence=10,
+            wisdom=10,
+            charisma=10,
+            armor_class=16,
+            hit_points_max=12,
+            hit_points_current=12,
+            hit_dice="1d10",
+            hit_dice_remaining=1,
+        )
+        result = format_character_sheet_context(sheet)
+        assert long_name in result
+        assert f"## Your Character Sheet: {long_name}" in result
+
+    def test_empty_string_fields(self) -> None:
+        """Test formatting with empty string fields (background, alignment)."""
+        sheet = CharacterSheet(
+            name="Minimal",
+            race="Human",
+            character_class="Fighter",
+            level=1,
+            strength=10,
+            dexterity=10,
+            constitution=10,
+            intelligence=10,
+            wisdom=10,
+            charisma=10,
+            armor_class=10,
+            hit_points_max=10,
+            hit_points_current=10,
+            hit_dice="1d10",
+            hit_dice_remaining=1,
+            background="",
+            alignment="",
+            personality_traits="",
+            ideals="",
+            bonds="",
+            flaws="",
+        )
+        result = format_character_sheet_context(sheet)
+        # Should not crash and should contain core info
+        assert "Minimal" in result
+        assert "Human Fighter" in result
+        assert "HP: 10/10" in result
+
+    def test_equipment_item_with_quantity_one_no_parentheses(self) -> None:
+        """Test equipment item with quantity of exactly 1 has no parentheses."""
+        sheet = CharacterSheet(
+            name="Light Traveler",
+            race="Human",
+            character_class="Fighter",
+            level=1,
+            strength=14,
+            dexterity=10,
+            constitution=12,
+            intelligence=10,
+            wisdom=10,
+            charisma=10,
+            armor_class=16,
+            hit_points_max=12,
+            hit_points_current=12,
+            hit_dice="1d10",
+            hit_dice_remaining=1,
+            equipment=[
+                EquipmentItem(name="Bedroll", quantity=1),
+            ],
+        )
+        result = format_character_sheet_context(sheet)
+        assert "Bedroll" in result
+        # Should NOT have parentheses for quantity 1
+        assert "Bedroll (1)" not in result
+
+    def test_equipment_item_with_quantity_greater_than_one(self) -> None:
+        """Test equipment item with quantity > 1 shows parentheses."""
+        sheet = CharacterSheet(
+            name="Prepared",
+            race="Human",
+            character_class="Fighter",
+            level=1,
+            strength=14,
+            dexterity=10,
+            constitution=12,
+            intelligence=10,
+            wisdom=10,
+            charisma=10,
+            armor_class=16,
+            hit_points_max=12,
+            hit_points_current=12,
+            hit_dice="1d10",
+            hit_dice_remaining=1,
+            equipment=[
+                EquipmentItem(name="Healing Potion", quantity=3),
+                EquipmentItem(name="Pitons", quantity=10),
+                EquipmentItem(name="Waterskin", quantity=1),
+            ],
+        )
+        result = format_character_sheet_context(sheet)
+        assert "Healing Potion (3)" in result
+        assert "Pitons (10)" in result
+        assert "Waterskin" in result
+        # Waterskin should NOT have (1)
+        assert "Waterskin (1)" not in result
+
+    def test_no_conditions_shows_none(self) -> None:
+        """Test that no conditions shows 'Conditions: None'."""
+        sheet = CharacterSheet(
+            name="Healthy",
+            race="Human",
+            character_class="Fighter",
+            level=1,
+            strength=14,
+            dexterity=10,
+            constitution=12,
+            intelligence=10,
+            wisdom=10,
+            charisma=10,
+            armor_class=16,
+            hit_points_max=12,
+            hit_points_current=12,
+            hit_dice="1d10",
+            hit_dice_remaining=1,
+            conditions=[],
+        )
+        result = format_character_sheet_context(sheet)
+        assert "Conditions: None" in result
+
+    def test_no_features_no_features_line(self) -> None:
+        """Test that empty features lists produce no Features line."""
+        sheet = CharacterSheet(
+            name="Bare",
+            race="Human",
+            character_class="Commoner",
+            level=1,
+            strength=10,
+            dexterity=10,
+            constitution=10,
+            intelligence=10,
+            wisdom=10,
+            charisma=10,
+            armor_class=10,
+            hit_points_max=4,
+            hit_points_current=4,
+            hit_dice="1d4",
+            hit_dice_remaining=1,
+            class_features=[],
+            racial_traits=[],
+            feats=[],
+        )
+        result = format_character_sheet_context(sheet)
+        assert "Features:" not in result
