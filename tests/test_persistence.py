@@ -54,6 +54,8 @@ def temp_campaigns_dir(tmp_path: Path) -> Generator[Path, None, None]:
 @pytest.fixture
 def sample_game_state() -> GameState:
     """Create a sample GameState for testing."""
+    from models import AgentSecrets
+
     return GameState(
         ground_truth_log=["[dm] The adventure begins.", "[fighter] I draw my sword."],
         turn_queue=["dm", "fighter", "rogue"],
@@ -101,6 +103,10 @@ def sample_game_state() -> GameState:
         summarization_in_progress=False,
         selected_module=None,
         character_sheets={},
+        agent_secrets={
+            "dm": AgentSecrets(),
+            "fighter": AgentSecrets(),
+        },
     )
 
 
@@ -213,6 +219,7 @@ class TestGameStateSerialization:
             "summarization_in_progress",
             "selected_module",  # Story 7.3: Module Context Injection
             "character_sheets",  # Story 8.3: Character Sheet Context Injection
+            "agent_secrets",  # Story 10.1: Whisper Data Model
         }
         assert set(data.keys()) == expected_keys
 

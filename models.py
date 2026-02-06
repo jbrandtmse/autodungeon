@@ -13,6 +13,7 @@ for validation and serialization benefits.
 """
 
 import re
+import uuid
 from datetime import UTC, datetime
 from typing import ClassVar, Literal, TypedDict
 
@@ -20,6 +21,7 @@ from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_va
 
 __all__ = [
     "AgentMemory",
+    "AgentSecrets",
     "ApiKeyFieldState",
     "Armor",
     "CharacterConfig",
@@ -42,10 +44,12 @@ __all__ = [
     "UserError",
     "ValidationResult",
     "Weapon",
+    "Whisper",
     "create_agent_memory",
     "create_character_facts_from_config",
     "create_initial_game_state",
     "create_user_error",
+    "create_whisper",
     "populate_game_state",
     "parse_log_entry",
     "parse_message_content",
@@ -340,6 +344,139 @@ class TranscriptEntry(BaseModel):
     content: str = Field(..., description="Full message content")
     tool_calls: list[dict[str, object]] | None = Field(
         default=None, description="Tool calls made during this turn"
+    )
+
+
+# =============================================================================
+# Whisper System (Story 10.1)
+# =============================================================================
+
+
+class Whisper(BaseModel):
+    """A private message between DM and an agent.
+
+    Whispers allow the DM to send secret information to individual agents
+    that other agents cannot see. This enables dramatic irony and hidden
+    knowledge mechanics.
+
+    Story 10.1: Whisper Data Model.
+    FRs: FR71 (DM can send private information), FR75 (Whisper history tracked).
+
+    Attributes:
+        id: Unique identifier for this whisper (UUID hex string).
+        from_agent: Source of the whisper - "dm" or "human".
+        to_agent: Target agent name (lowercase, matching agent keys).
+        content: The private message content.
+        turn_created: Turn number when the whisper was created.
+        revealed: Whether the secret has been dramatically revealed.
+        turn_revealed: Turn when the reveal occurred (only set if revealed=True).
+    """
+
+    # Valid sources for whispers
+    VALID_SOURCES: ClassVar[frozenset[str]] = frozenset(["dm", "human"])
+
+    id: str = Field(..., min_length=1, description="Unique whisper ID (UUID hex)")
+    from_agent: str = Field(..., description="Source of whisper: 'dm' or 'human'")
+    to_agent: str = Field(
+        ..., min_length=1, description="Target agent name (lowercase)"
+    )
+    content: str = Field(..., min_length=1, description="Private message content")
+    turn_created: int = Field(..., ge=0, description="Turn when whisper was created")
+    revealed: bool = Field(default=False, description="Whether secret was revealed")
+    turn_revealed: int | None = Field(
+        default=None, ge=0, description="Turn when reveal occurred"
+    )
+
+    @field_validator("from_agent")
+    @classmethod
+    def from_agent_is_valid(cls, v: str) -> str:
+        """Validate from_agent is 'dm' or 'human'."""
+        normalized = v.lower()
+        if normalized not in cls.VALID_SOURCES:
+            valid = ", ".join(sorted(cls.VALID_SOURCES))
+            raise ValueError(f"from_agent must be one of: {valid}, got: {v}")
+        return normalized
+
+    @field_validator("to_agent")
+    @classmethod
+    def to_agent_normalized(cls, v: str) -> str:
+        """Normalize to_agent to lowercase to match agent keys."""
+        return v.lower()
+
+    @field_validator("content")
+    @classmethod
+    def content_not_whitespace_only(cls, v: str) -> str:
+        """Validate content is not empty or whitespace-only."""
+        if not v.strip():
+            raise ValueError("content must not be empty or whitespace-only")
+        return v
+
+    @model_validator(mode="after")
+    def validate_turn_revealed(self) -> "Whisper":
+        """Validate turn_revealed consistency with revealed status and turn_created."""
+        if self.revealed and self.turn_revealed is None:
+            raise ValueError("turn_revealed must be set when revealed=True")
+        if not self.revealed and self.turn_revealed is not None:
+            raise ValueError("turn_revealed must be None when revealed=False")
+        if self.turn_revealed is not None and self.turn_revealed < self.turn_created:
+            raise ValueError(
+                f"turn_revealed ({self.turn_revealed}) cannot be before "
+                f"turn_created ({self.turn_created})"
+            )
+        return self
+
+
+class AgentSecrets(BaseModel):
+    """Container for an agent's private whispers and secrets.
+
+    Stores all whispers sent to a specific agent and provides methods
+    for querying active (unrevealed) whispers.
+
+    Story 10.1: Whisper Data Model.
+    FR75: Whisper history is tracked per agent.
+
+    Attributes:
+        whispers: List of all whispers received by this agent.
+    """
+
+    whispers: list[Whisper] = Field(
+        default_factory=list, description="All whispers for this agent"
+    )
+
+    def active_whispers(self) -> list[Whisper]:
+        """Return whispers that have not been revealed.
+
+        Returns:
+            List of Whisper objects where revealed=False.
+        """
+        return [w for w in self.whispers if not w.revealed]
+
+
+def create_whisper(
+    from_agent: str,
+    to_agent: str,
+    content: str,
+    turn_created: int,
+) -> Whisper:
+    """Factory function to create a new Whisper with auto-generated ID.
+
+    Creates a whisper with a unique UUID-based identifier.
+
+    Args:
+        from_agent: Source of the whisper ("dm" or "human").
+        to_agent: Target agent name (lowercase).
+        content: The private message content.
+        turn_created: Current turn number.
+
+    Returns:
+        A new Whisper instance with unique ID.
+    """
+    return Whisper(
+        id=uuid.uuid4().hex,
+        from_agent=from_agent,
+        to_agent=to_agent,
+        content=content,
+        turn_created=turn_created,
     )
 
 
@@ -997,6 +1134,8 @@ class GameState(TypedDict):
             None for freeform adventures without a specific module.
         character_sheets: Character sheets keyed by character name (Story 8.3).
             Used for context injection into agent prompts.
+        agent_secrets: Per-agent secrets and whispers (Story 10.1).
+            Keys are agent names, values are AgentSecrets instances.
     """
 
     ground_truth_log: list[str]
@@ -1014,6 +1153,7 @@ class GameState(TypedDict):
     summarization_in_progress: bool
     selected_module: ModuleInfo | None
     character_sheets: dict[str, "CharacterSheet"]
+    agent_secrets: dict[str, "AgentSecrets"]
 
 
 class MessageSegment(BaseModel):
@@ -1237,6 +1377,7 @@ def create_initial_game_state() -> GameState:
         summarization_in_progress=False,
         selected_module=None,
         character_sheets={},
+        agent_secrets={},
     )
 
 
@@ -1279,6 +1420,11 @@ def populate_game_state(
             token_limit=char_config.token_limit, character_facts=facts
         )
 
+    # Initialize agent secrets for each agent (Story 10.1)
+    agent_secrets: dict[str, AgentSecrets] = {}
+    for agent_name in turn_queue:
+        agent_secrets[agent_name] = AgentSecrets()
+
     # Sample messages demonstrating different message types and styling
     sample_messages: list[str] = []
     if include_sample_messages:
@@ -1304,6 +1450,7 @@ def populate_game_state(
         summarization_in_progress=False,
         selected_module=selected_module,
         character_sheets={},
+        agent_secrets=agent_secrets,
     )
 
 

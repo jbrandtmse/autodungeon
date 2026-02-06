@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from models import (
     AgentMemory,
+    AgentSecrets,
     CharacterConfig,
     CharacterSheet,
     DMConfig,
@@ -30,6 +31,7 @@ from models import (
     ModuleInfo,
     SessionMetadata,
     TranscriptEntry,
+    Whisper,
 )
 
 __all__ = [
@@ -208,6 +210,10 @@ def serialize_game_state(state: GameState) -> str:
         "character_sheets": {
             k: v.model_dump() for k, v in state.get("character_sheets", {}).items()
         },
+        # Story 10.1: Agent secrets persistence
+        "agent_secrets": {
+            k: v.model_dump() for k, v in state.get("agent_secrets", {}).items()
+        },
     }
     return json.dumps(serializable, indent=2)
 
@@ -245,6 +251,15 @@ def deserialize_game_state(json_str: str) -> GameState:
         k: CharacterSheet(**v) for k, v in character_sheets_data.items()
     }
 
+    # Handle agent_secrets deserialization (Story 10.1)
+    # Backward compatible: old checkpoints may not have this field
+    agent_secrets_data = data.get("agent_secrets", {})
+    agent_secrets: dict[str, AgentSecrets] = {}
+    for agent_name, secrets_data in agent_secrets_data.items():
+        # Reconstruct whispers list with Whisper objects
+        whispers = [Whisper(**w) for w in secrets_data.get("whispers", [])]
+        agent_secrets[agent_name] = AgentSecrets(whispers=whispers)
+
     return GameState(
         ground_truth_log=data["ground_truth_log"],
         turn_queue=data["turn_queue"],
@@ -261,6 +276,7 @@ def deserialize_game_state(json_str: str) -> GameState:
         summarization_in_progress=data.get("summarization_in_progress", False),
         selected_module=selected_module,
         character_sheets=character_sheets,
+        agent_secrets=agent_secrets,
     )
 
 
