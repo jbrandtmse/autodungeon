@@ -4600,6 +4600,368 @@ def get_point_buy_remaining(abilities: dict[str, int]) -> int:
     return budget - spent
 
 
+def validate_wizard_step_basics(wizard_data: dict[str, Any]) -> list[str]:
+    """Validate Step 1: Basics (Name, Race, Class).
+
+    Story 9-3: Character Validation.
+
+    Args:
+        wizard_data: Current wizard data.
+
+    Returns:
+        List of validation error messages (empty if valid).
+    """
+    from config import get_dnd5e_classes, get_dnd5e_races
+
+    errors: list[str] = []
+
+    # Name validation
+    name = wizard_data.get("name", "").strip()
+    if not name:
+        errors.append("Character name is required")
+    elif len(name) < 2:
+        errors.append("Character name must be at least 2 characters")
+
+    # Race validation
+    race_id = wizard_data.get("race_id", "")
+    if not race_id:
+        errors.append("Race is required")
+    else:
+        races = get_dnd5e_races()
+        if not any(r["id"] == race_id for r in races):
+            errors.append(f"Invalid race selection: {race_id}")
+
+    # Class validation
+    class_id = wizard_data.get("class_id", "")
+    if not class_id:
+        errors.append("Class is required")
+    else:
+        classes = get_dnd5e_classes()
+        if not any(c["id"] == class_id for c in classes):
+            errors.append(f"Invalid class selection: {class_id}")
+
+    # Class skills validation - check if required skills are selected
+    if class_id:
+        classes = get_dnd5e_classes()
+        char_class = next((c for c in classes if c["id"] == class_id), None)
+        if char_class:
+            skill_choices = char_class.get("skill_choices", 0)
+            selected_skills = wizard_data.get("class_skill_proficiencies", [])
+            if len(selected_skills) < skill_choices:
+                errors.append(f"Select {skill_choices - len(selected_skills)} more class skill(s)")
+
+    return errors
+
+
+def validate_wizard_step_abilities(wizard_data: dict[str, Any]) -> list[str]:
+    """Validate Step 2: Abilities.
+
+    Story 9-3: Character Validation.
+
+    Args:
+        wizard_data: Current wizard data.
+
+    Returns:
+        List of validation error messages (empty if valid).
+    """
+    from config import get_standard_array
+
+    errors: list[str] = []
+
+    method = wizard_data.get("ability_method", "point_buy")
+
+    if method == "point_buy":
+        abilities = wizard_data.get("abilities", {})
+        remaining = get_point_buy_remaining(abilities)
+
+        if remaining < 0:
+            errors.append(f"Point buy budget exceeded by {-remaining} points")
+
+        # Check individual scores are within bounds
+        for ability, score in abilities.items():
+            if score < 8:
+                errors.append(f"{ability.title()} score {score} is below minimum (8)")
+            elif score > 15:
+                errors.append(f"{ability.title()} score {score} is above maximum (15)")
+
+    else:  # standard_array
+        standard_array = get_standard_array()
+        assignment = wizard_data.get("standard_array_assignment", {})
+
+        if len(assignment) < 6:
+            errors.append(f"Assign all 6 ability scores ({6 - len(assignment)} remaining)")
+
+        # Check for duplicate values
+        used_values = list(assignment.values())
+        if len(used_values) != len(set(used_values)):
+            errors.append("Each standard array value can only be used once")
+
+        # Check values are from standard array
+        for ability, value in assignment.items():
+            if value not in standard_array:
+                errors.append(f"Invalid ability score {value} for {ability}")
+
+    return errors
+
+
+def validate_wizard_step_background(wizard_data: dict[str, Any]) -> list[str]:
+    """Validate Step 3: Background.
+
+    Story 9-3: Character Validation.
+
+    Args:
+        wizard_data: Current wizard data.
+
+    Returns:
+        List of validation error messages (empty if valid).
+    """
+    from config import get_dnd5e_backgrounds
+
+    errors: list[str] = []
+
+    background_id = wizard_data.get("background_id", "")
+    if not background_id:
+        errors.append("Background is required")
+    else:
+        backgrounds = get_dnd5e_backgrounds()
+        if not any(b["id"] == background_id for b in backgrounds):
+            errors.append(f"Invalid background selection: {background_id}")
+
+    return errors
+
+
+def validate_wizard_step_equipment(wizard_data: dict[str, Any]) -> list[str]:
+    """Validate Step 4: Equipment.
+
+    Story 9-3: Character Validation.
+
+    Args:
+        wizard_data: Current wizard data.
+
+    Returns:
+        List of validation error messages (empty if valid).
+    """
+    from config import get_dnd5e_classes
+
+    errors: list[str] = []
+
+    class_id = wizard_data.get("class_id", "")
+    if not class_id:
+        errors.append("Class must be selected first (Step 1)")
+        return errors
+
+    classes = get_dnd5e_classes()
+    char_class = next((c for c in classes if c["id"] == class_id), None)
+
+    if not char_class:
+        errors.append("Invalid class selection")
+        return errors
+
+    # Count required equipment choices
+    starting_equipment = char_class.get("starting_equipment", [])
+    required_choices = sum(
+        1 for item in starting_equipment
+        if isinstance(item, dict) and "choice" in item
+    )
+
+    equipment_choices = wizard_data.get("equipment_choices", {})
+    if len(equipment_choices) < required_choices:
+        errors.append(f"Make {required_choices - len(equipment_choices)} more equipment choice(s)")
+
+    return errors
+
+
+def validate_wizard_step_personality(wizard_data: dict[str, Any]) -> list[str]:
+    """Validate Step 5: Personality.
+
+    Story 9-3: Character Validation.
+
+    Args:
+        wizard_data: Current wizard data.
+
+    Returns:
+        List of validation error messages (empty if valid).
+    """
+    # Personality fields are optional - no validation required
+    # Users can skip AI generation and leave fields empty
+    return []
+
+
+def validate_wizard_step(step: int, wizard_data: dict[str, Any]) -> list[str]:
+    """Validate a specific wizard step.
+
+    Story 9-3: Character Validation.
+
+    Args:
+        step: Step index (0-5).
+        wizard_data: Current wizard data.
+
+    Returns:
+        List of validation error messages (empty if valid).
+    """
+    validators = {
+        0: validate_wizard_step_basics,
+        1: validate_wizard_step_abilities,
+        2: validate_wizard_step_background,
+        3: validate_wizard_step_equipment,
+        4: validate_wizard_step_personality,
+        # Step 5 (review) uses comprehensive validation
+    }
+
+    validator = validators.get(step)
+    if validator:
+        return validator(wizard_data)
+    return []
+
+
+def validate_wizard_complete(wizard_data: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """Validate the complete character for final creation.
+
+    Story 9-3: Character Validation.
+
+    Args:
+        wizard_data: Current wizard data.
+
+    Returns:
+        Tuple of (errors, warnings) where errors prevent creation.
+    """
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    # Validate all steps
+    for step in range(5):  # Steps 0-4
+        step_errors = validate_wizard_step(step, wizard_data)
+        errors.extend(step_errors)
+
+    # Additional warnings (non-blocking)
+    if wizard_data.get("ability_method") == "point_buy":
+        remaining = get_point_buy_remaining(wizard_data.get("abilities", {}))
+        if remaining > 0:
+            warnings.append(f"You have {remaining} unspent point buy points")
+
+    if not wizard_data.get("personality_traits"):
+        warnings.append("No personality traits defined")
+
+    if not wizard_data.get("backstory"):
+        warnings.append("No backstory written")
+
+    return errors, warnings
+
+
+def save_character_to_library(wizard_data: dict[str, Any]) -> str:
+    """Save a completed character to the character library.
+
+    Story 9-3: Character Validation.
+
+    Args:
+        wizard_data: Complete wizard data.
+
+    Returns:
+        Path to saved character file.
+    """
+    import os
+
+    import yaml
+
+    from config import get_dnd5e_backgrounds, get_dnd5e_classes, get_dnd5e_races
+
+    # Get reference data
+    races = get_dnd5e_races()
+    classes = get_dnd5e_classes()
+    backgrounds = get_dnd5e_backgrounds()
+
+    race = next((r for r in races if r["id"] == wizard_data["race_id"]), None)
+    char_class = next((c for c in classes if c["id"] == wizard_data["class_id"]), None)
+    background = next((b for b in backgrounds if b["id"] == wizard_data["background_id"]), None)
+
+    # Calculate final ability scores with racial bonuses
+    abilities = wizard_data.get("abilities", {}).copy()
+    if wizard_data.get("ability_method") == "standard_array":
+        # Convert standard array assignment to abilities dict
+        abilities = {
+            ability: score
+            for ability, score in wizard_data.get("standard_array_assignment", {}).items()
+        }
+
+    if race:
+        bonuses = race.get("ability_bonuses", {})
+        for ability, bonus in bonuses.items():
+            if ability in abilities:
+                abilities[ability] += bonus
+
+    # Build personality string
+    personality_parts = []
+    if wizard_data.get("personality_traits"):
+        personality_parts.append(wizard_data["personality_traits"])
+    if wizard_data.get("ideals"):
+        personality_parts.append(f"Ideals: {wizard_data['ideals']}")
+    if wizard_data.get("bonds"):
+        personality_parts.append(f"Bonds: {wizard_data['bonds']}")
+    if wizard_data.get("flaws"):
+        personality_parts.append(f"Flaws: {wizard_data['flaws']}")
+    if wizard_data.get("backstory"):
+        personality_parts.append(f"Backstory: {wizard_data['backstory']}")
+
+    personality = " ".join(personality_parts) if personality_parts else "A mysterious adventurer."
+
+    # Character colors by class (use default if not found)
+    class_colors = {
+        "fighter": "#C45C4A",
+        "rogue": "#6B8E6B",
+        "wizard": "#7B68B8",
+        "cleric": "#4A90A4",
+        "barbarian": "#8B4513",
+        "bard": "#DA70D6",
+        "druid": "#228B22",
+        "monk": "#D2691E",
+        "paladin": "#FFD700",
+        "ranger": "#2E8B57",
+        "sorcerer": "#FF4500",
+        "warlock": "#4B0082",
+    }
+    color = class_colors.get(wizard_data.get("class_id", ""), "#808080")
+
+    # Build character config
+    character_config = {
+        "name": wizard_data["name"],
+        "race": race["name"] if race else "Unknown",
+        "class": char_class["name"] if char_class else "Unknown",
+        "background": background["name"] if background else "Unknown",
+        "personality": personality,
+        "color": color,
+        "provider": "claude",  # Default provider
+        "model": "claude-3-haiku-20240307",  # Default model
+        "token_limit": 4000,
+        "abilities": abilities,
+        "skills": list(set(
+            wizard_data.get("skill_proficiencies", []) +
+            wizard_data.get("class_skill_proficiencies", [])
+        )),
+        "equipment": list(wizard_data.get("equipment_choices", {}).values()),
+    }
+
+    # Generate filename from character name
+    filename = wizard_data["name"].lower().replace(" ", "_")
+    filename = "".join(c for c in filename if c.isalnum() or c == "_")
+    filepath = os.path.join("config", "characters", f"{filename}.yaml")
+
+    # Check for existing file and add number suffix if needed
+    base_filepath = filepath
+    counter = 1
+    while os.path.exists(filepath):
+        filepath = base_filepath.replace(".yaml", f"_{counter}.yaml")
+        counter += 1
+
+    # Ensure directory exists
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+
+    # Write YAML file
+    with open(filepath, "w", encoding="utf-8") as f:
+        yaml.dump(character_config, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+
+    return filepath
+
+
 def render_wizard_progress() -> None:
     """Render the wizard progress indicator.
 
@@ -5234,6 +5596,7 @@ def render_wizard_step_review() -> None:
     """Render Step 6: Review with full CharacterSheet preview.
 
     Story 9.1: Character Creation Wizard - Step 6.
+    Story 9-3: Character Validation - validation summary.
     """
     from config import get_dnd5e_backgrounds, get_dnd5e_classes, get_dnd5e_races
 
@@ -5242,39 +5605,22 @@ def render_wizard_step_review() -> None:
 
     wizard_data = st.session_state["wizard_data"]
 
-    # Validation
-    errors: list[str] = []
-    if not wizard_data.get("name"):
-        errors.append("Character name is required")
-    if not wizard_data.get("race_id"):
-        errors.append("Race is required")
-    if not wizard_data.get("class_id"):
-        errors.append("Class is required")
-    if not wizard_data.get("background_id"):
-        errors.append("Background is required")
+    # Comprehensive validation (Story 9-3)
+    errors, warnings = validate_wizard_complete(wizard_data)
 
-    # Check abilities
-    unspent_points = 0
-    if wizard_data.get("ability_method") == "point_buy":
-        remaining = get_point_buy_remaining(wizard_data["abilities"])
-        if remaining < 0:
-            errors.append(f"Ability scores are over budget by {-remaining} points")
-        elif remaining > 0:
-            unspent_points = remaining  # Track for info message (M3 fix)
-    else:
-        assignment = wizard_data.get("standard_array_assignment", {})
-        if len(assignment) < 6:
-            errors.append(f"Only {len(assignment)} of 6 ability scores assigned")
+    # Store validation state for Create Character button
+    st.session_state["wizard_validation_errors"] = errors
 
     if errors:
-        st.error("Please fix the following issues:")
+        st.error("Please fix the following issues before creating your character:")
         for error in errors:
             st.markdown(f"- {error}")
-        return
+        st.markdown("---")
 
-    # Info message for unspent points (M3 fix)
-    if unspent_points > 0:
-        st.info(f"You have {unspent_points} unspent point buy points. You can go back to spend them or continue.")
+    if warnings:
+        st.warning("Warnings (optional to fix):")
+        for warning in warnings:
+            st.markdown(f"- {warning}")
 
     # Get reference data
     races = get_dnd5e_races()
@@ -5348,6 +5694,7 @@ def render_character_creation_wizard() -> None:
     """Render the full character creation wizard.
 
     Story 9.1: Character Creation Wizard.
+    Story 9-3: Character Validation - validation on navigation.
     """
     init_wizard_state()
 
@@ -5374,6 +5721,16 @@ def render_character_creation_wizard() -> None:
 
     st.markdown("---")
 
+    # Validate current step for navigation (Story 9-3)
+    wizard_data = st.session_state.get("wizard_data", {})
+    step_errors = validate_wizard_step(current_step, wizard_data)
+
+    # Show validation errors inline if present
+    if step_errors and current_step < 5:  # Don't duplicate for review step
+        st.error("Please fix the following before continuing:")
+        for error in step_errors:
+            st.markdown(f"- {error}")
+
     # Navigation buttons
     col1, col2, col3 = st.columns([1, 1, 1])
 
@@ -5392,16 +5749,25 @@ def render_character_creation_wizard() -> None:
 
     with col3:
         if current_step < len(WIZARD_STEPS) - 1:
-            if st.button("Next", key="wizard_next"):
+            # Disable Next if validation fails (Story 9-3)
+            next_disabled = len(step_errors) > 0
+            if st.button("Next", key="wizard_next", disabled=next_disabled):
                 st.session_state["wizard_step"] += 1
                 st.rerun()
         else:
             # Final step - Create Character button
-            if st.button("Create Character", type="primary", key="wizard_create"):
-                # TODO: Story 9.4 will implement saving to library
-                st.success(f"Character '{st.session_state['wizard_data']['name']}' created!")
+            # Disable if validation errors exist (Story 9-3)
+            validation_errors = st.session_state.get("wizard_validation_errors", [])
+            create_disabled = len(validation_errors) > 0
+
+            if st.button("Create Character", type="primary", key="wizard_create", disabled=create_disabled):
+                # Save character to library (Story 9-3)
+                filepath = save_character_to_library(wizard_data)
+                st.success(f"Character '{wizard_data['name']}' saved to {filepath}!")
                 st.session_state["wizard_active"] = False
                 st.session_state["wizard_step"] = 0
+                st.session_state["wizard_data"] = {}
+                st.rerun()
 
 
 def render_sidebar(config: AppConfig) -> None:
