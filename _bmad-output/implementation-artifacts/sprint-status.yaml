@@ -133,7 +133,7 @@ development_status:
   10-1-whisper-data-model: done
   10-2-dm-whisper-tool: done
   10-3-secret-knowledge-injection: done
-  10-4-human-whisper-to-dm: backlog
+  10-4-human-whisper-to-dm: done
   10-5-secret-revelation-system: backlog
   epic-10-retrospective: optional
 

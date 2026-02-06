@@ -1120,6 +1120,54 @@ hr {
 }
 
 /* ==========================================================================
+   Human Whisper to DM Input Widget (Story 10.4)
+   ========================================================================== */
+
+.whisper-input-container {
+  margin-top: var(--space-md);
+  padding-top: var(--space-md);
+}
+
+.whisper-label {
+  display: block;
+  font-family: var(--font-ui);
+  font-size: var(--text-system);
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: var(--space-xs);
+}
+
+.whisper-hint {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: var(--space-xs) 0 var(--space-sm) 0;
+  font-style: italic;
+}
+
+/* Whisper text area styling */
+[data-testid="stSidebar"] .whisper-input-container + div textarea {
+  background: var(--bg-message) !important;
+  border: 1px solid var(--bg-message) !important;
+}
+
+[data-testid="stSidebar"] .whisper-input-container + div textarea:focus {
+  border-color: var(--color-wizard) !important;  /* Purple for private whispers */
+}
+
+/* Whisper submit button - uses purple accent to differentiate from nudge (green) */
+[data-testid="stSidebar"] .whisper-input-container ~ div .stButton > button {
+  background: transparent;
+  border: 1px solid var(--color-wizard);
+  color: var(--color-wizard);
+}
+
+[data-testid="stSidebar"] .whisper-input-container ~ div .stButton > button:hover {
+  background: var(--color-wizard);
+  color: var(--bg-primary);
+}
+
+/* ==========================================================================
    Keyboard Shortcuts Help (Story 3.6)
    ========================================================================== */
 

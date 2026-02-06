@@ -790,6 +790,57 @@ def render_nudge_input() -> None:
         st.session_state["nudge_submitted"] = False
 
 
+def render_human_whisper_input_html() -> str:
+    """Generate HTML for human whisper input label and hint.
+
+    Story 10.4: Human Whisper to DM.
+
+    Returns:
+        HTML string for whisper input container.
+    """
+    return (
+        '<div class="whisper-input-container">'
+        '<div class="whisper-label">Whisper to DM</div>'
+        '<p class="whisper-hint">Ask the DM something privately...</p>'
+        "</div>"
+    )
+
+
+def render_human_whisper_input() -> None:
+    """Render human whisper to DM input in the sidebar.
+
+    Separate from nudge - for private questions/secrets to DM.
+    Only visible in Watch Mode (when not controlling a character).
+
+    Story 10.4: Human Whisper to DM.
+    FR73: Human can whisper to DM.
+    """
+    if st.session_state.get("human_active"):
+        return  # Don't show whisper if controlling a character
+
+    st.markdown(render_human_whisper_input_html(), unsafe_allow_html=True)
+
+    whisper = st.text_area(
+        "Whisper input",
+        key="human_whisper_input",
+        placeholder="e.g., 'Can my rogue tell if the merchant is lying?'",
+        label_visibility="collapsed",
+        height=60,
+    )
+
+    if st.button("Send Whisper", key="whisper_submit_btn", use_container_width=True):
+        handle_human_whisper_submit(whisper)
+        # Clear the input field by deleting its key from session_state
+        if "human_whisper_input" in st.session_state:
+            del st.session_state["human_whisper_input"]
+        st.rerun()
+
+    # Show confirmation toast
+    if st.session_state.get("human_whisper_submitted"):
+        st.success("Whisper sent - the DM will respond privately")
+        st.session_state["human_whisper_submitted"] = False
+
+
 def render_input_context_bar_html(name: str, char_class: str) -> str:
     """Generate HTML for input context bar.
 
@@ -1177,6 +1228,9 @@ def initialize_session_state() -> None:
         # Nudge system state (Story 3.4)
         st.session_state["pending_nudge"] = None
         st.session_state["nudge_submitted"] = False
+        # Human whisper to DM state (Story 10.4)
+        st.session_state["pending_human_whisper"] = None
+        st.session_state["human_whisper_submitted"] = False
         # Config modal auto-pause state (Story 3.5)
         st.session_state["modal_open"] = False
         st.session_state["pre_modal_pause_state"] = False
@@ -2999,6 +3053,9 @@ MAX_ACTION_LENGTH = 2000
 # Maximum nudge text length (Story 3.4)
 MAX_NUDGE_LENGTH = 1000
 
+# Maximum human whisper text length (Story 10.4)
+MAX_HUMAN_WHISPER_LENGTH = 500
+
 
 def handle_nudge_submit(nudge: str) -> None:
     """Handle submission of nudge suggestion.
@@ -3014,6 +3071,49 @@ def handle_nudge_submit(nudge: str) -> None:
     if sanitized:
         st.session_state["pending_nudge"] = sanitized
         st.session_state["nudge_submitted"] = True
+
+
+def handle_human_whisper_submit(whisper_text: str) -> None:
+    """Handle submission of human whisper to DM.
+
+    Stores the whisper for DM context and persists in whisper history.
+    Unlike nudges (suggestions), whispers are private questions/secrets
+    that are tracked in the whisper history.
+
+    Story 10.4: Human Whisper to DM.
+    FR73: Human can whisper to DM.
+    FR75: Whisper history is tracked per agent.
+
+    Args:
+        whisper_text: The user's private message to the DM.
+    """
+    from models import AgentSecrets, create_whisper
+
+    sanitized = whisper_text.strip()[:MAX_HUMAN_WHISPER_LENGTH]
+
+    if sanitized:
+        # Store for immediate DM context
+        st.session_state["pending_human_whisper"] = sanitized
+        st.session_state["human_whisper_submitted"] = True
+
+        # Create whisper for history tracking
+        game: GameState | None = st.session_state.get("game")
+        if game:
+            current_turn = len(game.get("ground_truth_log", []))
+            whisper = create_whisper(
+                from_agent="human",
+                to_agent="dm",
+                content=sanitized,
+                turn_created=current_turn,
+            )
+
+            # Add to DM's secrets (DM is the recipient)
+            agent_secrets = game.get("agent_secrets", {})
+            dm_secrets = agent_secrets.get("dm", AgentSecrets())
+            new_whispers = dm_secrets.whispers.copy()
+            new_whispers.append(whisper)
+            agent_secrets["dm"] = dm_secrets.model_copy(update={"whispers": new_whispers})
+            game["agent_secrets"] = agent_secrets
 
 
 def handle_human_action_submit(action: str) -> None:
@@ -4302,6 +4402,8 @@ def handle_checkpoint_restore(session_id: str, turn_number: int) -> bool:
     st.session_state["waiting_for_human"] = False
     st.session_state["pending_nudge"] = None
     st.session_state["nudge_submitted"] = False
+    st.session_state["pending_human_whisper"] = None
+    st.session_state["human_whisper_submitted"] = False
     st.session_state["autopilot_turn_count"] = 0
 
     # Clean up any lingering preview state keys
@@ -6252,6 +6354,11 @@ def render_sidebar(config: AppConfig) -> None:
 
         st.markdown("---")
 
+        # Human Whisper to DM (Story 10.4)
+        render_human_whisper_input()
+
+        st.markdown("---")
+
         # Configuration status (condensed, moved from main area) (2.5)
         with st.expander("LLM Status", expanded=False):
             st.markdown(get_api_key_status(config))
@@ -6491,6 +6598,8 @@ def handle_session_continue(session_id: str) -> bool:
     st.session_state["waiting_for_human"] = False
     st.session_state["pending_nudge"] = None
     st.session_state["nudge_submitted"] = False
+    st.session_state["pending_human_whisper"] = None
+    st.session_state["human_whisper_submitted"] = False
     st.session_state["is_autopilot_running"] = False
     st.session_state["autopilot_turn_count"] = 0
 

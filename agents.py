@@ -181,6 +181,20 @@ Examples:
 Whispers create dramatic irony and player engagement. The whispered character can choose
 when and how to share (or hide) this information from the party.
 
+## Player Whispers
+
+When you receive a "Player Whisper", the human player is privately asking you something:
+
+- Answer their question through your narration or by whispering back to their character
+- If they ask about perception/insight, consider having them roll or just incorporate the answer
+- You can use dm_whisper_to_agent to send private information back to their character
+- Keep the private nature - don't explicitly reveal in public narration that they asked
+
+Example responses:
+- Player whispers: "Can my rogue notice if the merchant is lying?"
+  - You could whisper back: "Your keen eyes catch the merchant's tell - his left eye twitches when he mentions the price"
+  - Or narrate: "As you study the merchant, something feels off about his demeanor..."
+
 ## Response Format
 
 Keep your responses focused and engaging:
@@ -1115,6 +1129,26 @@ def _build_dm_context(state: GameState) -> str:
         # (e.g., in tests without mocking)
         pass
 
+    # Player whisper (Story 10.4 - Human Whisper to DM)
+    # Similar to nudge but for private questions/secrets - uses different format
+    try:
+        import streamlit as st
+
+        pending_whisper = st.session_state.get("pending_human_whisper")
+        if pending_whisper:
+            # Sanitize whisper to prevent any injection/format issues
+            sanitized_whisper = str(pending_whisper).strip()
+            # Escape quotes to prevent format breaking in LLM context
+            sanitized_whisper = sanitized_whisper.replace('"', "'")
+            if sanitized_whisper:
+                context_parts.append(
+                    f'## Player Whisper\nThe human player privately asks: "{sanitized_whisper}"'
+                )
+    except (ImportError, AttributeError):
+        # Streamlit not available or session_state not initialized
+        # (e.g., in tests without mocking)
+        pass
+
     return "\n\n".join(context_parts)
 
 
@@ -1205,6 +1239,16 @@ def dm_turn(state: GameState) -> GameState:
     except (ImportError, AttributeError, KeyError):
         # Streamlit not available, session_state not initialized,
         # or pending_nudge key doesn't exist (e.g., in tests without mocking)
+        pass
+
+    # Clear human whisper after reading (single-use) - Story 10.4
+    try:
+        import streamlit as st
+
+        st.session_state["pending_human_whisper"] = None
+    except (ImportError, AttributeError, KeyError):
+        # Streamlit not available, session_state not initialized,
+        # or key doesn't exist (e.g., in tests without mocking)
         pass
 
     # Wrap agent creation and invocation in try/except for error handling (Story 4.5)
