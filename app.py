@@ -7,6 +7,7 @@ This is the main application entry point. Run with:
 from __future__ import annotations
 
 import logging
+import os
 import random
 import re
 import time
@@ -4943,7 +4944,8 @@ def save_character_to_library(wizard_data: dict[str, Any]) -> str:
     # Generate filename from character name
     filename = wizard_data["name"].lower().replace(" ", "_")
     filename = "".join(c for c in filename if c.isalnum() or c == "_")
-    filepath = os.path.join("config", "characters", f"{filename}.yaml")
+    # Save to library/ subdirectory (Story 9-4)
+    filepath = os.path.join("config", "characters", "library", f"{filename}.yaml")
 
     # Check for existing file and add number suffix if needed
     base_filepath = filepath
@@ -4960,6 +4962,422 @@ def save_character_to_library(wizard_data: dict[str, Any]) -> str:
         yaml.dump(character_config, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
 
     return filepath
+
+
+# Character Library Functions (Story 9-4)
+
+LIBRARY_PATH = os.path.join("config", "characters", "library")
+
+
+def list_library_characters() -> list[dict[str, Any]]:
+    """List all characters in the library.
+
+    Story 9-4: Character Library.
+
+    Returns:
+        List of character data dictionaries with filename added.
+    """
+    import os
+
+    import yaml
+
+    characters = []
+
+    if not os.path.exists(LIBRARY_PATH):
+        return characters
+
+    for filename in os.listdir(LIBRARY_PATH):
+        if filename.endswith(".yaml"):
+            filepath = os.path.join(LIBRARY_PATH, filename)
+            try:
+                with open(filepath, encoding="utf-8") as f:
+                    char_data = yaml.safe_load(f)
+                    if char_data:
+                        char_data["_filename"] = filename
+                        char_data["_filepath"] = filepath
+                        characters.append(char_data)
+            except (yaml.YAMLError, OSError):
+                # Skip invalid files
+                continue
+
+    # Sort by name
+    characters.sort(key=lambda c: c.get("name", ""))
+    return characters
+
+
+def load_library_character(filename: str) -> dict[str, Any] | None:
+    """Load a character from the library by filename.
+
+    Story 9-4: Character Library.
+
+    Args:
+        filename: The YAML filename (e.g., "thorin.yaml").
+
+    Returns:
+        Character data dict or None if not found.
+    """
+    import yaml
+
+    filepath = os.path.join(LIBRARY_PATH, filename)
+
+    if not os.path.exists(filepath):
+        return None
+
+    try:
+        with open(filepath, encoding="utf-8") as f:
+            return yaml.safe_load(f)
+    except (yaml.YAMLError, OSError):
+        return None
+
+
+def delete_library_character(filename: str) -> bool:
+    """Delete a character from the library.
+
+    Story 9-4: Character Library.
+
+    Args:
+        filename: The YAML filename to delete.
+
+    Returns:
+        True if deleted, False otherwise.
+    """
+    filepath = os.path.join(LIBRARY_PATH, filename)
+
+    if not os.path.exists(filepath):
+        return False
+
+    try:
+        os.remove(filepath)
+        return True
+    except OSError:
+        return False
+
+
+def duplicate_library_character(filename: str, new_name: str) -> str | None:
+    """Duplicate a character with a new name.
+
+    Story 9-4: Character Library.
+
+    Args:
+        filename: Source character filename.
+        new_name: Name for the duplicate.
+
+    Returns:
+        Path to new file or None on error.
+    """
+    import yaml
+
+    char_data = load_library_character(filename)
+    if not char_data:
+        return None
+
+    # Update the name
+    char_data["name"] = new_name
+
+    # Generate new filename
+    new_filename = new_name.lower().replace(" ", "_")
+    new_filename = "".join(c for c in new_filename if c.isalnum() or c == "_")
+    new_filepath = os.path.join(LIBRARY_PATH, f"{new_filename}.yaml")
+
+    # Handle duplicates
+    base_filepath = new_filepath
+    counter = 1
+    while os.path.exists(new_filepath):
+        new_filepath = base_filepath.replace(".yaml", f"_{counter}.yaml")
+        counter += 1
+
+    # Ensure directory exists
+    os.makedirs(os.path.dirname(new_filepath), exist_ok=True)
+
+    # Write new file
+    try:
+        with open(new_filepath, "w", encoding="utf-8") as f:
+            yaml.dump(char_data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+        return new_filepath
+    except OSError:
+        return None
+
+
+def render_character_library_card(char_data: dict[str, Any]) -> None:
+    """Render a character card in the library view.
+
+    Story 9-4: Character Library.
+
+    Args:
+        char_data: Character data from library.
+    """
+    name = char_data.get("name", "Unknown")
+    race = char_data.get("race", "Unknown")
+    char_class = char_data.get("class", "Unknown")
+    color = char_data.get("color", "#808080")
+    filename = char_data.get("_filename", "")
+
+    # Card styling
+    st.markdown(
+        f"""<div style="
+            border: 2px solid {color};
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 12px;
+            background: rgba(0,0,0,0.2);
+        ">
+        <h4 style="margin: 0; color: {color};">{name}</h4>
+        <p style="margin: 4px 0; color: #ccc;">{race} {char_class}</p>
+        </div>""",
+        unsafe_allow_html=True,
+    )
+
+    # Action buttons
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        if st.button("View", key=f"lib_view_{filename}"):
+            st.session_state["library_viewing"] = filename
+
+    with col2:
+        if st.button("Edit", key=f"lib_edit_{filename}"):
+            st.session_state["library_editing"] = filename
+            st.session_state["wizard_active"] = True
+            st.session_state["wizard_step"] = 0
+            # Convert library character to wizard data format
+            st.session_state["wizard_data"] = convert_character_to_wizard_data(char_data)
+            st.rerun()
+
+    with col3:
+        if st.button("Copy", key=f"lib_copy_{filename}"):
+            st.session_state["library_duplicating"] = filename
+
+    with col4:
+        if st.button("Delete", key=f"lib_delete_{filename}", type="secondary"):
+            st.session_state["library_deleting"] = filename
+
+
+def convert_character_to_wizard_data(char_data: dict[str, Any]) -> dict[str, Any]:
+    """Convert a library character back to wizard data format for editing.
+
+    Story 9-4: Character Library.
+
+    Args:
+        char_data: Saved character data.
+
+    Returns:
+        Wizard-compatible data dictionary.
+    """
+    from config import get_dnd5e_backgrounds, get_dnd5e_classes, get_dnd5e_races
+
+    # Look up IDs from names
+    races = get_dnd5e_races()
+    classes = get_dnd5e_classes()
+    backgrounds = get_dnd5e_backgrounds()
+
+    race_id = ""
+    for r in races:
+        if r["name"] == char_data.get("race"):
+            race_id = r["id"]
+            break
+
+    class_id = ""
+    for c in classes:
+        if c["name"] == char_data.get("class"):
+            class_id = c["id"]
+            break
+
+    background_id = ""
+    for b in backgrounds:
+        if b["name"] == char_data.get("background"):
+            background_id = b["id"]
+            break
+
+    # Parse personality string back to components (best effort)
+    personality = char_data.get("personality", "")
+    personality_traits = ""
+    ideals = ""
+    bonds = ""
+    flaws = ""
+    backstory = ""
+
+    # Try to extract structured parts
+    if "Ideals:" in personality:
+        parts = personality.split("Ideals:")
+        personality_traits = parts[0].strip()
+        remainder = parts[1] if len(parts) > 1 else ""
+        if "Bonds:" in remainder:
+            ideals_parts = remainder.split("Bonds:")
+            ideals = ideals_parts[0].strip()
+            remainder = ideals_parts[1] if len(ideals_parts) > 1 else ""
+            if "Flaws:" in remainder:
+                bonds_parts = remainder.split("Flaws:")
+                bonds = bonds_parts[0].strip()
+                remainder = bonds_parts[1] if len(bonds_parts) > 1 else ""
+                if "Backstory:" in remainder:
+                    flaws_parts = remainder.split("Backstory:")
+                    flaws = flaws_parts[0].strip()
+                    backstory = flaws_parts[1].strip() if len(flaws_parts) > 1 else ""
+                else:
+                    flaws = remainder.strip()
+            else:
+                bonds = remainder.strip()
+        else:
+            ideals = remainder.strip()
+    else:
+        # Just use as personality traits
+        personality_traits = personality
+
+    return {
+        "name": char_data.get("name", ""),
+        "race_id": race_id,
+        "class_id": class_id,
+        "background_id": background_id,
+        "ability_method": "point_buy",  # Default
+        "abilities": char_data.get("abilities", {
+            "strength": 10, "dexterity": 10, "constitution": 10,
+            "intelligence": 10, "wisdom": 10, "charisma": 10
+        }),
+        "standard_array_assignment": {},
+        "skill_proficiencies": [],  # Background skills
+        "class_skill_proficiencies": char_data.get("skills", []),
+        "equipment_choices": {},
+        "personality_traits": personality_traits,
+        "ideals": ideals,
+        "bonds": bonds,
+        "flaws": flaws,
+        "backstory": backstory,
+    }
+
+
+def render_character_library() -> None:
+    """Render the character library management UI.
+
+    Story 9-4: Character Library.
+    """
+    st.markdown("## Character Library")
+    st.markdown("Manage your saved characters.")
+
+    # Handle pending actions
+    if st.session_state.get("library_deleting"):
+        filename = st.session_state["library_deleting"]
+        st.warning(f"Delete character? This cannot be undone.")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Confirm Delete", type="primary"):
+                if delete_library_character(filename):
+                    st.success("Character deleted.")
+                else:
+                    st.error("Failed to delete character.")
+                del st.session_state["library_deleting"]
+                st.rerun()
+        with col2:
+            if st.button("Cancel"):
+                del st.session_state["library_deleting"]
+                st.rerun()
+        return
+
+    if st.session_state.get("library_duplicating"):
+        filename = st.session_state["library_duplicating"]
+        char_data = load_library_character(filename)
+        if char_data:
+            st.markdown(f"Duplicating: **{char_data.get('name', 'Unknown')}**")
+            new_name = st.text_input("New character name:", value=f"{char_data.get('name', 'Copy')} Copy")
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("Create Copy", type="primary"):
+                    new_path = duplicate_library_character(filename, new_name)
+                    if new_path:
+                        st.success(f"Created: {new_path}")
+                    else:
+                        st.error("Failed to duplicate character.")
+                    del st.session_state["library_duplicating"]
+                    st.rerun()
+            with col2:
+                if st.button("Cancel"):
+                    del st.session_state["library_duplicating"]
+                    st.rerun()
+        return
+
+    if st.session_state.get("library_viewing"):
+        filename = st.session_state["library_viewing"]
+        char_data = load_library_character(filename)
+        if char_data:
+            render_character_detail_view(char_data)
+        if st.button("Back to Library"):
+            del st.session_state["library_viewing"]
+            st.rerun()
+        return
+
+    # List characters
+    characters = list_library_characters()
+
+    if not characters:
+        st.info("No characters in library. Create one using the wizard!")
+        if st.button("Create Character"):
+            st.session_state["wizard_active"] = True
+            st.session_state["wizard_step"] = 0
+            st.session_state["wizard_data"] = get_default_wizard_data()
+            st.rerun()
+        return
+
+    st.markdown(f"**{len(characters)} character(s) saved**")
+
+    # Create new character button
+    if st.button("Create New Character"):
+        st.session_state["wizard_active"] = True
+        st.session_state["wizard_step"] = 0
+        st.session_state["wizard_data"] = get_default_wizard_data()
+        st.rerun()
+
+    st.markdown("---")
+
+    # Display character cards
+    for char_data in characters:
+        render_character_library_card(char_data)
+
+
+def render_character_detail_view(char_data: dict[str, Any]) -> None:
+    """Render detailed view of a library character.
+
+    Story 9-4: Character Library.
+
+    Args:
+        char_data: Character data to display.
+    """
+    name = char_data.get("name", "Unknown")
+    race = char_data.get("race", "Unknown")
+    char_class = char_data.get("class", "Unknown")
+    background = char_data.get("background", "Unknown")
+    color = char_data.get("color", "#808080")
+
+    st.markdown(f"## {name}")
+    st.markdown(f"**{race} {char_class}**")
+    st.markdown(f"*Background: {background}*")
+
+    # Ability scores
+    st.markdown("### Ability Scores")
+    abilities = char_data.get("abilities", {})
+    cols = st.columns(6)
+    for i, (ability, score) in enumerate(abilities.items()):
+        with cols[i % 6]:
+            modifier = (score - 10) // 2
+            sign = "+" if modifier >= 0 else ""
+            st.metric(ability[:3].upper(), score, f"{sign}{modifier}")
+
+    # Skills
+    skills = char_data.get("skills", [])
+    if skills:
+        st.markdown("### Skills")
+        st.markdown(", ".join(sorted(skills)))
+
+    # Equipment
+    equipment = char_data.get("equipment", [])
+    if equipment:
+        st.markdown("### Equipment")
+        for item in equipment:
+            st.markdown(f"- {item}")
+
+    # Personality
+    personality = char_data.get("personality", "")
+    if personality:
+        st.markdown("### Personality")
+        st.markdown(personality)
 
 
 def render_wizard_progress() -> None:
@@ -6722,9 +7140,9 @@ def render_session_browser() -> None:
             unsafe_allow_html=True,
         )
 
-    # Action buttons: New Adventure and Create Character (Story 9.1)
+    # Action buttons: New Adventure, Create Character, Character Library (Story 9.1, 9.4)
     st.markdown('<div class="new-session-container">', unsafe_allow_html=True)
-    col_adventure, col_character = st.columns(2)
+    col_adventure, col_character, col_library = st.columns(3)
     with col_adventure:
         if st.button("+ New Adventure", key="new_session_btn"):
             handle_start_new_adventure()
@@ -6733,8 +7151,12 @@ def render_session_browser() -> None:
         if st.button("+ Create Character", key="create_character_btn"):
             st.session_state["wizard_active"] = True
             st.session_state["wizard_step"] = 0
-            st.session_state["wizard_data"] = {}  # Reset wizard data
+            st.session_state["wizard_data"] = get_default_wizard_data()
             st.session_state["app_view"] = "character_wizard"
+            st.rerun()
+    with col_library:
+        if st.button("Character Library", key="character_library_btn"):
+            st.session_state["app_view"] = "character_library"
             st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -6767,8 +7189,8 @@ def main() -> None:
     # Wrap content in app-content div for responsive hiding
     st.markdown('<div class="app-content">', unsafe_allow_html=True)
 
-    # App view routing (Story 4.3, 7.4, 9.1)
-    # Valid views: session_browser, module_selection, character_wizard, game
+    # App view routing (Story 4.3, 7.4, 9.1, 9.4)
+    # Valid views: session_browser, module_selection, character_wizard, character_library, game
     app_view = st.session_state.get("app_view", "session_browser")
 
     if app_view == "session_browser":
@@ -6783,6 +7205,19 @@ def main() -> None:
         render_character_creation_wizard()
         # Check if wizard was cancelled or completed
         if not st.session_state.get("wizard_active", False):
+            # Return to library if we were editing, otherwise session browser
+            if st.session_state.get("library_editing"):
+                del st.session_state["library_editing"]
+                st.session_state["app_view"] = "character_library"
+            else:
+                st.session_state["app_view"] = "session_browser"
+            st.rerun()
+    elif app_view == "character_library":
+        # Character library view (Story 9-4)
+        st.title("autodungeon")
+        render_character_library()
+        # Back button to return to session browser
+        if st.button("Back to Sessions"):
             st.session_state["app_view"] = "session_browser"
             st.rerun()
     elif app_view == "module_selection":

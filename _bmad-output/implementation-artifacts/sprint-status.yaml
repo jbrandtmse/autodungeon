@@ -121,11 +121,11 @@ development_status:
   epic-8-retrospective: optional
 
   # Epic 9: Character Creation UI (4 stories)
-  epic-9: in-progress
+  epic-9: done
   9-1-character-creation-wizard: done
   9-2-ai-assisted-backstory-generation: done
   9-3-character-validation: done
-  9-4-character-library: backlog
+  9-4-character-library: done
   epic-9-retrospective: optional
 
   # Epic 10: DM Whisper & Secrets System (5 stories)
