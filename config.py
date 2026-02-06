@@ -47,6 +47,13 @@ __all__ = [
     "validate_api_keys",
     "validate_google_api_key",
     "validate_ollama_connection",
+    # Story 9.1: D&D 5e Data Loading
+    "load_dnd5e_data",
+    "get_dnd5e_races",
+    "get_dnd5e_classes",
+    "get_dnd5e_backgrounds",
+    "get_point_buy_config",
+    "get_standard_array",
 ]
 
 # Load .env file if it exists
@@ -716,6 +723,86 @@ def get_max_context_for_provider(provider: str, model: str) -> int:
     if provider.lower() == "ollama":
         return MAX_OLLAMA_CONTEXT
     return MODEL_MAX_CONTEXT.get(model, DEFAULT_MAX_CONTEXT)
+
+
+# =============================================================================
+# D&D 5e Data Loading (Story 9.1)
+# =============================================================================
+
+
+def load_dnd5e_data() -> dict[str, Any]:
+    """Load D&D 5e character creation data from config/dnd5e_data.yaml.
+
+    Loads races, classes, backgrounds, abilities, skills, and point buy rules
+    used by the character creation wizard.
+
+    Story 9.1: Character Creation Wizard.
+
+    Returns:
+        Dictionary containing all D&D 5e character creation data.
+
+    Raises:
+        FileNotFoundError: If dnd5e_data.yaml doesn't exist.
+        yaml.YAMLError: If the YAML file is malformed.
+    """
+    config_path = Path(__file__).parent / "config" / "dnd5e_data.yaml"
+    if not config_path.exists():
+        raise FileNotFoundError(f"D&D 5e data file not found: {config_path}")
+
+    with open(config_path, encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+
+    return data
+
+
+def get_dnd5e_races() -> list[dict[str, Any]]:
+    """Get list of D&D 5e races for character creation.
+
+    Returns:
+        List of race dictionaries with id, name, description, ability_bonuses, etc.
+    """
+    data = load_dnd5e_data()
+    return data.get("races", [])
+
+
+def get_dnd5e_classes() -> list[dict[str, Any]]:
+    """Get list of D&D 5e classes for character creation.
+
+    Returns:
+        List of class dictionaries with id, name, description, hit_die, etc.
+    """
+    data = load_dnd5e_data()
+    return data.get("classes", [])
+
+
+def get_dnd5e_backgrounds() -> list[dict[str, Any]]:
+    """Get list of D&D 5e backgrounds for character creation.
+
+    Returns:
+        List of background dictionaries with id, name, skill_proficiencies, etc.
+    """
+    data = load_dnd5e_data()
+    return data.get("backgrounds", [])
+
+
+def get_point_buy_config() -> dict[str, Any]:
+    """Get point buy configuration for ability score assignment.
+
+    Returns:
+        Dictionary with 'budget' (27 standard) and 'costs' mapping score to cost.
+    """
+    data = load_dnd5e_data()
+    return data.get("point_buy", {"budget": 27, "costs": {}})
+
+
+def get_standard_array() -> list[int]:
+    """Get the standard array for ability score assignment.
+
+    Returns:
+        List of six ability scores: [15, 14, 13, 12, 10, 8]
+    """
+    data = load_dnd5e_data()
+    return data.get("standard_array", [15, 14, 13, 12, 10, 8])
 
 
 def get_default_token_limit(provider: str, model: str) -> int:

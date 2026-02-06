@@ -4504,6 +4504,699 @@ def render_export_transcript_button() -> None:
     )
 
 
+# =============================================================================
+# Character Creation Wizard (Story 9.1)
+# =============================================================================
+
+
+WIZARD_STEPS = [
+    {"id": "basics", "name": "Basics", "description": "Name, Race, Class"},
+    {"id": "abilities", "name": "Abilities", "description": "Ability Scores"},
+    {"id": "background", "name": "Background", "description": "Background & Skills"},
+    {"id": "equipment", "name": "Equipment", "description": "Starting Gear"},
+    {"id": "personality", "name": "Personality", "description": "Traits & Backstory"},
+    {"id": "review", "name": "Review", "description": "Finalize Character"},
+]
+
+
+def get_default_wizard_data() -> dict[str, Any]:
+    """Get default wizard data structure.
+
+    Returns:
+        Dictionary with initial wizard data values.
+    """
+    return {
+        "name": "",
+        "race_id": "",
+        "class_id": "",
+        "background_id": "",
+        "ability_method": "point_buy",  # or "standard_array"
+        "abilities": {
+            "strength": 8,
+            "dexterity": 8,
+            "constitution": 8,
+            "intelligence": 8,
+            "wisdom": 8,
+            "charisma": 8,
+        },
+        "standard_array_assignment": {},  # ability -> score mapping
+        "skill_proficiencies": [],  # From background
+        "class_skill_proficiencies": [],  # From class selection
+        "equipment_choices": {},
+        "personality_traits": "",
+        "ideals": "",
+        "bonds": "",
+        "flaws": "",
+        "backstory": "",
+    }
+
+
+def init_wizard_state() -> None:
+    """Initialize character creation wizard state in session_state.
+
+    Story 9.1: Character Creation Wizard.
+    """
+    if "wizard_step" not in st.session_state:
+        st.session_state["wizard_step"] = 0
+    if "wizard_data" not in st.session_state or not st.session_state["wizard_data"]:
+        st.session_state["wizard_data"] = get_default_wizard_data()
+    if "wizard_active" not in st.session_state:
+        st.session_state["wizard_active"] = False
+
+
+def calculate_point_buy_cost(abilities: dict[str, int]) -> int:
+    """Calculate total point buy cost for given ability scores.
+
+    Args:
+        abilities: Dictionary mapping ability name to score (8-15).
+
+    Returns:
+        Total points spent.
+    """
+    from config import get_point_buy_config
+
+    config = get_point_buy_config()
+    costs = config.get("costs", {})
+    total = 0
+    for score in abilities.values():
+        total += costs.get(score, 0)
+    return total
+
+
+def get_point_buy_remaining(abilities: dict[str, int]) -> int:
+    """Get remaining points in point buy budget.
+
+    Args:
+        abilities: Current ability scores.
+
+    Returns:
+        Points remaining (can be negative if over budget).
+    """
+    from config import get_point_buy_config
+
+    config = get_point_buy_config()
+    budget = config.get("budget", 27)
+    spent = calculate_point_buy_cost(abilities)
+    return budget - spent
+
+
+def render_wizard_progress() -> None:
+    """Render the wizard progress indicator.
+
+    Shows current step and progress through the wizard steps.
+    """
+    current_step = st.session_state.get("wizard_step", 0)
+
+    # Progress bar
+    progress = (current_step + 1) / len(WIZARD_STEPS)
+    st.progress(progress)
+
+    # Step indicators
+    cols = st.columns(len(WIZARD_STEPS))
+    for i, (col, step) in enumerate(zip(cols, WIZARD_STEPS, strict=False)):
+        with col:
+            if i < current_step:
+                st.markdown(f"~~{step['name']}~~")
+            elif i == current_step:
+                st.markdown(f"**{step['name']}**")
+            else:
+                st.markdown(f"<span style='color: gray;'>{step['name']}</span>", unsafe_allow_html=True)
+
+
+def render_wizard_step_basics() -> None:
+    """Render Step 1: Basics (Name, Race, Class).
+
+    Story 9.1: Character Creation Wizard - Step 1.
+    """
+    from config import get_dnd5e_classes, get_dnd5e_races
+
+    st.markdown("### Step 1: Basics")
+    st.markdown("Enter your character's name and choose a race and class.")
+
+    wizard_data = st.session_state["wizard_data"]
+
+    # Character Name
+    wizard_data["name"] = st.text_input(
+        "Character Name",
+        value=wizard_data.get("name", ""),
+        max_chars=50,
+        key="wizard_name",
+    )
+
+    # Race Selection
+    races = get_dnd5e_races()
+    race_options = {r["id"]: f"{r['name']} - {r['description']}" for r in races}
+    race_ids = [""] + list(race_options.keys())
+    race_labels = ["Select a race..."] + [race_options[rid] for rid in race_ids[1:]]
+
+    current_race_idx = 0
+    if wizard_data.get("race_id") in race_ids:
+        current_race_idx = race_ids.index(wizard_data["race_id"])
+
+    selected_race_idx = st.selectbox(
+        "Race",
+        range(len(race_ids)),
+        format_func=lambda x: race_labels[x],
+        index=current_race_idx,
+        key="wizard_race",
+    )
+    wizard_data["race_id"] = race_ids[selected_race_idx]
+
+    # Show race details if selected
+    if wizard_data["race_id"]:
+        race = next((r for r in races if r["id"] == wizard_data["race_id"]), None)
+        if race:
+            with st.expander("Race Details", expanded=False):
+                st.markdown(f"**Speed:** {race.get('speed', 30)} ft")
+                bonuses = race.get("ability_bonuses", {})
+                if bonuses:
+                    bonus_strs = [f"+{v} {k.title()}" for k, v in bonuses.items()]
+                    st.markdown(f"**Ability Bonuses:** {', '.join(bonus_strs)}")
+                traits = race.get("traits", [])
+                if traits:
+                    st.markdown(f"**Traits:** {', '.join(traits)}")
+                languages = race.get("languages", [])
+                if languages:
+                    st.markdown(f"**Languages:** {', '.join(languages)}")
+
+    # Class Selection
+    classes = get_dnd5e_classes()
+    class_options = {c["id"]: f"{c['name']} - {c['description']}" for c in classes}
+    class_ids = [""] + list(class_options.keys())
+    class_labels = ["Select a class..."] + [class_options[cid] for cid in class_ids[1:]]
+
+    current_class_idx = 0
+    if wizard_data.get("class_id") in class_ids:
+        current_class_idx = class_ids.index(wizard_data["class_id"])
+
+    selected_class_idx = st.selectbox(
+        "Class",
+        range(len(class_ids)),
+        format_func=lambda x: class_labels[x],
+        index=current_class_idx,
+        key="wizard_class",
+    )
+    wizard_data["class_id"] = class_ids[selected_class_idx]
+
+    # Show class details if selected
+    if wizard_data["class_id"]:
+        char_class = next((c for c in classes if c["id"] == wizard_data["class_id"]), None)
+        if char_class:
+            with st.expander("Class Details", expanded=False):
+                st.markdown(f"**Hit Die:** {char_class.get('hit_die', 'd8')}")
+                st.markdown(f"**Primary Ability:** {char_class.get('primary_ability', '').title()}")
+                saves = char_class.get("saving_throws", [])
+                if saves:
+                    st.markdown(f"**Saving Throws:** {', '.join(s.title() for s in saves)}")
+                armor = char_class.get("armor_proficiencies", [])
+                if armor:
+                    st.markdown(f"**Armor:** {', '.join(armor)}")
+                weapons = char_class.get("weapon_proficiencies", [])
+                if weapons:
+                    st.markdown(f"**Weapons:** {', '.join(weapons)}")
+
+            # Class skill selection (M1 fix)
+            skill_choices = char_class.get("skill_choices", 0)
+            skill_options = char_class.get("skill_options", [])
+
+            if skill_choices > 0 and skill_options:
+                st.markdown(f"**Select {skill_choices} Skills:**")
+
+                # Handle "any" skill option (Bard gets any skills)
+                if skill_options == ["any"]:
+                    from config import load_dnd5e_data
+
+                    dnd_data = load_dnd5e_data()
+                    skill_options = [s["name"] for s in dnd_data.get("skills", [])]
+
+                # Get current selections
+                current_skills = wizard_data.get("class_skill_proficiencies", [])
+
+                # Multi-select for skills
+                selected_skills = st.multiselect(
+                    f"Choose {skill_choices} from class skill list",
+                    options=skill_options,
+                    default=[s for s in current_skills if s in skill_options],
+                    max_selections=skill_choices,
+                    key="wizard_class_skills",
+                )
+                wizard_data["class_skill_proficiencies"] = selected_skills
+
+                if len(selected_skills) < skill_choices:
+                    st.info(f"Select {skill_choices - len(selected_skills)} more skill(s)")
+
+    st.session_state["wizard_data"] = wizard_data
+
+
+def render_wizard_step_abilities() -> None:
+    """Render Step 2: Abilities (Point Buy or Standard Array).
+
+    Story 9.1: Character Creation Wizard - Step 2.
+    """
+    from config import get_point_buy_config, get_standard_array
+
+    st.markdown("### Step 2: Ability Scores")
+
+    wizard_data = st.session_state["wizard_data"]
+
+    # Method selection
+    method = st.radio(
+        "Assignment Method",
+        ["point_buy", "standard_array"],
+        format_func=lambda x: "Point Buy (27 points)" if x == "point_buy" else "Standard Array (15, 14, 13, 12, 10, 8)",
+        index=0 if wizard_data.get("ability_method") == "point_buy" else 1,
+        key="wizard_ability_method",
+        horizontal=True,
+    )
+    wizard_data["ability_method"] = method
+
+    abilities = ["strength", "dexterity", "constitution", "intelligence", "wisdom", "charisma"]
+
+    if method == "point_buy":
+        # Point buy mode
+        config = get_point_buy_config()
+        costs = config.get("costs", {})
+        remaining = get_point_buy_remaining(wizard_data["abilities"])
+
+        st.markdown(f"**Points Remaining: {remaining}** (of 27)")
+
+        # Show cost table
+        with st.expander("Point Costs", expanded=False):
+            cost_table = " | ".join([f"**{score}**: {cost}" for score, cost in sorted(costs.items())])
+            st.markdown(cost_table)
+
+        # Ability sliders
+        cols = st.columns(2)
+        for i, ability in enumerate(abilities):
+            with cols[i % 2]:
+                current = wizard_data["abilities"].get(ability, 8)
+                new_value = st.slider(
+                    ability.title(),
+                    min_value=8,
+                    max_value=15,
+                    value=current,
+                    key=f"wizard_ability_{ability}",
+                )
+                wizard_data["abilities"][ability] = new_value
+
+        # Recalculate remaining after changes
+        remaining = get_point_buy_remaining(wizard_data["abilities"])
+        if remaining < 0:
+            st.error(f"Over budget by {-remaining} points! Reduce some scores.")
+        elif remaining > 0:
+            st.info(f"You have {remaining} points remaining to spend.")
+        else:
+            st.success("All 27 points spent!")
+
+    else:
+        # Standard array mode
+        standard_array = get_standard_array()
+        st.markdown(f"Assign these scores to abilities: **{', '.join(map(str, standard_array))}**")
+
+        assignment = wizard_data.get("standard_array_assignment", {})
+        used_scores: list[int] = list(assignment.values())
+        available = [s for s in standard_array if s not in used_scores or used_scores.count(s) < standard_array.count(s)]
+
+        # Create assignment dropdowns
+        cols = st.columns(2)
+        for i, ability in enumerate(abilities):
+            with cols[i % 2]:
+                current_score = assignment.get(ability)
+                options = ["--"] + sorted(set(available + ([current_score] if current_score else [])), reverse=True)
+
+                current_idx = 0
+                if current_score in options:
+                    current_idx = options.index(current_score)
+
+                selected = st.selectbox(
+                    ability.title(),
+                    options,
+                    index=current_idx,
+                    key=f"wizard_std_{ability}",
+                )
+
+                if selected != "--":
+                    assignment[ability] = selected
+                    wizard_data["abilities"][ability] = selected
+                elif ability in assignment:
+                    del assignment[ability]
+                    wizard_data["abilities"][ability] = 8
+
+        wizard_data["standard_array_assignment"] = assignment
+
+        # Check if all assigned
+        if len(assignment) == 6:
+            st.success("All abilities assigned!")
+        else:
+            st.info(f"{6 - len(assignment)} abilities still need scores.")
+
+    st.session_state["wizard_data"] = wizard_data
+
+
+def render_wizard_step_background() -> None:
+    """Render Step 3: Background selection with proficiencies.
+
+    Story 9.1: Character Creation Wizard - Step 3.
+    """
+    from config import get_dnd5e_backgrounds
+
+    st.markdown("### Step 3: Background")
+    st.markdown("Choose a background that reflects your character's history.")
+
+    wizard_data = st.session_state["wizard_data"]
+
+    # Background Selection
+    backgrounds = get_dnd5e_backgrounds()
+    bg_options = {b["id"]: f"{b['name']} - {b['description']}" for b in backgrounds}
+    bg_ids = [""] + list(bg_options.keys())
+    bg_labels = ["Select a background..."] + [bg_options[bid] for bid in bg_ids[1:]]
+
+    current_bg_idx = 0
+    if wizard_data.get("background_id") in bg_ids:
+        current_bg_idx = bg_ids.index(wizard_data["background_id"])
+
+    selected_bg_idx = st.selectbox(
+        "Background",
+        range(len(bg_ids)),
+        format_func=lambda x: bg_labels[x],
+        index=current_bg_idx,
+        key="wizard_background",
+    )
+    wizard_data["background_id"] = bg_ids[selected_bg_idx]
+
+    # Show background details if selected
+    if wizard_data["background_id"]:
+        bg = next((b for b in backgrounds if b["id"] == wizard_data["background_id"]), None)
+        if bg:
+            st.markdown("#### Background Benefits")
+            skills = bg.get("skill_proficiencies", [])
+            if skills:
+                st.markdown(f"**Skill Proficiencies:** {', '.join(skills)}")
+                wizard_data["skill_proficiencies"] = skills
+
+            tools = bg.get("tool_proficiencies", [])
+            if tools:
+                st.markdown(f"**Tool Proficiencies:** {', '.join(tools)}")
+
+            languages = bg.get("languages", 0)
+            if languages:
+                st.markdown(f"**Languages:** {languages} of your choice")
+
+            equipment = bg.get("equipment", [])
+            if equipment:
+                st.markdown(f"**Equipment:** {', '.join(equipment)}")
+
+            feature = bg.get("feature", "")
+            if feature:
+                st.markdown(f"**Feature:** {feature}")
+
+    st.session_state["wizard_data"] = wizard_data
+
+
+def render_wizard_step_equipment() -> None:
+    """Render Step 4: Starting equipment choices.
+
+    Story 9.1: Character Creation Wizard - Step 4.
+    """
+    from config import get_dnd5e_classes
+
+    st.markdown("### Step 4: Equipment")
+    st.markdown("Select your starting equipment based on your class.")
+
+    wizard_data = st.session_state["wizard_data"]
+    class_id = wizard_data.get("class_id")
+
+    if not class_id:
+        st.warning("Please select a class first (Step 1).")
+        return
+
+    classes = get_dnd5e_classes()
+    char_class = next((c for c in classes if c["id"] == class_id), None)
+
+    if not char_class:
+        st.error("Class not found.")
+        return
+
+    starting_equipment = char_class.get("starting_equipment", [])
+    equipment_choices = wizard_data.get("equipment_choices", {})
+
+    st.markdown(f"#### {char_class['name']} Starting Equipment")
+
+    choice_num = 0
+    for item in starting_equipment:
+        if isinstance(item, dict) and "choice" in item:
+            # This is a choice
+            choice_num += 1
+            options = item["choice"]
+            choice_key = f"equipment_choice_{choice_num}"
+
+            current_idx = 0
+            if choice_key in equipment_choices and equipment_choices[choice_key] in options:
+                current_idx = options.index(equipment_choices[choice_key])
+
+            selected = st.selectbox(
+                f"Choice {choice_num}",
+                options,
+                index=current_idx,
+                key=f"wizard_{choice_key}",
+            )
+            equipment_choices[choice_key] = selected
+
+        elif isinstance(item, dict) and "item" in item:
+            # This is a fixed item
+            st.markdown(f"- {item['item']}")
+
+    wizard_data["equipment_choices"] = equipment_choices
+    st.session_state["wizard_data"] = wizard_data
+
+
+def render_wizard_step_personality() -> None:
+    """Render Step 5: Personality traits input.
+
+    Story 9.1: Character Creation Wizard - Step 5.
+    """
+    st.markdown("### Step 5: Personality")
+    st.markdown("Define your character's personality, ideals, bonds, and flaws.")
+
+    wizard_data = st.session_state["wizard_data"]
+
+    wizard_data["personality_traits"] = st.text_area(
+        "Personality Traits",
+        value=wizard_data.get("personality_traits", ""),
+        height=80,
+        placeholder="Two personality traits that define your character...",
+        key="wizard_personality_traits",
+    )
+
+    wizard_data["ideals"] = st.text_area(
+        "Ideals",
+        value=wizard_data.get("ideals", ""),
+        height=60,
+        placeholder="What principles drive your character?",
+        key="wizard_ideals",
+    )
+
+    wizard_data["bonds"] = st.text_area(
+        "Bonds",
+        value=wizard_data.get("bonds", ""),
+        height=60,
+        placeholder="What connections matter most to your character?",
+        key="wizard_bonds",
+    )
+
+    wizard_data["flaws"] = st.text_area(
+        "Flaws",
+        value=wizard_data.get("flaws", ""),
+        height=60,
+        placeholder="What weaknesses or vices does your character have?",
+        key="wizard_flaws",
+    )
+
+    wizard_data["backstory"] = st.text_area(
+        "Backstory",
+        value=wizard_data.get("backstory", ""),
+        height=150,
+        placeholder="Write a brief backstory for your character...",
+        key="wizard_backstory",
+    )
+
+    st.session_state["wizard_data"] = wizard_data
+
+
+def render_wizard_step_review() -> None:
+    """Render Step 6: Review with full CharacterSheet preview.
+
+    Story 9.1: Character Creation Wizard - Step 6.
+    """
+    from config import get_dnd5e_backgrounds, get_dnd5e_classes, get_dnd5e_races
+
+    st.markdown("### Step 6: Review")
+    st.markdown("Review your character before finalizing.")
+
+    wizard_data = st.session_state["wizard_data"]
+
+    # Validation
+    errors: list[str] = []
+    if not wizard_data.get("name"):
+        errors.append("Character name is required")
+    if not wizard_data.get("race_id"):
+        errors.append("Race is required")
+    if not wizard_data.get("class_id"):
+        errors.append("Class is required")
+    if not wizard_data.get("background_id"):
+        errors.append("Background is required")
+
+    # Check abilities
+    unspent_points = 0
+    if wizard_data.get("ability_method") == "point_buy":
+        remaining = get_point_buy_remaining(wizard_data["abilities"])
+        if remaining < 0:
+            errors.append(f"Ability scores are over budget by {-remaining} points")
+        elif remaining > 0:
+            unspent_points = remaining  # Track for info message (M3 fix)
+    else:
+        assignment = wizard_data.get("standard_array_assignment", {})
+        if len(assignment) < 6:
+            errors.append(f"Only {len(assignment)} of 6 ability scores assigned")
+
+    if errors:
+        st.error("Please fix the following issues:")
+        for error in errors:
+            st.markdown(f"- {error}")
+        return
+
+    # Info message for unspent points (M3 fix)
+    if unspent_points > 0:
+        st.info(f"You have {unspent_points} unspent point buy points. You can go back to spend them or continue.")
+
+    # Get reference data
+    races = get_dnd5e_races()
+    classes = get_dnd5e_classes()
+    backgrounds = get_dnd5e_backgrounds()
+
+    race = next((r for r in races if r["id"] == wizard_data["race_id"]), None)
+    char_class = next((c for c in classes if c["id"] == wizard_data["class_id"]), None)
+    background = next((b for b in backgrounds if b["id"] == wizard_data["background_id"]), None)
+
+    # Character summary
+    st.markdown(f"## {wizard_data['name']}")
+    st.markdown(f"**{race['name'] if race else 'Unknown'} {char_class['name'] if char_class else 'Unknown'}**")
+    st.markdown(f"*Background: {background['name'] if background else 'Unknown'}*")
+
+    # Ability scores with racial bonuses
+    st.markdown("### Ability Scores")
+    abilities = wizard_data["abilities"].copy()
+    if race:
+        bonuses = race.get("ability_bonuses", {})
+        for ability, bonus in bonuses.items():
+            if ability in abilities:
+                abilities[ability] += bonus
+
+    cols = st.columns(6)
+    for i, (ability, score) in enumerate(abilities.items()):
+        with cols[i]:
+            modifier = (score - 10) // 2
+            sign = "+" if modifier >= 0 else ""
+            st.metric(ability[:3].upper(), score, f"{sign}{modifier}")
+
+    # Skills (combine background and class skills)
+    st.markdown("### Proficiencies")
+    bg_skills = wizard_data.get("skill_proficiencies", [])
+    class_skills = wizard_data.get("class_skill_proficiencies", [])
+    all_skills = list(set(bg_skills + class_skills))  # Deduplicate
+    if all_skills:
+        st.markdown(f"**Skills:** {', '.join(sorted(all_skills))}")
+
+    # Equipment
+    st.markdown("### Equipment")
+    equipment_choices = wizard_data.get("equipment_choices", {})
+
+    # Show user's equipment choices
+    if equipment_choices:
+        for item in equipment_choices.values():
+            st.markdown(f"- {item}")
+
+    # Show fixed starting equipment from class (M2 fix)
+    if char_class:
+        starting_equipment = char_class.get("starting_equipment", [])
+        for item in starting_equipment:
+            if isinstance(item, dict) and "item" in item:
+                st.markdown(f"- {item['item']}")
+
+    # Personality
+    st.markdown("### Personality")
+    if wizard_data.get("personality_traits"):
+        st.markdown(f"**Traits:** {wizard_data['personality_traits']}")
+    if wizard_data.get("ideals"):
+        st.markdown(f"**Ideals:** {wizard_data['ideals']}")
+    if wizard_data.get("bonds"):
+        st.markdown(f"**Bonds:** {wizard_data['bonds']}")
+    if wizard_data.get("flaws"):
+        st.markdown(f"**Flaws:** {wizard_data['flaws']}")
+    if wizard_data.get("backstory"):
+        st.markdown(f"**Backstory:** {wizard_data['backstory']}")
+
+
+def render_character_creation_wizard() -> None:
+    """Render the full character creation wizard.
+
+    Story 9.1: Character Creation Wizard.
+    """
+    init_wizard_state()
+
+    st.markdown("## Create New Character")
+    render_wizard_progress()
+
+    st.markdown("---")
+
+    current_step = st.session_state["wizard_step"]
+
+    # Render current step
+    if current_step == 0:
+        render_wizard_step_basics()
+    elif current_step == 1:
+        render_wizard_step_abilities()
+    elif current_step == 2:
+        render_wizard_step_background()
+    elif current_step == 3:
+        render_wizard_step_equipment()
+    elif current_step == 4:
+        render_wizard_step_personality()
+    elif current_step == 5:
+        render_wizard_step_review()
+
+    st.markdown("---")
+
+    # Navigation buttons
+    col1, col2, col3 = st.columns([1, 1, 1])
+
+    with col1:
+        if current_step > 0:
+            if st.button("Previous", key="wizard_prev"):
+                st.session_state["wizard_step"] -= 1
+                st.rerun()
+
+    with col2:
+        if st.button("Cancel", key="wizard_cancel"):
+            st.session_state["wizard_active"] = False
+            st.session_state["wizard_step"] = 0
+            st.session_state["wizard_data"] = {}
+            st.rerun()
+
+    with col3:
+        if current_step < len(WIZARD_STEPS) - 1:
+            if st.button("Next", key="wizard_next"):
+                st.session_state["wizard_step"] += 1
+                st.rerun()
+        else:
+            # Final step - Create Character button
+            if st.button("Create Character", type="primary", key="wizard_create"):
+                # TODO: Story 9.4 will implement saving to library
+                st.success(f"Character '{st.session_state['wizard_data']['name']}' created!")
+                st.session_state["wizard_active"] = False
+                st.session_state["wizard_step"] = 0
+
+
 def render_sidebar(config: AppConfig) -> None:
     """Render the sidebar with mode indicator, party panel, and config status.
 
@@ -5456,11 +6149,20 @@ def render_session_browser() -> None:
             unsafe_allow_html=True,
         )
 
-    # New Session button - triggers module selection flow (Story 7.4)
+    # Action buttons: New Adventure and Create Character (Story 9.1)
     st.markdown('<div class="new-session-container">', unsafe_allow_html=True)
-    if st.button("+ New Adventure", key="new_session_btn"):
-        handle_start_new_adventure()
-        st.rerun()
+    col_adventure, col_character = st.columns(2)
+    with col_adventure:
+        if st.button("+ New Adventure", key="new_session_btn"):
+            handle_start_new_adventure()
+            st.rerun()
+    with col_character:
+        if st.button("+ Create Character", key="create_character_btn"):
+            st.session_state["wizard_active"] = True
+            st.session_state["wizard_step"] = 0
+            st.session_state["wizard_data"] = {}  # Reset wizard data
+            st.session_state["app_view"] = "character_wizard"
+            st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("</div>", unsafe_allow_html=True)
@@ -5492,8 +6194,8 @@ def main() -> None:
     # Wrap content in app-content div for responsive hiding
     st.markdown('<div class="app-content">', unsafe_allow_html=True)
 
-    # App view routing (Story 4.3, 7.4)
-    # Valid views: session_browser, module_selection, game
+    # App view routing (Story 4.3, 7.4, 9.1)
+    # Valid views: session_browser, module_selection, character_wizard, game
     app_view = st.session_state.get("app_view", "session_browser")
 
     if app_view == "session_browser":
@@ -5502,6 +6204,14 @@ def main() -> None:
         st.caption("Multi-agent D&D game engine")
         # Session browser view
         render_session_browser()
+    elif app_view == "character_wizard":
+        # Character creation wizard view (Story 9.1)
+        st.title("autodungeon")
+        render_character_creation_wizard()
+        # Check if wizard was cancelled or completed
+        if not st.session_state.get("wizard_active", False):
+            st.session_state["app_view"] = "session_browser"
+            st.rerun()
     elif app_view == "module_selection":
         # Module selection view (Story 7.4)
         st.title("autodungeon")

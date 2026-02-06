@@ -1,0 +1,506 @@
+# D&D 5e Character Creation Data
+# Used by the character creation wizard (Story 9-1)
+
+# Standard ability score point buy costs
+point_buy:
+  budget: 27
+  costs:
+    8: 0
+    9: 1
+    10: 2
+    11: 3
+    12: 4
+    13: 5
+    14: 7
+    15: 9
+
+# Standard array for quick ability assignment
+standard_array: [15, 14, 13, 12, 10, 8]
+
+# Abilities
+abilities:
+  - id: strength
+    name: Strength
+    abbreviation: STR
+    description: Physical power, melee attacks, carrying capacity
+  - id: dexterity
+    name: Dexterity
+    abbreviation: DEX
+    description: Agility, reflexes, ranged attacks, AC
+  - id: constitution
+    name: Constitution
+    abbreviation: CON
+    description: Health, stamina, hit points
+  - id: intelligence
+    name: Intelligence
+    abbreviation: INT
+    description: Memory, reasoning, arcane magic
+  - id: wisdom
+    name: Wisdom
+    abbreviation: WIS
+    description: Perception, intuition, divine magic
+  - id: charisma
+    name: Charisma
+    abbreviation: CHA
+    description: Force of personality, social influence
+
+# Races (SRD/Basic Rules)
+races:
+  - id: human
+    name: Human
+    description: Versatile and ambitious, humans are the most common race
+    ability_bonuses:
+      strength: 1
+      dexterity: 1
+      constitution: 1
+      intelligence: 1
+      wisdom: 1
+      charisma: 1
+    speed: 30
+    languages: [Common]
+    traits: []
+
+  - id: elf
+    name: Elf
+    description: Graceful and long-lived with keen senses and magic affinity
+    ability_bonuses:
+      dexterity: 2
+    speed: 30
+    languages: [Common, Elvish]
+    traits: [Darkvision, Fey Ancestry, Trance]
+
+  - id: dwarf
+    name: Dwarf
+    description: Stout and hardy, masters of stone and metal
+    ability_bonuses:
+      constitution: 2
+    speed: 25
+    languages: [Common, Dwarvish]
+    traits: [Darkvision, Dwarven Resilience, Stonecunning]
+
+  - id: halfling
+    name: Halfling
+    description: Small and nimble, lucky and brave despite their size
+    ability_bonuses:
+      dexterity: 2
+    speed: 25
+    languages: [Common, Halfling]
+    traits: [Lucky, Brave, Halfling Nimbleness]
+
+  - id: dragonborn
+    name: Dragonborn
+    description: Proud dragon-blooded warriors with breath weapons
+    ability_bonuses:
+      strength: 2
+      charisma: 1
+    speed: 30
+    languages: [Common, Draconic]
+    traits: [Draconic Ancestry, Breath Weapon, Damage Resistance]
+
+  - id: gnome
+    name: Gnome
+    description: Small and clever, with innate magical abilities
+    ability_bonuses:
+      intelligence: 2
+    speed: 25
+    languages: [Common, Gnomish]
+    traits: [Darkvision, Gnome Cunning]
+
+  - id: half-elf
+    name: Half-Elf
+    description: Blend of human ambition and elven grace
+    ability_bonuses:
+      charisma: 2
+    speed: 30
+    languages: [Common, Elvish]
+    traits: [Darkvision, Fey Ancestry, Skill Versatility]
+
+  - id: half-orc
+    name: Half-Orc
+    description: Strong and resilient, with orcish ferocity
+    ability_bonuses:
+      strength: 2
+      constitution: 1
+    speed: 30
+    languages: [Common, Orc]
+    traits: [Darkvision, Menacing, Relentless Endurance, Savage Attacks]
+
+  - id: tiefling
+    name: Tiefling
+    description: Infernal heritage grants hellish powers and appearance
+    ability_bonuses:
+      charisma: 2
+      intelligence: 1
+    speed: 30
+    languages: [Common, Infernal]
+    traits: [Darkvision, Hellish Resistance, Infernal Legacy]
+
+# Classes (SRD/Basic Rules)
+classes:
+  - id: fighter
+    name: Fighter
+    description: Masters of martial combat and battlefield tactics
+    hit_die: d10
+    primary_ability: strength
+    saving_throws: [strength, constitution]
+    armor_proficiencies: [light, medium, heavy, shields]
+    weapon_proficiencies: [simple, martial]
+    skill_choices: 2
+    skill_options: [Acrobatics, Animal Handling, Athletics, History, Insight, Intimidation, Perception, Survival]
+    starting_equipment:
+      - choice: [chain mail, leather armor and longbow with 20 arrows]
+      - choice: [martial weapon and shield, two martial weapons]
+      - choice: [light crossbow with 20 bolts, two handaxes]
+      - item: dungeoneer's pack
+
+  - id: rogue
+    name: Rogue
+    description: Stealthy and skilled, experts in precision strikes
+    hit_die: d8
+    primary_ability: dexterity
+    saving_throws: [dexterity, intelligence]
+    armor_proficiencies: [light]
+    weapon_proficiencies: [simple, hand crossbow, longsword, rapier, shortsword]
+    skill_choices: 4
+    skill_options: [Acrobatics, Athletics, Deception, Insight, Intimidation, Investigation, Perception, Performance, Persuasion, Sleight of Hand, Stealth]
+    starting_equipment:
+      - choice: [rapier, shortsword]
+      - choice: [shortbow with 20 arrows, shortsword]
+      - choice: [burglar's pack, dungeoneer's pack, explorer's pack]
+      - item: leather armor
+      - item: two daggers
+      - item: thieves' tools
+
+  - id: wizard
+    name: Wizard
+    description: Scholarly spellcasters who command arcane magic
+    hit_die: d6
+    primary_ability: intelligence
+    saving_throws: [intelligence, wisdom]
+    armor_proficiencies: []
+    weapon_proficiencies: [dagger, dart, sling, quarterstaff, light crossbow]
+    skill_choices: 2
+    skill_options: [Arcana, History, Insight, Investigation, Medicine, Religion]
+    starting_equipment:
+      - choice: [quarterstaff, dagger]
+      - choice: [component pouch, arcane focus]
+      - choice: [scholar's pack, explorer's pack]
+      - item: spellbook
+
+  - id: cleric
+    name: Cleric
+    description: Divine spellcasters who channel the power of their deity
+    hit_die: d8
+    primary_ability: wisdom
+    saving_throws: [wisdom, charisma]
+    armor_proficiencies: [light, medium, shields]
+    weapon_proficiencies: [simple]
+    skill_choices: 2
+    skill_options: [History, Insight, Medicine, Persuasion, Religion]
+    starting_equipment:
+      - choice: [mace, warhammer (if proficient)]
+      - choice: [scale mail, leather armor, chain mail (if proficient)]
+      - choice: [light crossbow with 20 bolts, any simple weapon]
+      - choice: [priest's pack, explorer's pack]
+      - item: shield
+      - item: holy symbol
+
+  - id: barbarian
+    name: Barbarian
+    description: Fierce warriors who channel primal rage in battle
+    hit_die: d12
+    primary_ability: strength
+    saving_throws: [strength, constitution]
+    armor_proficiencies: [light, medium, shields]
+    weapon_proficiencies: [simple, martial]
+    skill_choices: 2
+    skill_options: [Animal Handling, Athletics, Intimidation, Nature, Perception, Survival]
+    starting_equipment:
+      - choice: [greataxe, any martial melee weapon]
+      - choice: [two handaxes, any simple weapon]
+      - item: explorer's pack
+      - item: four javelins
+
+  - id: bard
+    name: Bard
+    description: Charismatic performers who weave magic through music
+    hit_die: d8
+    primary_ability: charisma
+    saving_throws: [dexterity, charisma]
+    armor_proficiencies: [light]
+    weapon_proficiencies: [simple, hand crossbow, longsword, rapier, shortsword]
+    skill_choices: 3
+    skill_options: [any]
+    starting_equipment:
+      - choice: [rapier, longsword, any simple weapon]
+      - choice: [diplomat's pack, entertainer's pack]
+      - choice: [lute, any musical instrument]
+      - item: leather armor
+      - item: dagger
+
+  - id: ranger
+    name: Ranger
+    description: Warriors of the wilderness who hunt favored foes
+    hit_die: d10
+    primary_ability: dexterity
+    saving_throws: [strength, dexterity]
+    armor_proficiencies: [light, medium, shields]
+    weapon_proficiencies: [simple, martial]
+    skill_choices: 3
+    skill_options: [Animal Handling, Athletics, Insight, Investigation, Nature, Perception, Stealth, Survival]
+    starting_equipment:
+      - choice: [scale mail, leather armor]
+      - choice: [two shortswords, two simple melee weapons]
+      - choice: [dungeoneer's pack, explorer's pack]
+      - item: longbow
+      - item: quiver with 20 arrows
+
+  - id: paladin
+    name: Paladin
+    description: Holy warriors bound by sacred oaths
+    hit_die: d10
+    primary_ability: strength
+    saving_throws: [wisdom, charisma]
+    armor_proficiencies: [light, medium, heavy, shields]
+    weapon_proficiencies: [simple, martial]
+    skill_choices: 2
+    skill_options: [Athletics, Insight, Intimidation, Medicine, Persuasion, Religion]
+    starting_equipment:
+      - choice: [martial weapon and shield, two martial weapons]
+      - choice: [five javelins, any simple melee weapon]
+      - choice: [priest's pack, explorer's pack]
+      - item: chain mail
+      - item: holy symbol
+
+  - id: sorcerer
+    name: Sorcerer
+    description: Innate spellcasters with magic in their blood
+    hit_die: d6
+    primary_ability: charisma
+    saving_throws: [constitution, charisma]
+    armor_proficiencies: []
+    weapon_proficiencies: [dagger, dart, sling, quarterstaff, light crossbow]
+    skill_choices: 2
+    skill_options: [Arcana, Deception, Insight, Intimidation, Persuasion, Religion]
+    starting_equipment:
+      - choice: [light crossbow with 20 bolts, any simple weapon]
+      - choice: [component pouch, arcane focus]
+      - choice: [dungeoneer's pack, explorer's pack]
+      - item: two daggers
+
+  - id: warlock
+    name: Warlock
+    description: Wielders of eldritch magic gained through otherworldly pacts
+    hit_die: d8
+    primary_ability: charisma
+    saving_throws: [wisdom, charisma]
+    armor_proficiencies: [light]
+    weapon_proficiencies: [simple]
+    skill_choices: 2
+    skill_options: [Arcana, Deception, History, Intimidation, Investigation, Nature, Religion]
+    starting_equipment:
+      - choice: [light crossbow with 20 bolts, any simple weapon]
+      - choice: [component pouch, arcane focus]
+      - choice: [scholar's pack, dungeoneer's pack]
+      - item: leather armor
+      - item: any simple weapon
+      - item: two daggers
+
+  - id: monk
+    name: Monk
+    description: Masters of martial arts and spiritual discipline
+    hit_die: d8
+    primary_ability: dexterity
+    saving_throws: [strength, dexterity]
+    armor_proficiencies: []
+    weapon_proficiencies: [simple, shortsword]
+    skill_choices: 2
+    skill_options: [Acrobatics, Athletics, History, Insight, Religion, Stealth]
+    starting_equipment:
+      - choice: [shortsword, any simple weapon]
+      - choice: [dungeoneer's pack, explorer's pack]
+      - item: 10 darts
+
+  - id: druid
+    name: Druid
+    description: Guardians of nature who wield primal magic
+    hit_die: d8
+    primary_ability: wisdom
+    saving_throws: [intelligence, wisdom]
+    armor_proficiencies: [light, medium, shields (non-metal)]
+    weapon_proficiencies: [club, dagger, dart, javelin, mace, quarterstaff, scimitar, sickle, sling, spear]
+    skill_choices: 2
+    skill_options: [Arcana, Animal Handling, Insight, Medicine, Nature, Perception, Religion, Survival]
+    starting_equipment:
+      - choice: [wooden shield, any simple weapon]
+      - choice: [scimitar, any simple melee weapon]
+      - item: leather armor
+      - item: explorer's pack
+      - item: druidic focus
+
+# Backgrounds (SRD/Basic Rules)
+backgrounds:
+  - id: acolyte
+    name: Acolyte
+    description: Devoted servant of a temple or religious order
+    skill_proficiencies: [Insight, Religion]
+    languages: 2
+    equipment: [holy symbol, prayer book, 5 sticks of incense, vestments, common clothes, 15 gp]
+    feature: Shelter of the Faithful
+
+  - id: criminal
+    name: Criminal
+    description: Experienced lawbreaker with underworld connections
+    skill_proficiencies: [Deception, Stealth]
+    tool_proficiencies: [gaming set, thieves' tools]
+    equipment: [crowbar, dark common clothes with hood, 15 gp]
+    feature: Criminal Contact
+
+  - id: folk-hero
+    name: Folk Hero
+    description: Common person who became a local legend
+    skill_proficiencies: [Animal Handling, Survival]
+    tool_proficiencies: [artisan's tools, vehicles (land)]
+    equipment: [artisan's tools, shovel, iron pot, common clothes, 10 gp]
+    feature: Rustic Hospitality
+
+  - id: noble
+    name: Noble
+    description: Member of aristocracy with wealth and influence
+    skill_proficiencies: [History, Persuasion]
+    tool_proficiencies: [gaming set]
+    languages: 1
+    equipment: [fine clothes, signet ring, scroll of pedigree, 25 gp]
+    feature: Position of Privilege
+
+  - id: sage
+    name: Sage
+    description: Scholar dedicated to learning and research
+    skill_proficiencies: [Arcana, History]
+    languages: 2
+    equipment: [bottle of ink, quill, small knife, letter with unanswered question, common clothes, 10 gp]
+    feature: Researcher
+
+  - id: soldier
+    name: Soldier
+    description: Trained warrior who served in a military force
+    skill_proficiencies: [Athletics, Intimidation]
+    tool_proficiencies: [gaming set, vehicles (land)]
+    equipment: [insignia of rank, trophy from fallen enemy, bone dice, common clothes, 10 gp]
+    feature: Military Rank
+
+  - id: charlatan
+    name: Charlatan
+    description: Con artist who manipulates others for profit
+    skill_proficiencies: [Deception, Sleight of Hand]
+    tool_proficiencies: [disguise kit, forgery kit]
+    equipment: [fine clothes, disguise kit, con props, 15 gp]
+    feature: False Identity
+
+  - id: entertainer
+    name: Entertainer
+    description: Performer who thrives on applause and attention
+    skill_proficiencies: [Acrobatics, Performance]
+    tool_proficiencies: [disguise kit, musical instrument]
+    equipment: [musical instrument, favor of admirer, costume, 15 gp]
+    feature: By Popular Demand
+
+  - id: guild-artisan
+    name: Guild Artisan
+    description: Skilled craftsperson and member of a trade guild
+    skill_proficiencies: [Insight, Persuasion]
+    tool_proficiencies: [artisan's tools]
+    languages: 1
+    equipment: [artisan's tools, letter of introduction, traveler's clothes, 15 gp]
+    feature: Guild Membership
+
+  - id: hermit
+    name: Hermit
+    description: Recluse who spent years in seclusion
+    skill_proficiencies: [Medicine, Religion]
+    tool_proficiencies: [herbalism kit]
+    languages: 1
+    equipment: [scroll case with notes, winter blanket, common clothes, herbalism kit, 5 gp]
+    feature: Discovery
+
+  - id: outlander
+    name: Outlander
+    description: Wilderness survivor far from civilization
+    skill_proficiencies: [Athletics, Survival]
+    tool_proficiencies: [musical instrument]
+    languages: 1
+    equipment: [staff, hunting trap, animal trophy, traveler's clothes, 10 gp]
+    feature: Wanderer
+
+  - id: sailor
+    name: Sailor
+    description: Experienced seafarer with nautical skills
+    skill_proficiencies: [Athletics, Perception]
+    tool_proficiencies: [navigator's tools, vehicles (water)]
+    equipment: [belaying pin, 50 ft rope, lucky charm, common clothes, 10 gp]
+    feature: Ship's Passage
+
+  - id: urchin
+    name: Urchin
+    description: Street-wise orphan who survived by wits
+    skill_proficiencies: [Sleight of Hand, Stealth]
+    tool_proficiencies: [disguise kit, thieves' tools]
+    equipment: [small knife, map of home city, pet mouse, parents' memento, common clothes, 10 gp]
+    feature: City Secrets
+
+# All skills with their associated abilities
+skills:
+  - id: acrobatics
+    name: Acrobatics
+    ability: dexterity
+  - id: animal-handling
+    name: Animal Handling
+    ability: wisdom
+  - id: arcana
+    name: Arcana
+    ability: intelligence
+  - id: athletics
+    name: Athletics
+    ability: strength
+  - id: deception
+    name: Deception
+    ability: charisma
+  - id: history
+    name: History
+    ability: intelligence
+  - id: insight
+    name: Insight
+    ability: wisdom
+  - id: intimidation
+    name: Intimidation
+    ability: charisma
+  - id: investigation
+    name: Investigation
+    ability: intelligence
+  - id: medicine
+    name: Medicine
+    ability: wisdom
+  - id: nature
+    name: Nature
+    ability: intelligence
+  - id: perception
+    name: Perception
+    ability: wisdom
+  - id: performance
+    name: Performance
+    ability: charisma
+  - id: persuasion
+    name: Persuasion
+    ability: charisma
+  - id: religion
+    name: Religion
+    ability: intelligence
+  - id: sleight-of-hand
+    name: Sleight of Hand
+    ability: dexterity
+  - id: stealth
+    name: Stealth
+    ability: dexterity
+  - id: survival
+    name: Survival
+    ability: wisdom
