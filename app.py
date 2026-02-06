@@ -929,6 +929,136 @@ def render_sheet_message(content: str, is_current: bool = False) -> None:
     )
 
 
+def render_secret_revealed_notification_html(
+    character_name: str, content_preview: str
+) -> str:
+    """Generate HTML for secret revelation notification.
+
+    Creates a dramatic notification when a secret is revealed to all
+    characters. Uses gold/amber styling with the secret-revealed-notification
+    CSS class.
+
+    Story 10.5: Secret Revelation System.
+
+    Args:
+        character_name: The character whose secret was revealed.
+        content_preview: Brief preview of the secret content.
+
+    Returns:
+        HTML string for the secret revealed notification.
+    """
+    escaped_name = escape_html(character_name)
+    # Truncate content preview BEFORE escaping to avoid cutting escape sequences
+    truncated_content = content_preview
+    if len(truncated_content) > 100:
+        truncated_content = truncated_content[:100] + "..."
+    escaped_content = escape_html(truncated_content)
+    return (
+        '<div class="secret-revealed-notification">'
+        f'<p><strong>SECRET REVEALED:</strong> {escaped_name} revealed: "{escaped_content}"</p>'
+        "</div>"
+    )
+
+
+def render_secret_revealed_notification(
+    character_name: str, content_preview: str
+) -> None:
+    """Render secret revelation notification to Streamlit.
+
+    Story 10.5: Secret Revelation System.
+
+    Args:
+        character_name: The character whose secret was revealed.
+        content_preview: Brief preview of the secret content.
+    """
+    st.markdown(
+        render_secret_revealed_notification_html(character_name, content_preview),
+        unsafe_allow_html=True,
+    )
+
+
+def render_whisper_history_html(
+    agent_secrets: dict[str, Any],
+    characters: dict[str, Any] | None = None,
+) -> str:
+    """Generate HTML for whisper history display.
+
+    Renders all whispers grouped by agent with visual distinction
+    between revealed and active (unrevealed) whispers.
+
+    Story 10.5: Secret Revelation System.
+
+    Args:
+        agent_secrets: Dict of agent key to AgentSecrets with whispers.
+        characters: Optional character config dict for display names.
+
+    Returns:
+        HTML string for the whisper history container.
+    """
+    if not agent_secrets:
+        return '<div class="whisper-history-container"><p>No whispers in this session.</p></div>'
+
+    html_parts = ['<div class="whisper-history-container">']
+
+    for agent_key, secrets in sorted(agent_secrets.items()):
+        if agent_key == "dm":
+            continue  # Skip DM's own secrets section
+
+        whispers = secrets.whispers if hasattr(secrets, "whispers") else []
+        if not whispers:
+            continue
+
+        # Get display name from characters config
+        display_name = agent_key.title()
+        if characters and agent_key in characters:
+            char_config = characters[agent_key]
+            if hasattr(char_config, "name"):
+                display_name = char_config.name
+
+        html_parts.append('<div class="whisper-agent-group">')
+        html_parts.append(f'<h4 class="whisper-agent-name">{escape_html(display_name)}</h4>')
+
+        for whisper in whispers:
+            whisper_class = "whisper-revealed" if whisper.revealed else "whisper-active"
+            content = escape_html(whisper.content)
+            turn_info = f"Turn {whisper.turn_created}"
+            if whisper.revealed and whisper.turn_revealed:
+                turn_info += f" (Revealed turn {whisper.turn_revealed})"
+            status_badge = (
+                '<span class="whisper-status revealed">Revealed</span>'
+                if whisper.revealed
+                else '<span class="whisper-status active">Active</span>'
+            )
+
+            html_parts.append(f'<div class="whisper-item {whisper_class}">')
+            html_parts.append(f'<div class="whisper-header">{status_badge} <span class="whisper-turn">{escape_html(turn_info)}</span></div>')
+            html_parts.append(f'<p class="whisper-content">{content}</p>')
+            html_parts.append("</div>")
+
+        html_parts.append("</div>")
+
+    html_parts.append("</div>")
+    return "".join(html_parts)
+
+
+def render_whisper_history(
+    agent_secrets: dict[str, Any],
+    characters: dict[str, Any] | None = None,
+) -> None:
+    """Render whisper history to Streamlit.
+
+    Story 10.5: Secret Revelation System.
+
+    Args:
+        agent_secrets: Dict of agent key to AgentSecrets with whispers.
+        characters: Optional character config dict for display names.
+    """
+    st.markdown(
+        render_whisper_history_html(agent_secrets, characters),
+        unsafe_allow_html=True,
+    )
+
+
 def format_pc_content(content: str) -> str:
     """Format PC message content with action styling.
 
@@ -1231,6 +1361,8 @@ def initialize_session_state() -> None:
         # Human whisper to DM state (Story 10.4)
         st.session_state["pending_human_whisper"] = None
         st.session_state["human_whisper_submitted"] = False
+        # Secret revelation state (Story 10.5)
+        st.session_state["pending_secret_reveal"] = None
         # Config modal auto-pause state (Story 3.5)
         st.session_state["modal_open"] = False
         st.session_state["pre_modal_pause_state"] = False
@@ -4404,6 +4536,7 @@ def handle_checkpoint_restore(session_id: str, turn_number: int) -> bool:
     st.session_state["nudge_submitted"] = False
     st.session_state["pending_human_whisper"] = None
     st.session_state["human_whisper_submitted"] = False
+    st.session_state["pending_secret_reveal"] = None
     st.session_state["autopilot_turn_count"] = 0
 
     # Clean up any lingering preview state keys
@@ -6463,6 +6596,16 @@ def render_main_content() -> None:
     # Renders above narrative area with recovery options
     render_error_panel()
 
+    # Secret reveal notification - shown when a secret was just revealed (Story 10.5)
+    pending_reveal = st.session_state.get("pending_secret_reveal")
+    if pending_reveal:
+        render_secret_revealed_notification(
+            pending_reveal.get("character_name", "Unknown"),
+            pending_reveal.get("content", ""),
+        )
+        # Clear after displaying (single-use notification)
+        st.session_state["pending_secret_reveal"] = None
+
     # Narrative container with messages (Story 2.3, 2.6)
     st.markdown('<div class="narrative-container">', unsafe_allow_html=True)
 
@@ -6600,6 +6743,7 @@ def handle_session_continue(session_id: str) -> bool:
     st.session_state["nudge_submitted"] = False
     st.session_state["pending_human_whisper"] = None
     st.session_state["human_whisper_submitted"] = False
+    st.session_state["pending_secret_reveal"] = None
     st.session_state["is_autopilot_running"] = False
     st.session_state["autopilot_turn_count"] = 0
 

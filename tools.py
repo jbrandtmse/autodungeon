@@ -17,6 +17,7 @@ logger = logging.getLogger("autodungeon")
 __all__ = [
     "DiceResult",
     "apply_character_sheet_update",
+    "dm_reveal_secret",
     "dm_roll_dice",
     "dm_update_character_sheet",
     "dm_whisper_to_agent",
@@ -452,7 +453,7 @@ def apply_character_sheet_update(
         elif key == "spell_slots":
             if not isinstance(value, dict):
                 raise ValueError(f"spell_slots must be a dict, got {type(value).__name__}")
-            new_slots = {k: v for k, v in sheet.spell_slots.items()}
+            new_slots = dict(sheet.spell_slots)
             slot_changes: list[str] = []
             for level_key, slot_update in value.items():
                 level = int(level_key)
@@ -521,6 +522,47 @@ def dm_whisper_to_agent(
     """
     # Tool schema only - execution intercepted in dm_turn()
     return f"Secret shared with {character_name}"
+
+
+@tool
+def dm_reveal_secret(
+    character_name: str,
+    whisper_id: str = "",
+    content_hint: str = "",
+) -> str:
+    """Reveal a secret that a character was holding.
+
+    Call this when a character acts on secret knowledge in a way that
+    exposes the secret to others. The secret will be marked as revealed
+    and other characters can now react to this information.
+
+    Use this tool when:
+    - A character openly acts on their secret knowledge
+    - An NPC's hidden information becomes public
+    - A dramatic reveal moment occurs in the story
+    - Secret information naturally comes to light through roleplay
+
+    IMPORTANT: Build dramatic tension before reveals. Let the character
+    with the secret choose their moment. After revelation, narrate the
+    reactions of other characters who now learn this information.
+
+    Args:
+        character_name: The character whose secret is being revealed.
+        whisper_id: Optional exact ID of the whisper to reveal.
+        content_hint: Optional content fragment to identify the secret
+            (case-insensitive substring match). Use if whisper_id unknown.
+
+    Returns:
+        Confirmation message or error if secret not found.
+
+    Examples:
+        - dm_reveal_secret("Shadowmere", content_hint="concealed door")
+        - dm_reveal_secret("Thorin", content_hint="merchant's ring")
+        - dm_reveal_secret("Elara", whisper_id="abc123...")
+    """
+    # Tool schema only - execution intercepted in dm_turn()
+    # Actual execution in agents.py _execute_reveal()
+    return f"Revealing secret for {character_name}"
 
 
 @tool

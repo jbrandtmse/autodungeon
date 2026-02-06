@@ -129,12 +129,12 @@ development_status:
   epic-9-retrospective: optional
 
   # Epic 10: DM Whisper & Secrets System (5 stories)
-  epic-10: in-progress
+  epic-10: done
   10-1-whisper-data-model: done
   10-2-dm-whisper-tool: done
   10-3-secret-knowledge-injection: done
   10-4-human-whisper-to-dm: done
-  10-5-secret-revelation-system: backlog
+  10-5-secret-revelation-system: done
   epic-10-retrospective: optional
 
   # Epic 11: Callback Tracker (5 stories)

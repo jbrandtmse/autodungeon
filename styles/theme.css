@@ -3145,3 +3145,141 @@ hr {
         gap: 8px;
     }
 }
+
+/* ==========================================================================
+   Secret Revelation System (Story 10.5)
+   ========================================================================== */
+
+/* Secret revealed notification - dramatic gold/amber styling */
+.secret-revealed-notification {
+  background: rgba(232, 168, 73, 0.12);
+  border-left: 4px solid var(--accent-warm);
+  padding: var(--space-md);
+  margin-bottom: var(--space-md);
+  border-radius: 0 8px 8px 0;
+  animation: secret-reveal-glow 2s ease-out;
+}
+
+.secret-revealed-notification p {
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--accent-warm);
+  margin: 0;
+}
+
+.secret-revealed-notification strong {
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+
+@keyframes secret-reveal-glow {
+  0% {
+    background: rgba(232, 168, 73, 0.25);
+    box-shadow: 0 0 12px rgba(232, 168, 73, 0.4);
+  }
+  100% {
+    background: rgba(232, 168, 73, 0.12);
+    box-shadow: none;
+  }
+}
+
+/* Respect reduced motion preference (accessibility) */
+@media (prefers-reduced-motion: reduce) {
+  .secret-revealed-notification {
+    animation: none;
+  }
+}
+
+/* Whisper History Container (Debug/Review mode) */
+.whisper-history-container {
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  padding: var(--space-md);
+  margin-top: var(--space-md);
+}
+
+.whisper-history-container > p {
+  font-family: var(--font-ui);
+  font-size: var(--text-ui);
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+/* Agent group within whisper history */
+.whisper-agent-group {
+  margin-bottom: var(--space-md);
+}
+
+.whisper-agent-name {
+  font-family: var(--font-ui);
+  font-size: var(--text-name);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 var(--space-sm) 0;
+  padding-bottom: var(--space-xs);
+  border-bottom: 1px solid var(--bg-message);
+}
+
+/* Individual whisper item */
+.whisper-item {
+  background: var(--bg-message);
+  border-radius: 6px;
+  padding: var(--space-sm) var(--space-md);
+  margin-bottom: var(--space-sm);
+  border-left: 3px solid var(--color-wizard);
+}
+
+.whisper-item.whisper-revealed {
+  border-left-color: var(--accent-warm);
+  opacity: 0.8;
+}
+
+.whisper-item.whisper-active {
+  border-left-color: var(--color-wizard);
+}
+
+.whisper-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-xs);
+}
+
+.whisper-status {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.whisper-status.active {
+  background: rgba(123, 104, 184, 0.2);
+  color: var(--color-wizard);
+}
+
+.whisper-status.revealed {
+  background: rgba(232, 168, 73, 0.2);
+  color: var(--accent-warm);
+}
+
+.whisper-turn {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.whisper-content {
+  font-family: var(--font-narrative);
+  font-size: var(--text-system);
+  color: var(--text-primary);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.whisper-item.whisper-revealed .whisper-content {
+  color: var(--text-secondary);
+}

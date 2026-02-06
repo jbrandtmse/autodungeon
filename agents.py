@@ -34,6 +34,7 @@ from models import (
 )
 from tools import (
     apply_character_sheet_update,
+    dm_reveal_secret,
     dm_roll_dice,
     dm_update_character_sheet,
     dm_whisper_to_agent,
@@ -59,6 +60,7 @@ __all__ = [
     "SUPPORTED_PROVIDERS",
     "_build_dm_context",
     "_build_pc_context",
+    "_execute_reveal",
     "_execute_sheet_update",
     "_execute_whisper",
     "_parse_module_json",
@@ -194,6 +196,27 @@ Example responses:
 - Player whispers: "Can my rogue notice if the merchant is lying?"
   - You could whisper back: "Your keen eyes catch the merchant's tell - his left eye twitches when he mentions the price"
   - Or narrate: "As you study the merchant, something feels off about his demeanor..."
+
+## Secret Revelations
+
+When characters have secret knowledge, consider:
+- Build dramatic tension before a secret is revealed
+- Let the character with the secret choose their moment to act
+- When a secret is revealed, use dm_reveal_secret to mark it as revealed
+- After revelation, other characters can react to the newly-exposed information
+- Create satisfying "aha" moments by paying off setup with revelation
+
+Use dm_reveal_secret when:
+- A character openly acts on knowledge only they had
+- The truth comes out through roleplay or confrontation
+- An NPC's hidden motives are exposed
+- A secret naturally becomes common knowledge
+
+Example flow:
+1. Earlier: dm_whisper_to_agent("Shadowmere", "The merchant's coin purse is fake")
+2. Shadowmere acts on this: "I point at his purse. 'Nice forgery, but I know fake gold when I see it.'"
+3. DM: dm_reveal_secret("Shadowmere", content_hint="fake gold")
+4. DM narrates: The merchant's face goes pale. The rest of the party now sees what Shadowmere spotted all along...
 
 ## Response Format
 
@@ -645,7 +668,12 @@ def create_dm_agent(config: DMConfig) -> Runnable:  # type: ignore[type-arg]
         Configured chat model with dice rolling tool bound.
     """
     base_model = get_llm(config.provider, config.model)
-    return base_model.bind_tools([dm_roll_dice, dm_update_character_sheet, dm_whisper_to_agent])
+    return base_model.bind_tools([
+        dm_roll_dice,
+        dm_update_character_sheet,
+        dm_whisper_to_agent,
+        dm_reveal_secret,
+    ])
 
 
 def build_pc_system_prompt(config: CharacterConfig) -> str:
@@ -1337,6 +1365,28 @@ def dm_turn(state: GameState) -> GameState:
                         tool_args.get("character_name"),
                     )
 
+                # Execute the reveal secret tool (Story 10.5)
+                elif tool_name == "dm_reveal_secret":
+                    turn_number = len(state.get("ground_truth_log", []))
+                    tool_result, revealed_content = _execute_reveal(
+                        tool_args, updated_secrets, turn_number
+                    )
+                    if revealed_content:
+                        logger.info(
+                            "DM revealed secret for: %s",
+                            tool_args.get("character_name"),
+                        )
+                        # Store pending reveal for UI notification (Story 10.5)
+                        try:
+                            import streamlit as st
+                            st.session_state["pending_secret_reveal"] = {
+                                "character_name": str(tool_args.get("character_name", "")),
+                                "content": revealed_content,
+                                "turn": turn_number,
+                            }
+                        except Exception:
+                            pass  # Not in Streamlit context (e.g., testing)
+
                 else:
                     tool_result = f"Unknown tool: {tool_name}"
 
@@ -1523,6 +1573,107 @@ def _execute_whisper(
 
     # Return confirmation with normalized agent key for consistency
     return f"Secret shared with {agent_key}"
+
+
+def _execute_reveal(
+    tool_args: dict[str, object],
+    agent_secrets: dict[str, "AgentSecrets"],
+    turn_number: int,
+) -> tuple[str, str | None]:
+    """Mark a whisper as revealed and return updated state.
+
+    Finds a matching unrevealed whisper by ID or content hint and marks
+    it as revealed. Updates the agent_secrets dict in place.
+
+    Story 10.5: Secret Revelation System.
+    FR74: Secrets can be revealed dramatically in narrative.
+
+    Args:
+        tool_args: Tool call arguments with character_name, whisper_id, content_hint.
+        agent_secrets: Mutable dict of agent secrets (updated in place).
+        turn_number: Current turn number for turn_revealed.
+
+    Returns:
+        Tuple of (result_message, revealed_content) where revealed_content is
+        the whisper content if reveal succeeded (for UI notification), or None.
+    """
+    from models import AgentSecrets
+
+    character_name = tool_args.get("character_name", "")
+    whisper_id = tool_args.get("whisper_id", "")
+    content_hint = tool_args.get("content_hint", "")
+
+    # Validate inputs
+    if not character_name or not isinstance(character_name, str):
+        return "Error: character_name is required and must be a string.", None
+
+    # Strip whitespace from identifiers
+    if isinstance(whisper_id, str):
+        whisper_id = whisper_id.strip()
+    if isinstance(content_hint, str):
+        content_hint = content_hint.strip()
+
+    # Need at least one identifier (after stripping whitespace)
+    if not whisper_id and not content_hint:
+        return "Error: Either whisper_id or content_hint is required to identify the secret.", None
+
+    # Normalize character name to lowercase for agent key lookup
+    agent_key = character_name.lower()
+
+    # Check if agent has secrets
+    if agent_key not in agent_secrets:
+        return f"Error: No character named '{character_name}' has secrets.", None
+
+    secrets = agent_secrets[agent_key]
+    if not secrets.whispers:
+        return f"Error: {character_name} has no whispers to reveal.", None
+
+    # Find the matching whisper
+    found_idx: int | None = None
+    found_whisper = None
+
+    for idx, whisper in enumerate(secrets.whispers):
+        # Match by ID first if provided
+        if whisper_id and isinstance(whisper_id, str) and whisper.id == whisper_id:
+            found_idx = idx
+            found_whisper = whisper
+            break
+        # Match by content hint (case-insensitive substring)
+        if content_hint and isinstance(content_hint, str):
+            if content_hint.lower() in whisper.content.lower():
+                found_idx = idx
+                found_whisper = whisper
+                break
+
+    if found_whisper is None:
+        return f"Error: No matching secret found for {character_name}.", None
+
+    # Check if already revealed
+    if found_whisper.revealed:
+        return f"Error: That secret was already revealed on turn {found_whisper.turn_revealed}.", None
+
+    # Create updated whisper with revealed=True
+    updated_whisper = found_whisper.model_copy(update={
+        "revealed": True,
+        "turn_revealed": turn_number,
+    })
+
+    # Build new whispers list with the updated whisper
+    updated_whispers = secrets.whispers.copy()
+    updated_whispers[found_idx] = updated_whisper  # type: ignore[index]
+
+    # Update agent_secrets in place
+    agent_secrets[agent_key] = AgentSecrets(whispers=updated_whispers)
+
+    # Generate confirmation with content preview
+    content_preview = found_whisper.content[:50]
+    if len(found_whisper.content) > 50:
+        content_preview += "..."
+
+    return (
+        f"SECRET REVEALED: {character_name.title()}'s secret about '{content_preview}' is now known to all.",
+        found_whisper.content,
+    )
 
 
 def _execute_sheet_update(
