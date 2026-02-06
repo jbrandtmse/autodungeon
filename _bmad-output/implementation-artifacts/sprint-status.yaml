@@ -123,7 +123,7 @@ development_status:
   # Epic 9: Character Creation UI (4 stories)
   epic-9: in-progress
   9-1-character-creation-wizard: done
-  9-2-ai-assisted-backstory-generation: backlog
+  9-2-ai-assisted-backstory-generation: done
   9-3-character-validation: backlog
   9-4-character-library: backlog
   epic-9-retrospective: optional

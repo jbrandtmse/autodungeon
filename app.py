@@ -4970,15 +4970,222 @@ def render_wizard_step_equipment() -> None:
     st.session_state["wizard_data"] = wizard_data
 
 
+def generate_backstory_prompt(wizard_data: dict[str, Any]) -> str:
+    """Generate the prompt for AI backstory generation.
+
+    Story 9.2: AI-Assisted Backstory Generation.
+
+    Args:
+        wizard_data: Current wizard data with race, class, background selections.
+
+    Returns:
+        Formatted prompt string for the LLM.
+    """
+    from config import get_dnd5e_backgrounds, get_dnd5e_classes, get_dnd5e_races
+
+    # Get selected options
+    races = get_dnd5e_races()
+    classes = get_dnd5e_classes()
+    backgrounds = get_dnd5e_backgrounds()
+
+    race = next((r for r in races if r["id"] == wizard_data.get("race_id")), None)
+    char_class = next((c for c in classes if c["id"] == wizard_data.get("class_id")), None)
+    background = next((b for b in backgrounds if b["id"] == wizard_data.get("background_id")), None)
+
+    race_name = race["name"] if race else "Unknown"
+    race_traits = ", ".join(race.get("traits", [])) if race else "none"
+    class_name = char_class["name"] if char_class else "Unknown"
+    bg_name = background["name"] if background else "Unknown"
+    bg_feature = background.get("feature", "") if background else ""
+    char_name = wizard_data.get("name", "This character")
+
+    prompt = f"""You are helping create a D&D 5e character named {char_name}.
+
+Character Details:
+- Race: {race_name} (traits: {race_traits})
+- Class: {class_name}
+- Background: {bg_name} (feature: {bg_feature})
+
+Generate personality content for this character. Respond in EXACTLY this format:
+
+PERSONALITY_TRAITS:
+[Two distinct personality traits, each on its own line]
+
+IDEALS:
+[One ideal that aligns with the {bg_name} background]
+
+BONDS:
+[One bond that creates a story hook - a person, place, or goal that matters to them]
+
+FLAWS:
+[One interesting flaw or weakness that creates drama]
+
+BACKSTORY:
+[2-3 paragraphs describing the character's history, how they became a {class_name}, and what drives them now. Incorporate their {bg_name} background and {race_name} heritage.]
+
+Be creative and specific. Make the character feel unique and interesting to play."""
+
+    return prompt
+
+
+def parse_backstory_response(response: str) -> dict[str, str]:
+    """Parse LLM response into structured backstory fields.
+
+    Story 9.2: AI-Assisted Backstory Generation.
+
+    Args:
+        response: Raw LLM response text.
+
+    Returns:
+        Dictionary with personality_traits, ideals, bonds, flaws, backstory keys.
+    """
+    result = {
+        "personality_traits": "",
+        "ideals": "",
+        "bonds": "",
+        "flaws": "",
+        "backstory": "",
+    }
+
+    # Split into sections (case-insensitive matching for robustness)
+    sections = {
+        "PERSONALITY_TRAITS": "personality_traits",
+        "PERSONALITY TRAITS": "personality_traits",
+        "IDEALS": "ideals",
+        "BONDS": "bonds",
+        "FLAWS": "flaws",
+        "BACKSTORY": "backstory",
+    }
+
+    current_section = None
+    current_content: list[str] = []
+
+    for line in response.split("\n"):
+        line_stripped = line.strip()
+        line_upper = line_stripped.upper().rstrip(":")
+
+        # Check if this line starts a new section
+        found_section = False
+        for marker, field in sections.items():
+            if line_upper == marker or line_upper.startswith(marker + ":"):
+                # Save previous section
+                if current_section:
+                    result[current_section] = "\n".join(current_content).strip()
+                # Start new section
+                current_section = field
+                current_content = []
+                # Check if content is on same line as marker
+                if ":" in line_stripped:
+                    remainder = line_stripped.split(":", 1)[1].strip()
+                    if remainder:
+                        current_content.append(remainder)
+                found_section = True
+                break
+
+        if not found_section and current_section:
+            current_content.append(line)
+
+    # Save final section
+    if current_section:
+        result[current_section] = "\n".join(current_content).strip()
+
+    return result
+
+
+def generate_backstory(wizard_data: dict[str, Any]) -> dict[str, str] | str:
+    """Generate backstory using LLM.
+
+    Story 9.2: AI-Assisted Backstory Generation.
+
+    Args:
+        wizard_data: Current wizard data with character selections.
+
+    Returns:
+        Dictionary with generated fields, or error string if failed.
+    """
+    from agents import LLMConfigurationError, LLMError, get_llm
+    from config import get_config
+
+    config = get_config()
+    dm_config = config.dm
+
+    try:
+        llm = get_llm(dm_config.provider, dm_config.model)
+        prompt = generate_backstory_prompt(wizard_data)
+
+        # Call LLM with timeout handling
+        # LLM clients have their own timeouts (120s for Gemini, 60s for Claude)
+        # but we add a try/except for timeout errors
+        response = llm.invoke(prompt)
+        response_text = response.content if hasattr(response, "content") else str(response)
+
+        # Parse response
+        return parse_backstory_response(str(response_text))
+
+    except LLMConfigurationError as e:
+        return f"LLM not configured: {e}"
+    except LLMError as e:
+        return f"LLM error: {e}"
+    except TimeoutError:
+        return "Request timed out. Please try again."
+    except Exception as e:
+        return f"Error generating backstory: {e}"
+
+
 def render_wizard_step_personality() -> None:
-    """Render Step 5: Personality traits input.
+    """Render Step 5: Personality traits input with AI generation option.
 
     Story 9.1: Character Creation Wizard - Step 5.
+    Story 9.2: AI-Assisted Backstory Generation.
     """
     st.markdown("### Step 5: Personality")
     st.markdown("Define your character's personality, ideals, bonds, and flaws.")
 
     wizard_data = st.session_state["wizard_data"]
+
+    # AI Generation buttons (Story 9.2)
+    st.markdown("---")
+    col_gen, col_regen = st.columns([1, 1])
+
+    with col_gen:
+        generate_clicked = st.button(
+            "Generate with AI",
+            key="wizard_generate_backstory",
+            help="Use AI to generate personality and backstory based on your character choices",
+        )
+
+    with col_regen:
+        regenerate_clicked = st.button(
+            "Regenerate",
+            key="wizard_regenerate_backstory",
+            help="Generate new content with the same inputs",
+        )
+
+    # Handle generation
+    if generate_clicked or regenerate_clicked:
+        # Check if required fields are set
+        if not wizard_data.get("race_id") or not wizard_data.get("class_id") or not wizard_data.get("background_id"):
+            st.error("Please select race, class, and background first (Steps 1 and 3).")
+        else:
+            with st.spinner("Generating backstory with AI..."):
+                result = generate_backstory(wizard_data)
+
+            if isinstance(result, str):
+                # Error occurred
+                st.error(result)
+            else:
+                # Success - populate fields
+                wizard_data["personality_traits"] = result.get("personality_traits", "")
+                wizard_data["ideals"] = result.get("ideals", "")
+                wizard_data["bonds"] = result.get("bonds", "")
+                wizard_data["flaws"] = result.get("flaws", "")
+                wizard_data["backstory"] = result.get("backstory", "")
+                st.session_state["wizard_data"] = wizard_data
+                st.success("Backstory generated! You can edit the content below.")
+                st.rerun()
+
+    st.markdown("---")
+    st.markdown("*Or write your own content below:*")
 
     wizard_data["personality_traits"] = st.text_area(
         "Personality Traits",
