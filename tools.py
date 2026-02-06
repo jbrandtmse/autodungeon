@@ -19,6 +19,7 @@ __all__ = [
     "apply_character_sheet_update",
     "dm_roll_dice",
     "dm_update_character_sheet",
+    "dm_whisper_to_agent",
     "pc_roll_dice",
     "roll_dice",
     "MAX_DICE_COUNT",
@@ -485,6 +486,41 @@ def apply_character_sheet_update(
     updated_sheet = sheet.model_copy(update=update_dict)
     confirmation = f"Updated {sheet.name}: " + "; ".join(changes)
     return updated_sheet, confirmation
+
+
+@tool
+def dm_whisper_to_agent(
+    character_name: str,
+    secret_info: str,
+    context: str = "",
+) -> str:
+    """Send private information to a character that others don't know.
+
+    Use this tool when:
+    - A character alone notices something others don't
+    - You want to create dramatic irony (character knows something)
+    - A character receives private information from an NPC
+    - You want to set up future plot reveals
+
+    IMPORTANT: Whispers are private - only the target character will know.
+    Other characters and players watching won't see the whisper content
+    until it's dramatically revealed.
+
+    Args:
+        character_name: The character's name (e.g., "Thorin", "Shadowmere").
+        secret_info: The private information to share with this character.
+        context: Optional context about when/why this becomes relevant.
+
+    Returns:
+        Confirmation message.
+
+    Examples:
+        - whisper_to_agent("Shadowmere", "You notice a concealed door behind the tapestry")
+        - whisper_to_agent("Thorin", "The merchant's ring bears the mark of the Thieves Guild", "Thorin's background as a guard")
+        - whisper_to_agent("Elara", "Your divine sense tingles - something undead lurks nearby")
+    """
+    # Tool schema only - execution intercepted in dm_turn()
+    return f"Secret shared with {character_name}"
 
 
 @tool

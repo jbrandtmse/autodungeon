@@ -304,6 +304,8 @@ class TestModuleExports:
             "format_all_sheets_context",
             # Story 8.4: DM Tool Calls for Sheet Updates
             "_execute_sheet_update",
+            # Story 10.2: DM Whisper Tool
+            "_execute_whisper",
         }
 
         assert set(agents.__all__) == expected_exports

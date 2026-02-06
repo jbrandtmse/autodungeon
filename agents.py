@@ -23,6 +23,7 @@ from langchain_ollama import ChatOllama
 from config import get_config, load_user_settings
 from models import (
     AgentMemory,
+    AgentSecrets,
     CharacterConfig,
     CharacterFacts,
     CharacterSheet,
@@ -31,7 +32,13 @@ from models import (
     ModuleDiscoveryResult,
     ModuleInfo,
 )
-from tools import apply_character_sheet_update, dm_roll_dice, dm_update_character_sheet, pc_roll_dice
+from tools import (
+    apply_character_sheet_update,
+    dm_roll_dice,
+    dm_update_character_sheet,
+    dm_whisper_to_agent,
+    pc_roll_dice,
+)
 
 # Logger for error tracking (technical details logged internally per FR40)
 logger = logging.getLogger("autodungeon")
@@ -53,6 +60,7 @@ __all__ = [
     "_build_dm_context",
     "_build_pc_context",
     "_execute_sheet_update",
+    "_execute_whisper",
     "_parse_module_json",
     "build_pc_system_prompt",
     "categorize_error",
@@ -153,6 +161,23 @@ Example - Player wants to pick a lock:
 
 After receiving dice results, integrate them meaningfully into your narration. A natural 20 should feel \
 heroic; a natural 1 should be dramatically unfortunate but not humiliating.
+
+## Private Whispers
+
+Use the dm_whisper_to_agent tool to send private information to individual characters:
+
+- **Perception checks**: When one character notices something others don't
+- **Background knowledge**: When a character's history gives them unique insight
+- **Secret communications**: When an NPC whispers to a specific character
+- **Divine/magical senses**: When a character's abilities reveal hidden information
+
+Examples:
+- "You notice the barkeep slipping a note under the counter" (to the observant rogue)
+- "Your training as a city guard recognizes these as counterfeit coins" (to the fighter)
+- "Your divine sense detects a faint aura of undeath from the cellar" (to the paladin)
+
+Whispers create dramatic irony and player engagement. The whispered character can choose
+when and how to share (or hide) this information from the party.
 
 ## Response Format
 
@@ -604,7 +629,7 @@ def create_dm_agent(config: DMConfig) -> Runnable:  # type: ignore[type-arg]
         Configured chat model with dice rolling tool bound.
     """
     base_model = get_llm(config.provider, config.model)
-    return base_model.bind_tools([dm_roll_dice, dm_update_character_sheet])
+    return base_model.bind_tools([dm_roll_dice, dm_update_character_sheet, dm_whisper_to_agent])
 
 
 def build_pc_system_prompt(config: CharacterConfig) -> str:
@@ -1138,6 +1163,11 @@ def dm_turn(state: GameState) -> GameState:
             k: v for k, v in state.get("character_sheets", {}).items()
         }
 
+        # Track agent secrets updates from whisper tool calls (Story 10.2)
+        updated_secrets: dict[str, "AgentSecrets"] = {
+            k: v for k, v in state.get("agent_secrets", {}).items()
+        }
+
         # Invoke the model with tool call handling loop
         max_tool_iterations = 5  # Increased for sheet updates alongside dice rolls
         for _ in range(max_tool_iterations):
@@ -1177,6 +1207,19 @@ def dm_turn(state: GameState) -> GameState:
                     # Collect successful update notifications (Story 8.5)
                     if not tool_result.startswith("Error"):
                         sheet_notifications.append(tool_result)
+
+                # Execute the whisper tool (Story 10.2)
+                elif tool_name == "dm_whisper_to_agent":
+                    turn_number = len(state.get("ground_truth_log", []))
+                    # Build set of valid agent keys for validation
+                    valid_agents = set(state["turn_queue"])
+                    tool_result = _execute_whisper(
+                        tool_args, updated_secrets, turn_number, valid_agents
+                    )
+                    logger.info(
+                        "DM whispered to agent: %s",
+                        tool_args.get("character_name"),
+                    )
 
                 else:
                     tool_result = f"Unknown tool: {tool_name}"
@@ -1292,7 +1335,78 @@ def dm_turn(state: GameState) -> GameState:
         summarization_in_progress=state.get("summarization_in_progress", False),
         selected_module=state.get("selected_module"),
         character_sheets=updated_sheets,
+        agent_secrets=updated_secrets,
     )
+
+
+def _execute_whisper(
+    tool_args: dict[str, object],
+    agent_secrets: dict[str, "AgentSecrets"],
+    turn_number: int,
+    valid_agents: set[str] | None = None,
+) -> str:
+    """Execute a whisper from DM to agent.
+
+    Creates a new Whisper object and adds it to the target agent's secrets.
+
+    Story 10.2: DM Whisper Tool.
+    FR71: DM can send private information to individual agents.
+    FR75: Whisper history is tracked per agent.
+
+    Args:
+        tool_args: Tool call arguments with character_name, secret_info, context.
+        agent_secrets: Mutable dict of agent secrets (updated in place).
+        turn_number: Current turn number for turn_created.
+        valid_agents: Optional set of valid agent keys for validation.
+            If provided, whispers to unknown agents will log a warning
+            but still proceed (LLM may know character names we don't).
+
+    Returns:
+        Confirmation or error message string.
+    """
+    from models import AgentSecrets, create_whisper
+
+    character_name = tool_args.get("character_name", "")
+    secret_info = tool_args.get("secret_info", "")
+    # context is optional and not stored in the whisper (informational for DM only)
+
+    # Validate inputs
+    if not character_name or not isinstance(character_name, str):
+        return "Error: character_name is required and must be a string."
+    if not secret_info or not isinstance(secret_info, str):
+        return "Error: secret_info is required and must be a string."
+
+    # Normalize character name to lowercase for agent key lookup
+    agent_key = character_name.lower()
+
+    # Warn if agent is not known (but still proceed - LLM may use character names)
+    if valid_agents is not None and agent_key not in valid_agents:
+        logger.warning(
+            "Whisper sent to unknown agent '%s'. Known agents: %s",
+            agent_key,
+            ", ".join(sorted(valid_agents)),
+        )
+
+    # Create the whisper
+    whisper = create_whisper(
+        from_agent="dm",
+        to_agent=agent_key,
+        content=secret_info,
+        turn_created=turn_number,
+    )
+
+    # Add to agent's secrets
+    if agent_key not in agent_secrets:
+        agent_secrets[agent_key] = AgentSecrets()
+
+    # Create new whispers list with this whisper added
+    current_secrets = agent_secrets[agent_key]
+    new_whispers = current_secrets.whispers.copy()
+    new_whispers.append(whisper)
+    agent_secrets[agent_key] = current_secrets.model_copy(update={"whispers": new_whispers})
+
+    # Return confirmation with normalized agent key for consistency
+    return f"Secret shared with {agent_key}"
 
 
 def _execute_sheet_update(
@@ -1540,6 +1654,7 @@ def pc_turn(state: GameState, agent_name: str) -> GameState:
         summarization_in_progress=state.get("summarization_in_progress", False),
         selected_module=state.get("selected_module"),
         character_sheets=state.get("character_sheets", {}),
+        agent_secrets=state.get("agent_secrets", {}),
     )
 
 
