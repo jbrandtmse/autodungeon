@@ -69,10 +69,12 @@ __all__ = [
     "detect_network_error",
     "discover_modules",
     "dm_turn",
+    "format_all_secrets_context",
     "format_all_sheets_context",
     "format_character_facts",
     "format_character_sheet_context",
     "format_module_context",
+    "format_pc_secrets_context",
     "get_default_model",
     "get_llm",
     "pc_turn",
@@ -972,6 +974,65 @@ def format_all_sheets_context(sheets: dict[str, CharacterSheet]) -> str:
     return "\n".join(parts)
 
 
+def format_pc_secrets_context(secrets: AgentSecrets) -> str:
+    """Format a PC's secret knowledge for their prompt context.
+
+    Creates a formatted section containing the agent's active whispers
+    (unrevealed secrets) for injection into their LLM prompt context.
+    Revealed whispers are excluded.
+
+    Story 10.3: Secret Knowledge Injection.
+    FR72: Whispered information only appears in recipient's context.
+
+    Args:
+        secrets: The agent's AgentSecrets object.
+
+    Returns:
+        Formatted secret knowledge section, or empty string if no active secrets.
+    """
+    active_whispers = secrets.active_whispers()
+    if not active_whispers:
+        return ""
+
+    lines = ["## Secret Knowledge (Only You Know This)"]
+    for whisper in active_whispers:
+        lines.append(f"- [Turn {whisper.turn_created}] {whisper.content}")
+
+    return "\n".join(lines)
+
+
+def format_all_secrets_context(agent_secrets: dict[str, AgentSecrets]) -> str:
+    """Format all active secrets for DM context.
+
+    Creates a formatted section containing all agents' active whispers
+    for the DM's prompt context. The DM sees all secrets to enable
+    dramatic irony and narrative coherence.
+
+    Story 10.3: Secret Knowledge Injection.
+    DM sees ALL whispers (knows all secrets).
+
+    Args:
+        agent_secrets: Dict of all agent secrets keyed by agent name.
+
+    Returns:
+        Formatted secrets section for DM, or empty string if no active secrets.
+    """
+    all_secrets: list[str] = []
+    for agent_key, secrets in sorted(agent_secrets.items()):
+        active_whispers = secrets.active_whispers()
+        for whisper in active_whispers:
+            all_secrets.append(
+                f"- [{agent_key.title()}] [Turn {whisper.turn_created}] {whisper.content}"
+            )
+
+    if not all_secrets:
+        return ""
+
+    lines = ["## Active Secrets (You Know All)"]
+    lines.extend(all_secrets)
+    return "\n".join(lines)
+
+
 def _build_dm_context(state: GameState) -> str:
     """Build the context string for the DM from all agent memories.
 
@@ -1027,6 +1088,13 @@ def _build_dm_context(state: GameState) -> str:
 
     if agent_knowledge:
         context_parts.append("## Player Knowledge\n" + "\n".join(agent_knowledge))
+
+    # Add all active (unrevealed) secrets for DM (Story 10.3 - DM sees all secrets)
+    agent_secrets = state.get("agent_secrets", {})
+    if agent_secrets:
+        secrets_context = format_all_secrets_context(agent_secrets)
+        if secrets_context:
+            context_parts.append(secrets_context)
 
     # Player nudge/suggestion (Story 3.4 - Nudge System)
     # Note: We access Streamlit session_state here because the nudge is UI-specific
@@ -1095,6 +1163,14 @@ def _build_pc_context(state: GameState, agent_name: str) -> str:
         if sheet:
             context_parts.append(format_character_sheet_context(sheet, for_own_character=True))
 
+    # Add secret knowledge section (Story 10.3 - FR72: PC sees only own secrets)
+    agent_secrets = state.get("agent_secrets", {})
+    my_secrets = agent_secrets.get(agent_name)
+    if my_secrets:
+        secrets_context = format_pc_secrets_context(my_secrets)
+        if secrets_context:
+            context_parts.append(secrets_context)
+
     return "\n\n".join(context_parts)
 
 
@@ -1159,14 +1235,10 @@ def dm_turn(state: GameState) -> GameState:
         sheet_notifications: list[str] = []
 
         # Track character sheet updates from tool calls (Story 8.4)
-        updated_sheets: dict[str, "CharacterSheet"] = {
-            k: v for k, v in state.get("character_sheets", {}).items()
-        }
+        updated_sheets: dict[str, CharacterSheet] = dict(state.get("character_sheets", {}))
 
         # Track agent secrets updates from whisper tool calls (Story 10.2)
-        updated_secrets: dict[str, "AgentSecrets"] = {
-            k: v for k, v in state.get("agent_secrets", {}).items()
-        }
+        updated_secrets: dict[str, AgentSecrets] = dict(state.get("agent_secrets", {}))
 
         # Invoke the model with tool call handling loop
         max_tool_iterations = 5  # Increased for sheet updates alongside dice rolls

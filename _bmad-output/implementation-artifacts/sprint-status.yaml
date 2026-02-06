@@ -131,8 +131,8 @@ development_status:
   # Epic 10: DM Whisper & Secrets System (5 stories)
   epic-10: in-progress
   10-1-whisper-data-model: done
-  10-2-dm-whisper-tool: ready-for-dev
-  10-3-secret-knowledge-injection: backlog
+  10-2-dm-whisper-tool: done
+  10-3-secret-knowledge-injection: done
   10-4-human-whisper-to-dm: backlog
   10-5-secret-revelation-system: backlog
   epic-10-retrospective: optional
