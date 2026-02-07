@@ -71,15 +71,21 @@ from models import (
 from persistence import (
     create_fork,
     create_new_session,
+    delete_fork,
     delete_session,
     generate_recap_summary,
     get_latest_checkpoint,
+    get_latest_fork_checkpoint,
     get_transcript_download_data,
     get_transcript_path,
     list_forks,
     list_sessions,
     list_sessions_with_metadata,
     load_checkpoint,
+    load_fork_checkpoint,
+    load_fork_registry,
+    rename_fork,
+    save_fork_checkpoint,
 )
 
 # Logger for this module
@@ -353,20 +359,32 @@ def int_to_roman(num: int) -> str:
     return result
 
 
-def render_session_header_html(session_number: int, session_info: str) -> str:
-    """Generate HTML for session header with roman numeral.
+def render_session_header_html(
+    session_number: int, session_info: str, fork_name: str | None = None
+) -> str:
+    """Generate HTML for session header with roman numeral and optional fork badge.
 
     Args:
         session_number: Session number (1-3999).
         session_info: Subtitle text (e.g., "January 27, 2026 • Turn 15").
+        fork_name: If set, displays a fork mode badge. Story 12.2.
 
     Returns:
         HTML string for session header.
     """
     roman = int_to_roman(session_number)
+    fork_badge = ""
+    if fork_name is not None:
+        safe_name = escape_html(fork_name)
+        fork_badge = (
+            '<span style="display:inline-block;background:#7B2D8E;color:#fff;'
+            "padding:2px 10px;border-radius:12px;font-size:0.8em;"
+            'margin-left:10px;vertical-align:middle;">'
+            f"Fork: {safe_name}</span>"
+        )
     return (
         '<div class="session-header">'
-        f'<h1 class="session-title">Session {escape_html(roman)}</h1>'
+        f'<h1 class="session-title">Session {escape_html(roman)}{fork_badge}</h1>'
         f'<p class="session-subtitle">{escape_html(session_info)}</p>'
         "</div>"
     )
@@ -6892,33 +6910,156 @@ def handle_start_game_click() -> None:
         st.rerun()
 
 
+def handle_switch_to_fork(session_id: str, fork_id: str) -> None:
+    """Switch from current timeline to a fork.
+
+    Story 12.2: Fork Management UI.
+    Stops autopilot, loads fork's latest checkpoint, sets active_fork_id.
+
+    Args:
+        session_id: Session ID string.
+        fork_id: Fork ID to switch to.
+    """
+    # Stop autopilot
+    st.session_state["is_autopilot_running"] = False
+
+    # Save current progress before switching (prevent data loss)
+    if "game" in st.session_state:
+        current_game: GameState = st.session_state["game"]
+        current_fork_id = current_game.get("active_fork_id")
+        current_turn = len(current_game.get("ground_truth_log", []))
+        if current_turn > 0:
+            if current_fork_id is not None:
+                save_fork_checkpoint(
+                    current_game, session_id, current_fork_id, current_turn
+                )
+            else:
+                from persistence import save_checkpoint
+
+                save_checkpoint(current_game, session_id, current_turn)
+
+    # Load fork metadata for display
+    registry = load_fork_registry(session_id)
+    if registry is None:
+        st.error("Fork registry not found")
+        return
+
+    fork_meta = registry.get_fork(fork_id)
+    if fork_meta is None:
+        st.error(f"Fork '{escape_html(fork_id)}' not found")
+        return
+
+    # Get latest fork checkpoint
+    latest_turn = get_latest_fork_checkpoint(session_id, fork_id)
+    if latest_turn is None:
+        st.error(f"Fork '{escape_html(fork_meta.name)}' has no checkpoints")
+        return
+
+    # Load the fork's state
+    fork_state = load_fork_checkpoint(session_id, fork_id, latest_turn)
+    if fork_state is None:
+        st.error(f"Failed to load fork checkpoint at turn {latest_turn}")
+        return
+
+    # Set active_fork_id on the loaded state
+    fork_state["active_fork_id"] = fork_id
+
+    # Update session state
+    st.session_state["game"] = fork_state
+    safe_name = escape_html(fork_meta.name)
+    st.toast(f"Switched to fork: {safe_name}")
+
+
+def handle_return_to_main(session_id: str) -> None:
+    """Return from a fork to the main timeline.
+
+    Story 12.2: Fork Management UI.
+    Saves fork progress, loads main timeline's latest checkpoint.
+
+    Args:
+        session_id: Session ID string.
+    """
+    # Stop autopilot
+    st.session_state["is_autopilot_running"] = False
+
+    game: GameState = st.session_state["game"]
+    active_fork_id = game.get("active_fork_id")
+
+    if active_fork_id is None:
+        st.warning("Already on main timeline")
+        return
+
+    # Save current fork progress
+    turn_number = len(game.get("ground_truth_log", []))
+    if turn_number > 0:
+        save_fork_checkpoint(game, session_id, active_fork_id, turn_number)
+
+    # Load main timeline's latest checkpoint
+    latest_turn = get_latest_checkpoint(session_id)
+    if latest_turn is None:
+        st.error("Main timeline has no checkpoints")
+        return
+
+    main_state = load_checkpoint(session_id, latest_turn)
+    if main_state is None:
+        st.error(f"Failed to load main timeline checkpoint at turn {latest_turn}")
+        return
+
+    # Clear active_fork_id
+    main_state["active_fork_id"] = None
+
+    # Update session state
+    st.session_state["game"] = main_state
+    st.toast("Returned to main timeline")
+
+
 def render_fork_controls() -> None:
-    """Render fork creation controls in the sidebar.
+    """Render fork creation and management controls in the sidebar.
 
     Story 12.1: Fork Creation (FR81).
-    Only visible when a game session is active.
-    Provides a text input and button to create a named fork,
-    plus a fork count indicator.
+    Story 12.2: Fork Management UI (FR82).
     """
     if "game" not in st.session_state:
         return
 
     game: GameState = st.session_state["game"]
     session_id = game.get("session_id", "001")
+    active_fork_id = game.get("active_fork_id")
 
-    with st.expander("Fork Timeline"):
-        fork_name = st.text_input(
+    is_generating = st.session_state.get("is_generating", False)
+
+    with st.expander("Fork Timeline", expanded=active_fork_id is not None):
+        # "Return to Main" button (shown when playing in a fork)
+        if active_fork_id is not None:
+            registry = load_fork_registry(session_id)
+            fork_name = "Unknown"
+            if registry:
+                fork_meta = registry.get_fork(active_fork_id)
+                if fork_meta:
+                    fork_name = fork_meta.name
+            st.info(f"Playing fork: **{escape_html(fork_name)}**")
+            if st.button(
+                "Return to Main",
+                key="return_to_main_btn",
+                disabled=is_generating,
+            ):
+                handle_return_to_main(session_id)
+                st.rerun()
+            st.markdown("---")
+
+        # Create fork form (from Story 12.1)
+        fork_name_input = st.text_input(
             "Fork name",
             placeholder="e.g., Diplomacy attempt",
             key="fork_name_input",
         )
         if st.button("Create Fork", key="create_fork_btn"):
-            if fork_name and fork_name.strip():
+            if fork_name_input and fork_name_input.strip():
                 try:
                     fork_meta = create_fork(
                         state=game,
                         session_id=session_id,
-                        fork_name=fork_name,
+                        fork_name=fork_name_input,
                     )
                     safe_name = escape_html(fork_meta.name)
                     st.success(
@@ -6932,10 +7073,100 @@ def render_fork_controls() -> None:
             else:
                 st.warning("Please enter a fork name")
 
-        # Show fork count indicator
+        # Fork list display (Story 12.2)
         forks = list_forks(session_id)
         if forks:
-            st.caption(f"Forks: {len(forks)}")
+            st.markdown("---")
+            st.caption(f"**Forks ({len(forks)})**")
+            for fork in forks:
+                is_active = active_fork_id == fork.fork_id
+                # Visual highlight for active fork
+                with st.container():
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        label = f"**{escape_html(fork.name)}**"
+                        if is_active:
+                            label += " (active)"
+                        st.markdown(label)
+                        st.caption(
+                            f"Branched at turn {fork.branch_turn} | "
+                            f"Turns: {fork.turn_count} | "
+                            f"Last: {fork.updated_at[:16].replace('T', ' ')}"
+                        )
+                    with col2:
+                        if not is_active:
+                            if st.button(
+                                "Switch",
+                                key=f"switch_fork_{fork.fork_id}",
+                                disabled=is_generating,
+                            ):
+                                handle_switch_to_fork(session_id, fork.fork_id)
+                                st.rerun()
+
+                    # Management actions
+                    with st.popover("...", use_container_width=False):
+                        # Rename
+                        new_name = st.text_input(
+                            "Rename",
+                            value=fork.name,
+                            key=f"rename_fork_{fork.fork_id}",
+                        )
+                        if st.button("Save", key=f"save_rename_{fork.fork_id}"):
+                            try:
+                                rename_fork(session_id, fork.fork_id, new_name)
+                                st.toast(
+                                    f"Fork renamed to '{escape_html(new_name)}'"
+                                )
+                                st.rerun()
+                            except ValueError as e:
+                                st.error(str(e))
+
+                        # Delete
+                        if not is_active:
+                            if st.button(
+                                "Delete",
+                                key=f"delete_fork_{fork.fork_id}",
+                                type="secondary",
+                            ):
+                                st.session_state[
+                                    f"confirm_delete_{fork.fork_id}"
+                                ] = True
+                            if st.session_state.get(
+                                f"confirm_delete_{fork.fork_id}"
+                            ):
+                                st.warning(
+                                    f"Delete '{escape_html(fork.name)}'?"
+                                    " Cannot be undone."
+                                )
+                                if st.button(
+                                    "Confirm Delete",
+                                    key=f"confirm_del_{fork.fork_id}",
+                                ):
+                                    try:
+                                        delete_fork(
+                                            session_id,
+                                            fork.fork_id,
+                                            active_fork_id,
+                                        )
+                                        st.toast(
+                                            f"Fork '{escape_html(fork.name)}'"
+                                            " deleted"
+                                        )
+                                        st.rerun()
+                                    except (ValueError, OSError) as e:
+                                        st.error(f"Failed to delete fork: {e}")
+                        else:
+                            st.caption("Cannot delete active fork")
+
+                        # Make Primary (placeholder for Story 12.4)
+                        if st.button(
+                            "Make Primary",
+                            key=f"promote_fork_{fork.fork_id}",
+                        ):
+                            st.info(
+                                "Promote to main timeline"
+                                " (coming in Story 12.4)"
+                            )
 
 
 def render_game_controls() -> None:
@@ -7003,8 +7234,20 @@ def render_main_content() -> None:
     # Session header with dynamic session number (Story 2.5)
     session_number = game.get("session_number", 1)
     session_info = get_session_subtitle(game)
+
+    # Fork mode indicator (Story 12.2)
+    fork_name_for_badge: str | None = None
+    active_fork_id = game.get("active_fork_id")
+    if active_fork_id is not None:
+        session_id = game.get("session_id", "001")
+        registry = load_fork_registry(session_id)
+        if registry is not None:
+            fork_meta = registry.get_fork(active_fork_id)
+            if fork_meta is not None:
+                fork_name_for_badge = fork_meta.name
+
     st.markdown(
-        render_session_header_html(session_number, session_info),
+        render_session_header_html(session_number, session_info, fork_name_for_badge),
         unsafe_allow_html=True,
     )
 

@@ -179,7 +179,11 @@ def human_intervention_node(state: GameState) -> GameState:
     import streamlit as st
 
     from models import AgentMemory, TranscriptEntry
-    from persistence import append_transcript_entry, save_checkpoint
+    from persistence import (
+        append_transcript_entry,
+        save_checkpoint,
+        save_fork_checkpoint,
+    )
 
     # Get pending action from session state
     pending_action = st.session_state.get("human_pending_action")
@@ -247,7 +251,14 @@ def human_intervention_node(state: GameState) -> GameState:
             pass
 
         # Auto-checkpoint: save after human action (FR33)
-        save_checkpoint(updated_state, session_id, turn_number)
+        # Fork-aware save routing (Story 12.2)
+        active_fork_id = updated_state.get("active_fork_id")
+        if active_fork_id is not None:
+            save_fork_checkpoint(
+                updated_state, session_id, active_fork_id, turn_number
+            )
+        else:
+            save_checkpoint(updated_state, session_id, turn_number)
 
     return updated_state
 
@@ -409,7 +420,7 @@ def run_single_round(state: GameState) -> GameStateWithError:
         the dict will include an "error" key with a UserError instance.
         The original state fields are preserved in case of error for recovery.
     """
-    from persistence import get_latest_checkpoint, save_checkpoint
+    from persistence import get_latest_checkpoint, save_checkpoint, save_fork_checkpoint
 
     # Determine last successful checkpoint for error recovery
     session_id = state.get("session_id", "001")
@@ -467,7 +478,13 @@ def run_single_round(state: GameState) -> GameStateWithError:
 
     # Auto-checkpoint: save after each round (FR33, NFR11)
     if turn_number > 0:  # Only save if there's content
-        save_checkpoint(result, session_id, turn_number)
+        active_fork_id = result.get("active_fork_id")
+        if active_fork_id is not None:
+            # Fork-aware save: route to fork directory (Story 12.2)
+            save_fork_checkpoint(result, session_id, active_fork_id, turn_number)
+        else:
+            # Main timeline save
+            save_checkpoint(result, session_id, turn_number)
 
     # Return result without error key
     return dict(result)

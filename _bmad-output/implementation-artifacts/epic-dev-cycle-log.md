@@ -1466,10 +1466,41 @@
 
 | Story | Status | Phase |
 |-------|--------|-------|
-| 12-1-fork-creation | backlog | Pending |
+| 12-1-fork-creation | ✅ done | Full Cycle |
 | 12-2-fork-management-ui | backlog | Pending |
 | 12-3-fork-comparison-view | backlog | Pending |
 | 12-4-fork-resolution | backlog | Pending |
+
+---
+
+## Story: 12-1-fork-creation
+
+**Status:** ✅ Completed
+**Duration:** 2026-02-07
+
+### Files Touched
+- `models.py` - ForkMetadata, ForkRegistry Pydantic models, active_fork_id on GameState, factory updates
+- `persistence.py` - _validate_fork_id(), get_fork_dir(), ensure_fork_dir(), save/load_fork_registry(), create_fork(), list_forks(), serialization updates
+- `app.py` - render_fork_controls() with Create Fork button, name input, fork count indicator
+- `tests/test_story_12_1_fork_creation.py` - 54 comprehensive tests (new file)
+- `tests/test_persistence.py` - Updated fixture for active_fork_id
+
+### Key Design Decisions
+- Fork as subdirectory (session_001/forks/fork_001/) not separate session
+- ForkRegistry in YAML matching SessionMetadata pattern
+- Copy checkpoint (not symlink) for isolation
+- active_fork_id on GameState (None = main timeline)
+- Sequential zero-padded fork IDs ("001", "002")
+- Fork creation does NOT switch context (stays on main)
+
+### Issues Auto-Resolved
+- **HIGH**: XSS vulnerability - fork name not HTML-escaped in st.success()
+- **HIGH**: next_fork_id() crash on non-numeric fork IDs - added try/except
+- **MEDIUM**: create_fork() didn't validate explicit turn_number param
+- **MEDIUM**: UI only caught ValueError, not OSError from disk operations
+
+### User Input Required
+- None - all issues auto-resolved
 
 ---
 

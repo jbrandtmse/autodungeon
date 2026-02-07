@@ -73,6 +73,12 @@ __all__ = [
     "load_session_metadata",
     "load_transcript",
     "save_checkpoint",
+    "delete_fork",
+    "get_latest_fork_checkpoint",
+    "list_fork_checkpoints",
+    "load_fork_checkpoint",
+    "rename_fork",
+    "save_fork_checkpoint",
     "save_fork_registry",
     "save_session_metadata",
     "serialize_game_state",
@@ -1377,3 +1383,233 @@ def list_forks(session_id: str) -> list[ForkMetadata]:
     if registry is None:
         return []
     return sorted(registry.forks, key=lambda f: f.created_at)
+
+
+# =============================================================================
+# Fork Checkpoint Management (Story 12.2)
+# =============================================================================
+
+
+def save_fork_checkpoint(
+    state: GameState,
+    session_id: str,
+    fork_id: str,
+    turn_number: int,
+) -> Path:
+    """Save game state checkpoint to a fork's directory.
+
+    Story 12.2: Fork Management UI (FR82).
+    Routes checkpoint writes to the fork subdirectory instead of
+    the main session directory.
+
+    Uses atomic write pattern: write to temp file first, then rename.
+
+    Args:
+        state: Current game state to save.
+        session_id: Session ID string.
+        fork_id: Fork ID string.
+        turn_number: Turn number for this checkpoint.
+
+    Returns:
+        Path where checkpoint was saved.
+
+    Raises:
+        OSError: If write fails.
+        ValueError: If session_id or fork_id are invalid.
+    """
+    _validate_session_id(session_id)
+    _validate_fork_id(fork_id)
+    _validate_turn_number(turn_number)
+
+    # Ensure fork directory exists
+    fork_dir = ensure_fork_dir(session_id, fork_id)
+    checkpoint_path = fork_dir / f"turn_{turn_number:03d}.json"
+
+    # Serialize state
+    json_content = serialize_game_state(state)
+
+    # Atomic write: temp file then rename
+    temp_fd, temp_path = tempfile.mkstemp(dir=fork_dir, suffix=".json.tmp")
+    try:
+        with os.fdopen(temp_fd, "w", encoding="utf-8") as f:
+            f.write(json_content)
+        Path(temp_path).replace(checkpoint_path)
+    except Exception:
+        Path(temp_path).unlink(missing_ok=True)
+        raise
+
+    # Update fork metadata in registry
+    registry = load_fork_registry(session_id)
+    if registry is not None:
+        fork_meta = registry.get_fork(fork_id)
+        if fork_meta is not None:
+            fork_meta.updated_at = datetime.now(UTC).isoformat() + "Z"
+            # turn_count = turns beyond branch point
+            fork_checkpoints = list_fork_checkpoints(session_id, fork_id)
+            fork_meta.turn_count = max(0, len(fork_checkpoints) - 1)
+            save_fork_registry(session_id, registry)
+
+    return checkpoint_path
+
+
+def load_fork_checkpoint(
+    session_id: str, fork_id: str, turn_number: int
+) -> GameState | None:
+    """Load game state from a fork's checkpoint file.
+
+    Story 12.2: Fork Management UI (FR82).
+
+    Args:
+        session_id: Session ID string.
+        fork_id: Fork ID string.
+        turn_number: Turn number to load.
+
+    Returns:
+        Loaded GameState, or None if checkpoint doesn't exist or is invalid.
+    """
+    _validate_session_id(session_id)
+    _validate_fork_id(fork_id)
+    _validate_turn_number(turn_number)
+
+    fork_dir = get_fork_dir(session_id, fork_id)
+    checkpoint_path = fork_dir / f"turn_{turn_number:03d}.json"
+
+    if not checkpoint_path.exists():
+        return None
+
+    try:
+        json_content = checkpoint_path.read_text(encoding="utf-8")
+        return deserialize_game_state(json_content)
+    except (json.JSONDecodeError, KeyError, TypeError, AttributeError, ValidationError):
+        return None
+
+
+def list_fork_checkpoints(session_id: str, fork_id: str) -> list[int]:
+    """List all checkpoint turn numbers in a fork directory.
+
+    Story 12.2: Fork Management UI (FR82).
+
+    Args:
+        session_id: Session ID string.
+        fork_id: Fork ID string.
+
+    Returns:
+        List of turn numbers, sorted ascending.
+    """
+    _validate_session_id(session_id)
+    _validate_fork_id(fork_id)
+
+    fork_dir = get_fork_dir(session_id, fork_id)
+
+    if not fork_dir.exists():
+        return []
+
+    turns: list[int] = []
+    for path in fork_dir.glob("turn_*.json"):
+        try:
+            turn_str = path.stem.replace("turn_", "")
+            turn_num = int(turn_str)
+            turns.append(turn_num)
+        except ValueError:
+            continue
+
+    return sorted(turns)
+
+
+def get_latest_fork_checkpoint(session_id: str, fork_id: str) -> int | None:
+    """Get the most recent checkpoint turn number in a fork.
+
+    Story 12.2: Fork Management UI (FR82).
+
+    Args:
+        session_id: Session ID string.
+        fork_id: Fork ID string.
+
+    Returns:
+        Latest turn number, or None if no checkpoints.
+    """
+    turns = list_fork_checkpoints(session_id, fork_id)
+    return turns[-1] if turns else None
+
+
+def rename_fork(session_id: str, fork_id: str, new_name: str) -> ForkMetadata:
+    """Rename a fork in the registry.
+
+    Story 12.2: Fork Management UI (FR82).
+
+    Args:
+        session_id: Session ID string.
+        fork_id: Fork ID to rename.
+        new_name: New fork name.
+
+    Returns:
+        Updated ForkMetadata.
+
+    Raises:
+        ValueError: If new_name is empty/whitespace or fork not found.
+    """
+    _validate_session_id(session_id)
+    _validate_fork_id(fork_id)
+
+    if not new_name or not new_name.strip():
+        raise ValueError("Fork name must not be empty or whitespace-only")
+
+    registry = load_fork_registry(session_id)
+    if registry is None:
+        raise ValueError(f"No fork registry found for session {session_id!r}")
+
+    fork = registry.get_fork(fork_id)
+    if fork is None:
+        raise ValueError(f"Fork {fork_id!r} not found in session {session_id!r}")
+
+    fork.name = new_name.strip()
+    fork.updated_at = datetime.now(UTC).isoformat() + "Z"
+    save_fork_registry(session_id, registry)
+
+    return fork
+
+
+def delete_fork(
+    session_id: str, fork_id: str, active_fork_id: str | None = None
+) -> bool:
+    """Delete a fork's directory and remove it from the registry.
+
+    Story 12.2: Fork Management UI (FR82).
+
+    Args:
+        session_id: Session ID string.
+        fork_id: Fork ID to delete.
+        active_fork_id: Currently active fork ID (safety check).
+
+    Returns:
+        True if fork was deleted, False if not found.
+
+    Raises:
+        ValueError: If attempting to delete the currently active fork.
+    """
+    import shutil
+
+    _validate_session_id(session_id)
+    _validate_fork_id(fork_id)
+
+    if active_fork_id is not None and active_fork_id == fork_id:
+        raise ValueError("Cannot delete the currently active fork")
+
+    registry = load_fork_registry(session_id)
+    if registry is None:
+        return False
+
+    fork = registry.get_fork(fork_id)
+    if fork is None:
+        return False
+
+    # Remove fork directory
+    fork_dir = get_fork_dir(session_id, fork_id)
+    if fork_dir.exists():
+        shutil.rmtree(fork_dir)
+
+    # Remove from registry
+    registry.forks = [f for f in registry.forks if f.fork_id != fork_id]
+    save_fork_registry(session_id, registry)
+
+    return True
