@@ -1263,7 +1263,7 @@
 | 11-2-callback-database | ✅ done | complete |
 | 11-3-dm-callback-suggestions | ✅ done | complete |
 | 11-4-callback-detection | ✅ done | complete |
-| 11-5-callback-ui-and-history | ⏳ pending | - |
+| 11-5-callback-ui-and-history | ✅ done | complete |
 
 ---
 
@@ -1393,4 +1393,58 @@
 - None — all issues auto-resolved
 
 ---
+
+## Story: 11-5-callback-ui-and-history
+
+**Status:** Completed
+**Date:** 2026-02-07
+
+### Files Touched
+- `app.py` — 9 new rendering functions, model imports, sidebar integration
+- `styles/theme.css` — 19 CSS classes for Story Threads panel
+- `tests/test_story_11_5_callback_ui_and_history.py` — 65 tests
+
+### Key Design Decisions
+- Collapsible "Story Threads (N)" expander in sidebar for compactness
+- Type-specific border colors and text icons (NPC, ITEM, LOC, EVT, VOW, RISK)
+- Active elements listed first, dormant elements after divider
+- "Referenced X times" badges, story moment amber highlights
+- Expandable details with full description, characters, callback timeline
+- Dormant elements at opacity 0.55 with muted borders
+- All user content HTML-escaped via escape_html() for XSS prevention
+- Graceful fallback when callback_database is None or empty
+
+### Issues Auto-Resolved
+- **HIGH**: XSS in match_label fallback — Wrapped in escape_html()
+- **MEDIUM**: Inline style instead of CSS class for context snippet — Added .callback-context-snippet class
+- **MEDIUM**: Unused NarrativeElementStore import — Removed
+
+### User Input Required
+- None — all issues auto-resolved
+
+---
+
+# Epic 11 - Cycle Complete
+
+**Completion Time:** 2026-02-07
+**Total Stories Processed:** 5
+**Epic Status:** DONE
+
+## Overall Statistics
+- Total files touched: 14 unique files
+- Total design decisions: 30+
+- Total issues auto-resolved: 18 (across all stories)
+- Total user interventions: 0
+
+## Stories Completed This Cycle
+1. **11-1-narrative-element-extraction** — NarrativeElement models, LLM extraction, graph integration (55 tests)
+2. **11-2-callback-database** — Campaign-level persistence, dormancy, relevance scoring (393+ tests updated)
+3. **11-3-dm-callback-suggestions** — DM context callback opportunities section (40 tests)
+4. **11-4-callback-detection** — Name/description matching, story moments, callback logging (68 tests)
+5. **11-5-callback-ui-and-history** — Story Threads sidebar panel, timeline, badges (65 tests)
+
+## Recommendations
+- Run epic retrospective: /bmad-bmm-retrospective
+- Check sprint status: /bmad-bmm-sprint-status
+- Continue with Epic 12 (Fork Gameplay) if available
 

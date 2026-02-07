@@ -138,12 +138,12 @@ development_status:
   epic-10-retrospective: optional
 
   # Epic 11: Callback Tracker (5 stories)
-  epic-11: in-progress
+  epic-11: done
   11-1-narrative-element-extraction: done
   11-2-callback-database: done
   11-3-dm-callback-suggestions: done
   11-4-callback-detection: done
-  11-5-callback-ui-and-history: review
+  11-5-callback-ui-and-history: done
   epic-11-retrospective: optional
 
   # Epic 12: Fork Gameplay (4 stories)
