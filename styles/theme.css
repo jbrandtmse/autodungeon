@@ -3283,3 +3283,151 @@ hr {
 .whisper-item.whisper-revealed .whisper-content {
   color: var(--text-secondary);
 }
+
+/* ==========================================================================
+   Story Threads Panel (Story 11.5 - FR80)
+   ========================================================================== */
+
+/* Summary statistics line */
+.story-threads-summary {
+  font-family: var(--font-ui);
+  font-size: var(--text-system);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-sm);
+}
+
+/* Narrative element card (follows character-card pattern) */
+.story-element-card {
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  padding: var(--space-sm);
+  margin-bottom: var(--space-xs);
+  border-left: 3px solid var(--text-secondary);
+}
+
+/* Element type color classes */
+.story-element-card.type-character { border-left-color: var(--color-fighter); }
+.story-element-card.type-item { border-left-color: var(--accent-warm); }
+.story-element-card.type-location { border-left-color: var(--color-rogue); }
+.story-element-card.type-event { border-left-color: var(--color-wizard); }
+.story-element-card.type-promise { border-left-color: var(--color-cleric); }
+.story-element-card.type-threat { border-left-color: var(--color-fighter); }
+
+/* Dormant elements - grayed out per AC */
+.story-element-card.dormant {
+  opacity: 0.55;
+  border-left-color: var(--bg-message);
+}
+
+/* Resolved elements */
+.story-element-card.resolved {
+  opacity: 0.4;
+}
+
+.story-element-card.resolved .story-element-name {
+  text-decoration: line-through;
+}
+
+/* Element name */
+.story-element-name {
+  font-family: var(--font-ui);
+  font-size: var(--text-name);
+  font-weight: 600;
+  color: var(--text-primary);
+  display: inline;
+}
+
+/* Element metadata line (type, turn, session) */
+.story-element-meta {
+  font-size: var(--text-system);
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+/* Reference count and status badges */
+.story-element-badge {
+  display: inline-block;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--bg-message);
+  color: var(--text-secondary);
+  margin-left: var(--space-xs);
+  vertical-align: middle;
+}
+
+/* Story moment badge - amber accent */
+.story-element-badge.story-moment {
+  background: rgba(232, 168, 73, 0.2);
+  color: var(--accent-warm);
+}
+
+/* Dormant badge */
+.story-element-badge.dormant-badge {
+  background: rgba(61, 53, 48, 0.5);
+  color: var(--text-secondary);
+}
+
+/* Element description (italic narrative font) */
+.story-element-description {
+  font-family: var(--font-narrative);
+  font-size: var(--text-system);
+  font-style: italic;
+  color: var(--text-secondary);
+  margin: var(--space-xs) 0;
+}
+
+/* Detail section within expanded element */
+.story-element-detail {
+  font-size: var(--text-system);
+  color: var(--text-secondary);
+  margin-top: var(--space-xs);
+}
+
+.story-element-detail strong {
+  color: var(--text-primary);
+}
+
+/* Callback timeline (vertical line with dots) */
+.callback-timeline {
+  margin-top: var(--space-xs);
+  padding-left: var(--space-sm);
+  border-left: 2px solid var(--bg-message);
+}
+
+/* Individual timeline entry */
+.callback-timeline-entry {
+  font-size: var(--text-system);
+  color: var(--text-secondary);
+  padding: 2px 0 2px var(--space-sm);
+  position: relative;
+}
+
+/* Timeline dot marker */
+.callback-timeline-entry::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  position: absolute;
+  left: calc(var(--space-sm) * -1 - 4px);
+  top: 8px;
+}
+
+/* Story moment timeline entry - amber dot */
+.callback-timeline-entry.story-moment::before {
+  background: var(--accent-warm);
+}
+
+/* Context snippet within timeline entry (dimmed excerpt) */
+.callback-context-snippet {
+  opacity: 0.7;
+}
+
+/* Introduction entry (brighter than regular callbacks) */
+.callback-timeline-entry.introduced {
+  color: var(--text-primary);
+  font-weight: 500;
+}

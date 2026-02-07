@@ -1262,7 +1262,7 @@
 | 11-1-narrative-element-extraction | ✅ done | complete |
 | 11-2-callback-database | ✅ done | complete |
 | 11-3-dm-callback-suggestions | ✅ done | complete |
-| 11-4-callback-detection | ⏳ pending | - |
+| 11-4-callback-detection | ✅ done | complete |
 | 11-5-callback-ui-and-history | ⏳ pending | - |
 
 ---
@@ -1356,6 +1356,38 @@
 
 ### Issues Auto-Resolved
 - Code review identified and fixed minor scoring/formatting issues
+
+### User Input Required
+- None — all issues auto-resolved
+
+---
+
+## Story: 11-4-callback-detection
+
+**Status:** Completed
+**Date:** 2026-02-07
+
+### Files Touched
+- `models.py` — CallbackEntry, CallbackLog models with factory function
+- `memory.py` — Detection logic: _normalize_text, _detect_name_match (word-boundary), _detect_description_match (keyword), detect_callbacks orchestrator, _extract_match_context
+- `agents.py` — dm_turn/pc_turn callback_log propagation
+- `persistence.py` — callback_log serialization/deserialization with backward compat
+- `tests/test_story_11_4_callback_detection.py` — 68 tests
+- `tests/test_persistence.py` — Updated fixture
+- `tests/test_story_11_1_narrative_element_extraction.py` — Updated for callback_log in results
+
+### Key Design Decisions
+- Pure heuristic detection (no LLM calls): word-boundary name matching + keyword description matching
+- STORY_MOMENT_THRESHOLD = 20 (same as dormancy threshold)
+- One match per element per turn (no duplicate entries)
+- Detection integrated into extract_narrative_elements pipeline
+- CallbackEntry stores denormalized fields (element_name, element_type) for UI convenience
+
+### Issues Auto-Resolved
+- **HIGH**: Substring name matching caused false positives ("Orc" in "force") — Fixed with regex word-boundary
+- **HIGH**: Context extraction used normalized positions on raw content — Fixed with second regex on raw
+- **MEDIUM**: Duplicate keywords in descriptions caused false threshold passes — Fixed with deduplication
+- **MEDIUM**: Stop words frozenset recreated per call — Moved to module-level constant
 
 ### User Input Required
 - None — all issues auto-resolved

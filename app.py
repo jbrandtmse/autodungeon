@@ -48,6 +48,8 @@ from config import (
 from graph import run_single_round
 from models import (
     Armor,
+    CallbackEntry,
+    CallbackLog,
     CharacterConfig,
     CharacterSheet,
     DeathSaves,
@@ -56,6 +58,7 @@ from models import (
     GameConfig,
     GameState,
     ModuleInfo,
+    NarrativeElement,
     SessionMetadata,
     Spell,
     SpellSlots,
@@ -839,6 +842,361 @@ def render_human_whisper_input() -> None:
     if st.session_state.get("human_whisper_submitted"):
         st.success("Whisper sent - the DM will respond privately")
         st.session_state["human_whisper_submitted"] = False
+
+
+# =============================================================================
+# Story Threads (Story 11.5 - FR80)
+# =============================================================================
+
+# Type labels for display
+_ELEMENT_TYPE_LABELS: dict[str, str] = {
+    "character": "Character",
+    "item": "Item",
+    "location": "Location",
+    "event": "Event",
+    "promise": "Promise",
+    "threat": "Threat",
+}
+
+# Short type icons for compact sidebar display
+_ELEMENT_TYPE_ICONS: dict[str, str] = {
+    "character": "NPC",
+    "item": "ITEM",
+    "location": "LOC",
+    "event": "EVT",
+    "promise": "VOW",
+    "threat": "RISK",
+}
+
+
+def _get_element_type_label(element_type: str) -> str:
+    """Get display label for a narrative element type.
+
+    Args:
+        element_type: Element type string (character, item, etc.).
+
+    Returns:
+        Human-readable label.
+    """
+    return _ELEMENT_TYPE_LABELS.get(element_type, element_type.title())
+
+
+def _get_element_type_icon(element_type: str) -> str:
+    """Get short icon/label for a narrative element type.
+
+    Args:
+        element_type: Element type string (character, item, etc.).
+
+    Returns:
+        Short label for compact display.
+    """
+    return _ELEMENT_TYPE_ICONS.get(element_type, element_type.upper()[:4])
+
+
+def render_story_threads_summary_html(
+    active_count: int, dormant_count: int, story_moment_count: int
+) -> str:
+    """Generate HTML for story threads summary statistics.
+
+    Story 11.5: Callback UI & History.
+    FR80: User can view callback history.
+
+    Args:
+        active_count: Number of active (non-dormant, non-resolved) elements.
+        dormant_count: Number of dormant elements.
+        story_moment_count: Number of story moments detected.
+
+    Returns:
+        HTML string for summary line.
+    """
+    if active_count == 0 and dormant_count == 0:
+        return '<div class="story-threads-summary">No narrative elements tracked yet</div>'
+
+    parts: list[str] = []
+    if active_count > 0:
+        parts.append(f"{active_count} active")
+    if dormant_count > 0:
+        parts.append(f"{dormant_count} dormant")
+    if story_moment_count > 0:
+        parts.append(
+            f"{story_moment_count} story moment{'s' if story_moment_count != 1 else ''}"
+        )
+
+    return f'<div class="story-threads-summary">{", ".join(parts)}</div>'
+
+
+def render_story_element_card_html(
+    element: NarrativeElement,
+    callback_entries: list[CallbackEntry],
+) -> str:
+    """Generate HTML for a narrative element card.
+
+    Renders a compact card with element name, type, metadata,
+    and reference badges.
+
+    Story 11.5: Callback UI & History.
+
+    Args:
+        element: The NarrativeElement to render.
+        callback_entries: CallbackEntry list for this element (for story moment badge).
+
+    Returns:
+        HTML string for the element card.
+    """
+    # Build CSS classes
+    css_classes = ["story-element-card", f"type-{element.element_type}"]
+    if element.dormant:
+        css_classes.append("dormant")
+    if element.resolved:
+        css_classes.append("resolved")
+
+    # Type label
+    type_icon = _get_element_type_icon(element.element_type)
+
+    # Badges
+    badges_html = ""
+    if element.times_referenced > 1:
+        badges_html += (
+            f'<span class="story-element-badge">'
+            f"referenced {element.times_referenced} times</span>"
+        )
+    has_story_moment = any(e.is_story_moment for e in callback_entries)
+    if has_story_moment:
+        badges_html += (
+            '<span class="story-element-badge story-moment">story moment</span>'
+        )
+    if element.dormant:
+        badges_html += (
+            '<span class="story-element-badge dormant-badge">dormant</span>'
+        )
+
+    return (
+        f'<div class="{" ".join(css_classes)}">'
+        f'  <span class="story-element-name">{escape_html(element.name)}</span>'
+        f"  {badges_html}"
+        f'  <div class="story-element-meta">'
+        f"    {type_icon} &middot; Turn {element.turn_introduced},"
+        f" Session {element.session_introduced}"
+        f"  </div>"
+        f"</div>"
+    )
+
+
+def render_story_element_detail_html(
+    element: NarrativeElement,
+    callback_entries: list[CallbackEntry],
+) -> str:
+    """Generate HTML for expanded element detail view.
+
+    Shows full description, characters involved, potential callbacks,
+    and callback timeline.
+
+    Story 11.5: Callback UI & History.
+
+    Args:
+        element: The NarrativeElement to show detail for.
+        callback_entries: CallbackEntry list for this element.
+
+    Returns:
+        HTML string for the detail view.
+    """
+    parts: list[str] = []
+
+    # Description
+    if element.description:
+        parts.append(
+            f'<div class="story-element-description">'
+            f'"{escape_html(element.description)}"</div>'
+        )
+
+    # Characters involved
+    if element.characters_involved:
+        chars = ", ".join(escape_html(c) for c in element.characters_involved)
+        parts.append(
+            f'<div class="story-element-detail">'
+            f"<strong>Characters:</strong> {chars}</div>"
+        )
+
+    # Potential callbacks
+    if element.potential_callbacks:
+        cb_items = "".join(
+            f"<li>{escape_html(cb)}</li>" for cb in element.potential_callbacks
+        )
+        parts.append(
+            f'<div class="story-element-detail">'
+            f"<strong>Potential callbacks:</strong><ul>{cb_items}</ul></div>"
+        )
+
+    # Callback timeline
+    timeline_html = render_callback_timeline_html(element, callback_entries)
+    if timeline_html:
+        parts.append(timeline_html)
+
+    return "\n".join(parts)
+
+
+def render_callback_timeline_html(
+    element: NarrativeElement,
+    callback_entries: list[CallbackEntry],
+) -> str:
+    """Generate HTML for callback timeline.
+
+    Shows a chronological timeline of when the element was introduced
+    and subsequently referenced.
+
+    Story 11.5: Callback UI & History.
+
+    Args:
+        element: The NarrativeElement for the timeline.
+        callback_entries: CallbackEntry list for this element, sorted by turn_detected.
+
+    Returns:
+        HTML string for the timeline, or empty string if no entries.
+    """
+    entries_html: list[str] = []
+
+    # Introduction entry (always shown)
+    entries_html.append(
+        f'<div class="callback-timeline-entry introduced">'
+        f"Introduced in Turn {element.turn_introduced},"
+        f" Session {element.session_introduced}"
+        f"</div>"
+    )
+
+    # Callback entries sorted by turn
+    sorted_entries = sorted(callback_entries, key=lambda e: e.turn_detected)
+    for entry in sorted_entries:
+        css_class = "callback-timeline-entry"
+        if entry.is_story_moment:
+            css_class += " story-moment"
+
+        # Match type label
+        match_label = escape_html(
+            {
+                "name_exact": "exact name match",
+                "name_fuzzy": "fuzzy name match",
+                "description_keyword": "keyword match",
+            }.get(entry.match_type, entry.match_type)
+        )
+
+        context_snippet = ""
+        if entry.match_context:
+            truncated = entry.match_context[:80]
+            if len(entry.match_context) > 80:
+                truncated += "..."
+            context_snippet = (
+                f' <span class="callback-context-snippet">- {escape_html(truncated)}</span>'
+            )
+
+        moment_label = ""
+        if entry.is_story_moment:
+            moment_label = f" ({entry.turn_gap} turn gap!)"
+
+        entries_html.append(
+            f'<div class="{css_class}">'
+            f"Turn {entry.turn_detected} ({match_label}){moment_label}"
+            f"{context_snippet}"
+            f"</div>"
+        )
+
+    if not callback_entries:
+        # Only introduction, still wrap in timeline
+        return (
+            '<div class="story-element-detail"><strong>Timeline:</strong></div>'
+            f'<div class="callback-timeline">{"".join(entries_html)}</div>'
+        )
+
+    return (
+        '<div class="story-element-detail"><strong>Callback Timeline:</strong></div>'
+        f'<div class="callback-timeline">{"".join(entries_html)}</div>'
+    )
+
+
+def render_story_threads() -> None:
+    """Render Story Threads panel in the sidebar.
+
+    Shows tracked narrative elements from the campaign-level callback
+    database with expandable details and callback timeline.
+
+    Story 11.5: Callback UI & History.
+    FR80: User can view callback history and track unresolved narrative threads.
+    """
+    game: GameState = st.session_state.get("game", {})
+    callback_database = game.get("callback_database")
+    callback_log = game.get("callback_log")
+
+    if callback_database is None or not callback_database.elements:
+        return  # No elements tracked yet, don't show section
+
+    if callback_log is None:
+        callback_log = CallbackLog()
+
+    # Compute summary statistics
+    active_elements = callback_database.get_active_non_dormant()
+    dormant_elements = callback_database.get_dormant()
+    story_moments = callback_log.get_story_moments()
+
+    with st.expander(
+        f"Story Threads ({len(active_elements) + len(dormant_elements)})",
+        expanded=False,
+    ):
+        # Summary statistics
+        st.markdown(
+            render_story_threads_summary_html(
+                len(active_elements),
+                len(dormant_elements),
+                len(story_moments),
+            ),
+            unsafe_allow_html=True,
+        )
+
+        # Active elements (sorted by relevance)
+        all_by_relevance = callback_database.get_by_relevance()
+        active_sorted = [e for e in all_by_relevance if not e.dormant]
+        dormant_sorted = [e for e in all_by_relevance if e.dormant]
+
+        for element in active_sorted:
+            # Get callback entries for this element
+            element_callbacks = callback_log.get_by_element(element.id)
+
+            # Card HTML
+            st.markdown(
+                render_story_element_card_html(element, element_callbacks),
+                unsafe_allow_html=True,
+            )
+
+            # Expandable detail
+            with st.expander(
+                f"Details: {element.name}",
+                expanded=False,
+            ):
+                st.markdown(
+                    render_story_element_detail_html(element, element_callbacks),
+                    unsafe_allow_html=True,
+                )
+
+        # Dormant elements (after divider)
+        if dormant_sorted:
+            st.markdown("---")
+            st.caption("Dormant Threads")
+            for element in dormant_sorted:
+                element_callbacks = callback_log.get_by_element(element.id)
+
+                st.markdown(
+                    render_story_element_card_html(element, element_callbacks),
+                    unsafe_allow_html=True,
+                )
+
+                with st.expander(
+                    f"Details: {element.name}",
+                    expanded=False,
+                ):
+                    st.markdown(
+                        render_story_element_detail_html(
+                            element, element_callbacks
+                        ),
+                        unsafe_allow_html=True,
+                    )
 
 
 def render_input_context_bar_html(name: str, char_class: str) -> str:
@@ -6489,6 +6847,11 @@ def render_sidebar(config: AppConfig) -> None:
 
         # Human Whisper to DM (Story 10.4)
         render_human_whisper_input()
+
+        st.markdown("---")
+
+        # Story Threads (Story 11.5 - FR80)
+        render_story_threads()
 
         st.markdown("---")
 

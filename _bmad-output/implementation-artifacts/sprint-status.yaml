@@ -142,8 +142,8 @@ development_status:
   11-1-narrative-element-extraction: done
   11-2-callback-database: done
   11-3-dm-callback-suggestions: done
-  11-4-callback-detection: review
-  11-5-callback-ui-and-history: backlog
+  11-4-callback-detection: done
+  11-5-callback-ui-and-history: review
   epic-11-retrospective: optional
 
   # Epic 12: Fork Gameplay (4 stories)
