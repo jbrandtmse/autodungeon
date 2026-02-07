@@ -52,6 +52,7 @@ from models import (
     CallbackLog,
     CharacterConfig,
     CharacterSheet,
+    ComparisonTurn,
     DeathSaves,
     DMConfig,
     EquipmentItem,
@@ -69,6 +70,7 @@ from models import (
     populate_game_state,
 )
 from persistence import (
+    build_comparison_data,
     create_fork,
     create_new_session,
     delete_fork,
@@ -1765,6 +1767,10 @@ def initialize_session_state() -> None:
         # Error handling state (Story 4.5)
         st.session_state["error"] = None
         st.session_state["error_retry_count"] = 0
+        # Fork comparison state (Story 12.3)
+        st.session_state["comparison_mode"] = False
+        st.session_state["comparison_left"] = None
+        st.session_state["comparison_right"] = None
 
 
 def get_api_key_status(config: AppConfig) -> str:
@@ -7013,6 +7019,145 @@ def handle_return_to_main(session_id: str) -> None:
     st.toast("Returned to main timeline")
 
 
+def _truncate_entry(text: str, max_len: int = 150) -> str:
+    """Truncate a log entry for overview display.
+
+    Story 12.3: Fork Comparison View.
+
+    Args:
+        text: Text to truncate.
+        max_len: Maximum character length.
+
+    Returns:
+        Truncated text with ellipsis if needed.
+    """
+    if len(text) <= max_len:
+        return text
+    return text[:max_len] + "..."
+
+
+def render_comparison_view() -> None:
+    """Render side-by-side fork comparison view.
+
+    Story 12.3: Fork Comparison View (FR83).
+    Replaces the normal narrative area when comparison mode is active.
+    """
+    if not st.session_state.get("comparison_mode"):
+        return
+
+    comparison_right = st.session_state.get("comparison_right", {})
+    fork_id = comparison_right.get("fork_id") if comparison_right else None
+
+    if not fork_id:
+        st.error("No fork selected for comparison")
+        st.session_state["comparison_mode"] = False
+        st.session_state["comparison_left"] = None
+        st.session_state["comparison_right"] = None
+        return
+
+    game: GameState = st.session_state.get("game", {})  # type: ignore[assignment]
+    session_id = game.get("session_id", "001")
+
+    # Load comparison data
+    data = build_comparison_data(session_id, fork_id)
+    if data is None:
+        st.error("Could not load comparison data")
+        st.session_state["comparison_mode"] = False
+        st.session_state["comparison_left"] = None
+        st.session_state["comparison_right"] = None
+        return
+
+    # Header with close button
+    header_col, close_col = st.columns([5, 1])
+    with header_col:
+        st.markdown("### Compare Timelines")
+        st.caption(
+            f"**{escape_html(data.left.label)}** vs "
+            f"**{escape_html(data.right.label)}** "
+            f"(branched at turn {data.branch_turn})"
+        )
+    with close_col:
+        if st.button("Close", key="close_comparison"):
+            st.session_state["comparison_mode"] = False
+            st.session_state["comparison_left"] = None
+            st.session_state["comparison_right"] = None
+            st.rerun()
+
+    st.markdown("---")
+
+    # Column headers
+    left_col, right_col = st.columns(2)
+    with left_col:
+        st.markdown(f"**{escape_html(data.left.label)}**")
+    with right_col:
+        st.markdown(f"**{escape_html(data.right.label)}**")
+
+    # Render aligned turns
+    max_turns = max(len(data.left.turns), len(data.right.turns))
+    for i in range(max_turns):
+        left_turn = data.left.turns[i] if i < len(data.left.turns) else None
+        right_turn = data.right.turns[i] if i < len(data.right.turns) else None
+
+        left_col, right_col = st.columns(2)
+
+        with left_col:
+            _render_comparison_turn(left_turn, data.left.label, i)
+        with right_col:
+            _render_comparison_turn(right_turn, data.right.label, i)
+
+
+def _render_comparison_turn(
+    turn: ComparisonTurn | None,
+    timeline_label: str,
+    index: int,
+) -> None:
+    """Render a single turn in the comparison grid.
+
+    Args:
+        turn: The ComparisonTurn to render, or None if no data.
+        timeline_label: Label for this timeline (for unique keys).
+        index: Index for generating unique Streamlit keys.
+    """
+    if turn is None:
+        return
+
+    # Sanitize label for use in Streamlit keys
+    safe_label = timeline_label.replace(" ", "_").lower()[:20]
+
+    if turn.is_branch_point:
+        st.markdown(
+            f'<div class="comparison-divergence">'
+            f'<span class="comparison-turn-number">'
+            f"Turn {turn.turn_number} (Branch Point)"
+            f"</span></div>",
+            unsafe_allow_html=True,
+        )
+    elif turn.is_ended:
+        st.markdown(
+            '<div class="comparison-ended">[Timeline ends here]</div>',
+            unsafe_allow_html=True,
+        )
+        return
+    else:
+        st.markdown(
+            f'<span class="comparison-turn-number">'
+            f"Turn {turn.turn_number}</span>",
+            unsafe_allow_html=True,
+        )
+
+    # Render entries (truncated for overview)
+    if turn.entries:
+        with st.expander(
+            _truncate_entry(turn.entries[0], 150),
+            expanded=turn.is_branch_point,
+            key=f"cmp_{safe_label}_{index}",
+        ):
+            for entry in turn.entries:
+                st.markdown(escape_html(entry))
+    elif not turn.is_ended:
+        st.caption("[No entries]")
+
+
 def render_fork_controls() -> None:
     """Render fork creation and management controls in the sidebar.
 
@@ -7102,6 +7247,22 @@ def render_fork_controls() -> None:
                             ):
                                 handle_switch_to_fork(session_id, fork.fork_id)
                                 st.rerun()
+                        # Compare button (Story 12.3)
+                        if st.button(
+                            "Compare",
+                            key=f"compare_fork_{fork.fork_id}",
+                            disabled=is_generating,
+                        ):
+                            st.session_state["comparison_mode"] = True
+                            st.session_state["comparison_left"] = {
+                                "type": "main",
+                                "fork_id": None,
+                            }
+                            st.session_state["comparison_right"] = {
+                                "type": "fork",
+                                "fork_id": fork.fork_id,
+                            }
+                            st.rerun()
 
                     # Management actions
                     with st.popover("...", use_container_width=False):
@@ -7265,22 +7426,26 @@ def render_main_content() -> None:
         # Clear after displaying (single-use notification)
         st.session_state["pending_secret_reveal"] = None
 
-    # Narrative container with messages (Story 2.3, 2.6)
-    st.markdown('<div class="narrative-container">', unsafe_allow_html=True)
+    # Story 12.3: Fork Comparison View - replaces narrative when active
+    if st.session_state.get("comparison_mode"):
+        render_comparison_view()
+    else:
+        # Narrative container with messages (Story 2.3, 2.6)
+        st.markdown('<div class="narrative-container">', unsafe_allow_html=True)
 
-    # Render messages from ground_truth_log
-    render_narrative_messages(game)
+        # Render messages from ground_truth_log
+        render_narrative_messages(game)
 
-    # Auto-scroll indicator for resuming after manual scroll (Story 2.6)
-    render_auto_scroll_indicator()
+        # Auto-scroll indicator for resuming after manual scroll (Story 2.6)
+        render_auto_scroll_indicator()
 
-    st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
-    # Inject auto-scroll JavaScript when enabled (Story 2.6)
-    inject_auto_scroll_script()
+        # Inject auto-scroll JavaScript when enabled (Story 2.6)
+        inject_auto_scroll_script()
 
-    # Human input area - only shown in play mode (Story 3.2)
-    render_human_input_area()
+        # Human input area - only shown in play mode (Story 3.2)
+        render_human_input_area()
 
 
 def render_viewport_warning() -> None:

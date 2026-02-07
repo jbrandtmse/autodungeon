@@ -47,6 +47,9 @@ __all__ = [
     "ValidationResult",
     "Weapon",
     "Whisper",
+    "ComparisonTurn",
+    "ComparisonTimeline",
+    "ComparisonData",
     "ForkMetadata",
     "ForkRegistry",
     "NarrativeElement",
@@ -532,9 +535,7 @@ class NarrativeElement(BaseModel):
     characters_involved: list[str] = Field(
         default_factory=list, description="Characters involved"
     )
-    resolved: bool = Field(
-        default=False, description="Whether element is resolved"
-    )
+    resolved: bool = Field(default=False, description="Whether element is resolved")
 
     # Story 11.2: Callback Database enhancements
     times_referenced: int = Field(
@@ -820,8 +821,12 @@ class CallbackEntry(BaseModel):
     """
 
     id: str = Field(..., min_length=1, description="Unique entry ID (UUID hex)")
-    element_id: str = Field(..., min_length=1, description="Referenced NarrativeElement ID")
-    element_name: str = Field(..., min_length=1, description="Element name (denormalized)")
+    element_id: str = Field(
+        ..., min_length=1, description="Referenced NarrativeElement ID"
+    )
+    element_name: str = Field(
+        ..., min_length=1, description="Element name (denormalized)"
+    )
     element_type: str = Field(..., description="Element type (denormalized)")
     turn_detected: int = Field(..., ge=0, description="Turn when callback detected")
     turn_gap: int = Field(..., ge=0, description="Turns since element last referenced")
@@ -947,9 +952,7 @@ class ForkMetadata(BaseModel):
 
     fork_id: str = Field(..., min_length=1, description="Fork identifier (zero-padded)")
     name: str = Field(..., min_length=1, description="User-provided fork name")
-    parent_session_id: str = Field(
-        ..., min_length=1, description="Parent session ID"
-    )
+    parent_session_id: str = Field(..., min_length=1, description="Parent session ID")
     branch_turn: int = Field(..., ge=0, description="Turn number at branch point")
     created_at: str = Field(..., description="ISO timestamp when fork was created")
     updated_at: str = Field(..., description="ISO timestamp of last checkpoint")
@@ -1017,6 +1020,79 @@ class ForkRegistry(BaseModel):
     def add_fork(self, fork: ForkMetadata) -> None:
         """Add a fork to the registry."""
         self.forks.append(fork)
+
+
+# =============================================================================
+# Fork Comparison (Story 12.3)
+# =============================================================================
+
+
+class ComparisonTurn(BaseModel):
+    """A single turn's content for comparison alignment.
+
+    Represents one row in the comparison grid, containing the log
+    entries for a specific turn from one timeline.
+
+    Story 12.3: Fork Comparison View.
+    FR83: Compare forks side-by-side.
+
+    Attributes:
+        turn_number: Turn number (same for both timelines when aligned).
+        entries: Log entries added at this turn (may be empty if timeline ended).
+        is_branch_point: Whether this is the shared branch point turn.
+        is_ended: Whether the timeline has no more turns after this point.
+    """
+
+    turn_number: int = Field(..., ge=0, description="Turn number for alignment")
+    entries: list[str] = Field(
+        default_factory=list, description="Log entries at this turn"
+    )
+    is_branch_point: bool = Field(
+        default=False, description="Whether this is the branch point"
+    )
+    is_ended: bool = Field(default=False, description="Whether timeline ended here")
+
+
+class ComparisonTimeline(BaseModel):
+    """One side of a fork comparison (main or fork timeline).
+
+    Story 12.3: Fork Comparison View.
+    FR83: Compare forks side-by-side.
+
+    Attributes:
+        label: Display label (e.g., "Main Timeline" or fork name).
+        timeline_type: Whether this is the main timeline or a fork.
+        fork_id: Fork ID if this is a fork, None for main.
+        turns: Aligned turns for comparison rendering.
+        total_turns: Total turns in this timeline (including pre-branch).
+    """
+
+    label: str = Field(..., min_length=1, description="Display label")
+    timeline_type: Literal["main", "fork"] = Field(..., description="Timeline type")
+    fork_id: str | None = Field(default=None, description="Fork ID (None for main)")
+    turns: list[ComparisonTurn] = Field(
+        default_factory=list, description="Aligned turns"
+    )
+    total_turns: int = Field(default=0, ge=0, description="Total turns in timeline")
+
+
+class ComparisonData(BaseModel):
+    """Complete comparison data for two timelines.
+
+    Story 12.3: Fork Comparison View.
+    FR83: Compare forks side-by-side.
+
+    Attributes:
+        session_id: Session ID.
+        branch_turn: Turn number where timelines diverge.
+        left: Left column timeline data.
+        right: Right column timeline data.
+    """
+
+    session_id: str = Field(..., min_length=1, description="Session ID")
+    branch_turn: int = Field(..., ge=0, description="Branch point turn number")
+    left: ComparisonTimeline = Field(..., description="Left column timeline")
+    right: ComparisonTimeline = Field(..., description="Right column timeline")
 
 
 # =============================================================================

@@ -27,6 +27,9 @@ from models import (
     CallbackLog,
     CharacterConfig,
     CharacterSheet,
+    ComparisonData,
+    ComparisonTimeline,
+    ComparisonTurn,
     DMConfig,
     ForkMetadata,
     ForkRegistry,
@@ -82,6 +85,11 @@ __all__ = [
     "save_fork_registry",
     "save_session_metadata",
     "serialize_game_state",
+    "load_timeline_log_at_turn",
+    "load_fork_log_at_turn",
+    "build_comparison_data",
+    "extract_turns_from_logs",
+    "extract_turns_from_single_log",
 ]
 
 # Base directory for all campaigns
@@ -298,12 +306,8 @@ def deserialize_game_state(json_str: str) -> GameState:
     narrative_elements: dict[str, NarrativeElementStore] = {}
     for ne_session_id, store_data in narrative_elements_raw.items():
         if isinstance(store_data, dict):
-            elements = [
-                NarrativeElement(**e) for e in store_data.get("elements", [])
-            ]
-            narrative_elements[ne_session_id] = NarrativeElementStore(
-                elements=elements
-            )
+            elements = [NarrativeElement(**e) for e in store_data.get("elements", [])]
+            narrative_elements[ne_session_id] = NarrativeElementStore(elements=elements)
 
     # Handle callback_database deserialization (Story 11.2)
     # Backward compatible: old checkpoints without callback_database get empty store
@@ -320,9 +324,7 @@ def deserialize_game_state(json_str: str) -> GameState:
     # Backward compatible: old checkpoints without callback_log get empty CallbackLog
     callback_log_raw = data.get("callback_log", {"entries": []})
     if isinstance(callback_log_raw, dict):
-        cb_entries = [
-            CallbackEntry(**e) for e in callback_log_raw.get("entries", [])
-        ]
+        cb_entries = [CallbackEntry(**e) for e in callback_log_raw.get("entries", [])]
         callback_log = CallbackLog(entries=cb_entries)
     else:
         callback_log = CallbackLog()
@@ -1004,9 +1006,7 @@ def initialize_session_with_previous_memories(
 
     # Carry over callback_log (Story 11.4)
     prev_callback_log = prev_state.get("callback_log", CallbackLog())
-    new_state["callback_log"] = CallbackLog(
-        entries=list(prev_callback_log.entries)
-    )
+    new_state["callback_log"] = CallbackLog(entries=list(prev_callback_log.entries))
 
     return new_state
 
@@ -1166,8 +1166,7 @@ def _validate_fork_id(fork_id: str) -> None:
     """
     if not fork_id or not fork_id.replace("_", "").isalnum():
         raise ValueError(
-            f"Invalid fork_id: {fork_id!r}. "
-            "Must be alphanumeric (underscores allowed)."
+            f"Invalid fork_id: {fork_id!r}. Must be alphanumeric (underscores allowed)."
         )
 
 
@@ -1613,3 +1612,298 @@ def delete_fork(
     save_fork_registry(session_id, registry)
 
     return True
+
+
+# =============================================================================
+# Fork Comparison (Story 12.3)
+# =============================================================================
+
+
+def load_timeline_log_at_turn(session_id: str, turn_number: int) -> list[str] | None:
+    """Load the ground_truth_log from a main timeline checkpoint.
+
+    Story 12.3: Fork Comparison View.
+    FR83: Compare forks side-by-side.
+
+    Args:
+        session_id: Session ID string.
+        turn_number: Turn number to load.
+
+    Returns:
+        The ground_truth_log list, or None if checkpoint doesn't exist or is invalid.
+    """
+    state = load_checkpoint(session_id, turn_number)
+    if state is None:
+        return None
+    return state.get("ground_truth_log", [])
+
+
+def load_fork_log_at_turn(
+    session_id: str, fork_id: str, turn_number: int
+) -> list[str] | None:
+    """Load the ground_truth_log from a fork checkpoint.
+
+    Story 12.3: Fork Comparison View.
+    FR83: Compare forks side-by-side.
+
+    Args:
+        session_id: Session ID string.
+        fork_id: Fork ID string.
+        turn_number: Turn number to load.
+
+    Returns:
+        The ground_truth_log list, or None if checkpoint doesn't exist or is invalid.
+    """
+    state = load_fork_checkpoint(session_id, fork_id, turn_number)
+    if state is None:
+        return None
+    return state.get("ground_truth_log", [])
+
+
+def extract_turns_from_logs(
+    logs_by_checkpoint: dict[int, list[str]], start_turn: int
+) -> list[ComparisonTurn]:
+    """Extract per-turn entries by diffing consecutive checkpoint logs.
+
+    Takes a dict mapping turn_number -> ground_truth_log at that turn
+    and computes per-turn entries by differencing consecutive logs.
+
+    Story 12.3: Fork Comparison View.
+    FR83: Compare forks side-by-side.
+
+    Args:
+        logs_by_checkpoint: Dict mapping turn_number -> ground_truth_log snapshot.
+        start_turn: Turn number to start from (inclusive, marked as branch point).
+
+    Returns:
+        List of ComparisonTurn objects starting from start_turn.
+        First turn is marked as is_branch_point=True.
+    """
+    if not logs_by_checkpoint:
+        return []
+
+    sorted_turns = sorted(logs_by_checkpoint.keys())
+    # Filter to turns >= start_turn
+    relevant_turns = [t for t in sorted_turns if t >= start_turn]
+
+    if not relevant_turns:
+        return []
+
+    result: list[ComparisonTurn] = []
+    prev_log_len = 0
+
+    for i, turn in enumerate(relevant_turns):
+        log = logs_by_checkpoint[turn]
+
+        if i == 0:
+            # First turn (branch point): all entries up to this point
+            entries = list(log)
+            prev_log_len = len(log)
+        else:
+            # Subsequent turns: entries added since previous checkpoint
+            entries = log[prev_log_len:]
+            prev_log_len = len(log)
+
+        result.append(
+            ComparisonTurn(
+                turn_number=turn,
+                entries=entries,
+                is_branch_point=(i == 0),
+            )
+        )
+
+    return result
+
+
+def extract_turns_from_single_log(
+    log: list[str], branch_log_count: int, total_turns: int
+) -> list[ComparisonTurn]:
+    """Extract turns from a single log snapshot (fallback).
+
+    When only the latest checkpoint is available, distributes remaining
+    log entries after branch point across turns. Each entry is treated
+    as one turn's content.
+
+    Story 12.3: Fork Comparison View.
+    FR83: Compare forks side-by-side.
+
+    Args:
+        log: The complete ground_truth_log from latest checkpoint.
+        branch_log_count: Number of entries at the branch point.
+        total_turns: Total number of turns to distribute entries across.
+            Currently unused; entries are mapped 1:1 to turns. Reserved
+            for future use when grouping multiple entries per turn.
+
+    Returns:
+        List of ComparisonTurn objects.
+    """
+    post_branch = log[branch_log_count:]
+
+    if not post_branch:
+        return []
+
+    result: list[ComparisonTurn] = []
+    for i, entry in enumerate(post_branch):
+        result.append(
+            ComparisonTurn(
+                turn_number=i,
+                entries=[entry],
+                is_branch_point=False,
+            )
+        )
+
+    return result
+
+
+def build_comparison_data(session_id: str, fork_id: str) -> ComparisonData | None:
+    """Build comparison data between main timeline and a fork.
+
+    Story 12.3: Fork Comparison View.
+    FR83: Compare forks side-by-side.
+
+    Loads checkpoint data from both timelines, extracts per-turn entries
+    starting from the branch point, and aligns them for rendering.
+
+    Args:
+        session_id: Session ID string.
+        fork_id: Fork ID to compare against main timeline.
+
+    Returns:
+        ComparisonData with aligned turns, or None if data cannot be loaded.
+    """
+    _validate_session_id(session_id)
+    _validate_fork_id(fork_id)
+
+    # Load fork metadata for branch_turn
+    registry = load_fork_registry(session_id)
+    if registry is None:
+        return None
+
+    fork_meta = registry.get_fork(fork_id)
+    if fork_meta is None:
+        return None
+
+    branch_turn = fork_meta.branch_turn
+
+    # Load main timeline's latest checkpoint for the log
+    main_latest = get_latest_checkpoint(session_id)
+    if main_latest is None:
+        return None
+    main_state = load_checkpoint(session_id, main_latest)
+    if main_state is None:
+        return None
+    main_log = main_state.get("ground_truth_log", [])
+
+    # Load branch point checkpoint for shared log baseline
+    branch_state = load_checkpoint(session_id, branch_turn)
+    branch_log_count = 0
+    if branch_state is not None:
+        branch_log_count = len(branch_state.get("ground_truth_log", []))
+    else:
+        # Fallback: use fork's branch checkpoint log length if main was deleted
+        fork_branch_state = load_fork_checkpoint(session_id, fork_id, branch_turn)
+        if fork_branch_state is not None:
+            branch_log_count = len(
+                fork_branch_state.get("ground_truth_log", [])
+            )
+
+    # Load fork's latest checkpoint for the log
+    fork_latest = get_latest_fork_checkpoint(session_id, fork_id)
+    if fork_latest is None:
+        # Fork exists but has no checkpoints
+        return None
+    fork_state = load_fork_checkpoint(session_id, fork_id, fork_latest)
+    if fork_state is None:
+        return None
+    fork_log = fork_state.get("ground_truth_log", [])
+
+    # Extract branch point entries (shared between both timelines)
+    branch_entries = main_log[:branch_log_count]
+
+    # Extract post-branch entries for main timeline
+    main_post_branch = main_log[branch_log_count:]
+
+    # Extract post-branch entries for fork
+    fork_post_branch = fork_log[branch_log_count:]
+
+    # Build aligned turn lists
+    # Branch point turn
+    branch_point_turn = ComparisonTurn(
+        turn_number=branch_turn,
+        entries=branch_entries,
+        is_branch_point=True,
+    )
+
+    # Determine max post-branch length for alignment
+    max_post_turns = max(len(main_post_branch), len(fork_post_branch))
+
+    main_turns: list[ComparisonTurn] = [branch_point_turn]
+    fork_turns: list[ComparisonTurn] = [
+        ComparisonTurn(
+            turn_number=branch_turn,
+            entries=branch_entries,
+            is_branch_point=True,
+        )
+    ]
+
+    # Align subsequent turns by index
+    for i in range(max_post_turns):
+        turn_num = branch_turn + i + 1
+
+        # Main timeline entry
+        if i < len(main_post_branch):
+            main_turns.append(
+                ComparisonTurn(
+                    turn_number=turn_num,
+                    entries=[main_post_branch[i]],
+                )
+            )
+        else:
+            main_turns.append(
+                ComparisonTurn(
+                    turn_number=turn_num,
+                    entries=[],
+                    is_ended=True,
+                )
+            )
+
+        # Fork entry
+        if i < len(fork_post_branch):
+            fork_turns.append(
+                ComparisonTurn(
+                    turn_number=turn_num,
+                    entries=[fork_post_branch[i]],
+                )
+            )
+        else:
+            fork_turns.append(
+                ComparisonTurn(
+                    turn_number=turn_num,
+                    entries=[],
+                    is_ended=True,
+                )
+            )
+
+    # Build comparison timelines
+    left = ComparisonTimeline(
+        label="Main Timeline",
+        timeline_type="main",
+        fork_id=None,
+        turns=main_turns,
+        total_turns=len(main_log),
+    )
+
+    right = ComparisonTimeline(
+        label=fork_meta.name,
+        timeline_type="fork",
+        fork_id=fork_id,
+        turns=fork_turns,
+        total_turns=len(fork_log),
+    )
+
+    return ComparisonData(
+        session_id=session_id,
+        branch_turn=branch_turn,
+        left=left,
+        right=right,
+    )

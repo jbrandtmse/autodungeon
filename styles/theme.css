@@ -3431,3 +3431,70 @@ hr {
   color: var(--text-primary);
   font-weight: 500;
 }
+
+/* ==========================================================================
+   Fork Comparison View (Story 12.3)
+   ========================================================================== */
+
+/* Comparison container: two-column grid layout */
+.comparison-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-md);
+}
+
+/* Column header styling */
+.comparison-header {
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  padding-bottom: var(--space-sm);
+  border-bottom: 1px solid var(--bg-secondary);
+}
+
+/* Turn number label (monospace) */
+.comparison-turn-number {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-xs);
+}
+
+/* Turn content text */
+.comparison-turn-content {
+  font-family: 'Lora', Georgia, serif;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
+/* Branch point / divergence highlight (amber tint) */
+.comparison-divergence {
+  background: rgba(232, 168, 73, 0.1);
+  border-left: 2px solid var(--accent-warm);
+  padding: var(--space-sm);
+  padding-left: var(--space-sm);
+  margin-bottom: var(--space-md);
+  border-radius: 4px;
+}
+
+/* Timeline ended indicator */
+.comparison-ended {
+  text-align: center;
+  padding: var(--space-lg);
+  color: var(--color-fighter);
+  font-family: Inter, sans-serif;
+  font-style: italic;
+}
+
+/* Current turn indicator (green tint) */
+.comparison-current {
+  text-align: center;
+  padding: var(--space-sm);
+  background: rgba(107, 142, 107, 0.15);
+  border-radius: 4px;
+  color: var(--color-rogue);
+  font-family: Inter, sans-serif;
+  font-size: 12px;
+}
