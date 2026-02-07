@@ -19,6 +19,7 @@ from models import (
     DMConfig,
     GameConfig,
     GameState,
+    NarrativeElementStore,
     create_initial_game_state,
     populate_game_state,
 )
@@ -108,6 +109,7 @@ def sample_game_state() -> GameState:
             "fighter": AgentSecrets(),
         },
         narrative_elements={},
+        callback_database=NarrativeElementStore(),
     )
 
 
@@ -222,6 +224,7 @@ class TestGameStateSerialization:
             "character_sheets",  # Story 8.3: Character Sheet Context Injection
             "agent_secrets",  # Story 10.1: Whisper Data Model
             "narrative_elements",  # Story 11.1: Narrative Element Extraction
+            "callback_database",  # Story 11.2: Callback Database
         }
         assert set(data.keys()) == expected_keys
 

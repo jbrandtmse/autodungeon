@@ -17,6 +17,7 @@ from models import (
     DMConfig,
     GameConfig,
     GameState,
+    NarrativeElementStore,
     Whisper,
     create_whisper,
 )
@@ -453,6 +454,8 @@ class TestBuildPcContextSecretsIntegration:
             session_number=1,
             session_id="test-session",
             agent_secrets=agent_secrets or {},
+            narrative_elements={},
+            callback_database=NarrativeElementStore(),
         )
 
     def test_pc_context_includes_secret_section_when_whispers_exist(self) -> None:
@@ -589,6 +592,8 @@ class TestBuildDmContextSecretsIntegration:
             session_number=1,
             session_id="test-session",
             agent_secrets=agent_secrets or {},
+            narrative_elements={},
+            callback_database=NarrativeElementStore(),
         )
 
     def test_dm_context_includes_all_secrets_section(self) -> None:

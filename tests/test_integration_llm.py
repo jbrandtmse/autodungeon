@@ -143,6 +143,7 @@ def game_state(
         CharacterFacts,
         GameConfig,
         GameState,
+        NarrativeElementStore,
     )
 
     # Build turn queue
@@ -179,6 +180,8 @@ def game_state(
         session_number=1,
         session_id="integration_test",
         summarization_in_progress=False,
+        narrative_elements={},
+        callback_database=NarrativeElementStore(),
     )
 
 
@@ -461,7 +464,7 @@ class TestSingleTurn:
     ) -> None:
         """Test DM turn works with no prior context."""
         from agents import LLMError, dm_turn
-        from models import AgentMemory, GameConfig, GameState
+        from models import AgentMemory, GameConfig, GameState, NarrativeElementStore
 
         # Create minimal state with no context
         empty_state = GameState(
@@ -478,6 +481,8 @@ class TestSingleTurn:
             session_number=1,
             session_id="test",
             summarization_in_progress=False,
+            narrative_elements={},
+            callback_database=NarrativeElementStore(),
         )
 
         with patch.dict("sys.modules", {"streamlit": mock_streamlit}):
@@ -685,7 +690,13 @@ class TestErrorHandling:
     ) -> None:
         """Test that invalid model name produces appropriate error."""
         from agents import LLMError, dm_turn
-        from models import AgentMemory, DMConfig, GameConfig, GameState
+        from models import (
+            AgentMemory,
+            DMConfig,
+            GameConfig,
+            GameState,
+            NarrativeElementStore,
+        )
 
         # Create state with invalid model
         bad_dm_config = DMConfig(
@@ -709,6 +720,8 @@ class TestErrorHandling:
             session_number=1,
             session_id="test",
             summarization_in_progress=False,
+            narrative_elements={},
+            callback_database=NarrativeElementStore(),
         )
 
         with patch.dict("sys.modules", {"streamlit": mock_streamlit}):

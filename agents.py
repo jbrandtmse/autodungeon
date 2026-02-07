@@ -1483,17 +1483,22 @@ def dm_turn(state: GameState) -> GameState:
     new_buffer.append(f"[DM]: {response_content}")
     new_memories["dm"] = dm_memory.model_copy(update={"short_term_buffer": new_buffer})
 
-    # Extract narrative elements from DM response (Story 11.1)
+    # Extract narrative elements from DM response (Story 11.1, 11.2)
     turn_number = len(new_log)
     try:
         from memory import extract_narrative_elements
 
-        updated_narrative = extract_narrative_elements(
+        extraction_result = extract_narrative_elements(
             state, response_content, turn_number
         )
+        updated_narrative = extraction_result["narrative_elements"]
+        updated_callback_db = extraction_result["callback_database"]
     except Exception as e:
         logger.warning("Narrative element extraction failed: %s", e)
         updated_narrative = state.get("narrative_elements", {})
+        from models import NarrativeElementStore
+
+        updated_callback_db = state.get("callback_database", NarrativeElementStore())
 
     # Return new state with current_turn updated to "dm"
     # This is critical for route_to_next_agent to know who just acted
@@ -1515,6 +1520,7 @@ def dm_turn(state: GameState) -> GameState:
         character_sheets=updated_sheets,
         agent_secrets=updated_secrets,
         narrative_elements=updated_narrative,
+        callback_database=updated_callback_db,
     )
 
 
@@ -1916,17 +1922,22 @@ def pc_turn(state: GameState, agent_name: str) -> GameState:
         update={"short_term_buffer": new_buffer}
     )
 
-    # Extract narrative elements from PC response (Story 11.1)
+    # Extract narrative elements from PC response (Story 11.1, 11.2)
     turn_number = len(new_log)
     try:
         from memory import extract_narrative_elements
 
-        updated_narrative = extract_narrative_elements(
+        extraction_result = extract_narrative_elements(
             state, response_content, turn_number
         )
+        updated_narrative = extraction_result["narrative_elements"]
+        updated_callback_db = extraction_result["callback_database"]
     except Exception as e:
         logger.warning("Narrative element extraction failed: %s", e)
         updated_narrative = state.get("narrative_elements", {})
+        from models import NarrativeElementStore
+
+        updated_callback_db = state.get("callback_database", NarrativeElementStore())
 
     # Return new state with current_turn updated to this agent's name
     # This is critical for route_to_next_agent to know who just acted
@@ -1948,6 +1959,7 @@ def pc_turn(state: GameState, agent_name: str) -> GameState:
         character_sheets=state.get("character_sheets", {}),
         agent_secrets=state.get("agent_secrets", {}),
         narrative_elements=updated_narrative,
+        callback_database=updated_callback_db,
     )
 
 

@@ -1259,11 +1259,47 @@
 
 | Story | Status | Phase |
 |-------|--------|-------|
-| 11-1-narrative-element-extraction | ⏳ pending | - |
+| 11-1-narrative-element-extraction | ✅ done | complete |
 | 11-2-callback-database | ⏳ pending | - |
 | 11-3-dm-callback-suggestions | ⏳ pending | - |
 | 11-4-callback-detection | ⏳ pending | - |
 | 11-5-callback-ui-and-history | ⏳ pending | - |
+
+---
+
+## Story: 11-1-narrative-element-extraction
+
+**Status:** Completed
+**Date:** 2026-02-06
+
+### Files Touched
+- `models.py` — NarrativeElement, NarrativeElementStore, create_narrative_element factory
+- `memory.py` — NarrativeElementExtractor class, extraction prompt, JSON parser
+- `agents.py` — dm_turn/pc_turn integration for extraction after each turn
+- `persistence.py` — Serialization/deserialization with backward compatibility
+- `config.py` — Extractor agent configuration
+- `config/defaults.yaml` — Extractor model defaults
+- `tests/test_story_11_1_narrative_element_extraction.py` — 55 tests
+- `tests/test_persistence.py` — Updated fixture for narrative_elements
+
+### Key Design Decisions
+- Followed Summarizer pattern for NarrativeElementExtractor (lazy LLM init, configurable model)
+- Used summarizer model for extraction (lightweight, fast)
+- NarrativeElementStore keyed by session_id for cross-session persistence
+- Extraction runs after every DM and PC turn (non-blocking, failures logged)
+- Backward-compatible deserialization (missing narrative_elements defaults to empty dict)
+- Used Literal types for element_type instead of loose strings
+
+### Issues Auto-Resolved
+- **HIGH**: Test fixture missing `narrative_elements` field — Added to sample_game_state
+- **MEDIUM**: `get_by_type()` accepted `str` instead of `Literal` — Fixed type signature
+- **MEDIUM**: Factory function used `# type: ignore` — Replaced with proper Literal type
+- **MEDIUM**: Constants recreated per-call in parser — Moved to module-level
+- **MEDIUM**: `json` import inside function body — Moved to module top
+- **MEDIUM**: Unused imports and sorting in test file — Cleaned up via ruff
+
+### User Input Required
+- None — all issues auto-resolved
 
 ---
 

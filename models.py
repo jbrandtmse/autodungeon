@@ -492,6 +492,7 @@ class NarrativeElement(BaseModel):
     """Extracted narrative element for callback tracking.
 
     Story 11.1: Narrative Element Extraction.
+    Story 11.2: Callback Database - Enhanced with reference tracking and dormancy.
     FRs: FR76 (extract elements), FR77 (store with context).
 
     Attributes:
@@ -504,6 +505,10 @@ class NarrativeElement(BaseModel):
         turns_referenced: List of turn numbers where element was referenced.
         characters_involved: List of character names involved with this element.
         resolved: Whether this element has been resolved/concluded.
+        times_referenced: Count of times this element has been referenced.
+        last_referenced_turn: Turn number when element was last referenced.
+        potential_callbacks: AI-suggested ways this element could be called back.
+        dormant: Whether element is dormant (unreferenced for 20+ turns).
     """
 
     id: str = Field(..., min_length=1, description="Unique element ID (UUID hex)")
@@ -526,19 +531,43 @@ class NarrativeElement(BaseModel):
         default=False, description="Whether element is resolved"
     )
 
+    # Story 11.2: Callback Database enhancements
+    times_referenced: int = Field(
+        default=1, ge=1, description="Number of times element has been referenced"
+    )
+    last_referenced_turn: int = Field(
+        default=0, ge=0, description="Turn number when last referenced"
+    )
+    potential_callbacks: list[str] = Field(
+        default_factory=list, description="AI-suggested callback uses"
+    )
+    dormant: bool = Field(
+        default=False, description="Whether element is dormant (unreferenced 20+ turns)"
+    )
+
+    @model_validator(mode="after")
+    def default_last_referenced(self) -> "NarrativeElement":
+        """Default last_referenced_turn to turn_introduced if not set."""
+        if self.last_referenced_turn == 0 and self.turn_introduced > 0:
+            self.last_referenced_turn = self.turn_introduced
+        return self
+
 
 class NarrativeElementStore(BaseModel):
     """Container for narrative elements extracted during a session.
 
     Stores all extracted elements and provides query methods for
-    filtering and lookup.
+    filtering, lookup, reference tracking, dormancy, and relevance scoring.
 
-    Story 11.1: Narrative Element Extraction.
+    Story 11.1: Basic storage and query.
+    Story 11.2: Enhanced with reference tracking, dormancy, and relevance scoring.
     FR77: Elements stored with context for callback tracking.
 
     Attributes:
         elements: List of all narrative elements for this session.
     """
+
+    DORMANT_THRESHOLD: ClassVar[int] = 20  # Turns without reference before dormancy
 
     elements: list[NarrativeElement] = Field(
         default_factory=list, description="All narrative elements for this session"
@@ -583,6 +612,141 @@ class NarrativeElementStore(BaseModel):
                 return element
         return None
 
+    def add_element(self, element: NarrativeElement) -> NarrativeElement:
+        """Add element with duplicate detection and merging.
+
+        If an element with the same name exists (case-insensitive),
+        merges reference data. Otherwise adds as new.
+
+        Story 11.2: Callback Database.
+
+        Args:
+            element: The NarrativeElement to add.
+
+        Returns:
+            The element (merged or newly added).
+        """
+        existing = self.find_by_name(element.name)
+        if existing is not None:
+            # Merge: increment references, update turn, merge involved characters
+            existing.times_referenced += 1
+            existing.last_referenced_turn = max(
+                existing.last_referenced_turn, element.turn_introduced
+            )
+            if element.turn_introduced not in existing.turns_referenced:
+                existing.turns_referenced.append(element.turn_introduced)
+            for char in element.characters_involved:
+                if char not in existing.characters_involved:
+                    existing.characters_involved.append(char)
+            for cb in element.potential_callbacks:
+                if cb not in existing.potential_callbacks:
+                    existing.potential_callbacks.append(cb)
+            # Re-awaken if dormant
+            if existing.dormant:
+                existing.dormant = False
+            return existing
+        else:
+            self.elements.append(element)
+            return element
+
+    def record_reference(
+        self, element_id: str, turn_number: int
+    ) -> NarrativeElement | None:
+        """Record that an element was referenced in a turn.
+
+        Story 11.2: Callback Database.
+
+        Args:
+            element_id: ID of the element to update.
+            turn_number: Turn number where reference occurred.
+
+        Returns:
+            Updated element, or None if not found.
+        """
+        for element in self.elements:
+            if element.id == element_id:
+                element.times_referenced += 1
+                element.last_referenced_turn = turn_number
+                if turn_number not in element.turns_referenced:
+                    element.turns_referenced.append(turn_number)
+                if element.dormant:
+                    element.dormant = False
+                return element
+        return None
+
+    def update_dormancy(self, current_turn: int) -> int:
+        """Mark elements as dormant if unreferenced for DORMANT_THRESHOLD turns.
+
+        Story 11.2: Callback Database.
+
+        Args:
+            current_turn: Current turn number.
+
+        Returns:
+            Number of elements newly marked as dormant.
+        """
+        newly_dormant = 0
+        for element in self.elements:
+            if element.resolved or element.dormant:
+                continue
+            if current_turn - element.last_referenced_turn >= self.DORMANT_THRESHOLD:
+                element.dormant = True
+                newly_dormant += 1
+        return newly_dormant
+
+    def get_dormant(self) -> list[NarrativeElement]:
+        """Return dormant, non-resolved elements.
+
+        Story 11.2: Callback Database.
+
+        Returns:
+            List of dormant NarrativeElement objects.
+        """
+        return [e for e in self.elements if e.dormant and not e.resolved]
+
+    def get_active_non_dormant(self) -> list[NarrativeElement]:
+        """Return active, non-dormant elements (primary for callback suggestions).
+
+        Story 11.2: Callback Database.
+
+        Returns:
+            List of active, non-dormant NarrativeElement objects.
+        """
+        return [e for e in self.elements if not e.resolved and not e.dormant]
+
+    def get_by_relevance(self, limit: int | None = None) -> list[NarrativeElement]:
+        """Return active elements sorted by relevance score.
+
+        Relevance = times_referenced * 2 + (1 if not dormant else 0)
+
+        Story 11.2: Callback Database.
+
+        Args:
+            limit: Maximum number of elements to return.
+
+        Returns:
+            Elements sorted by relevance (highest first).
+        """
+        active = [e for e in self.elements if not e.resolved]
+        scored = sorted(
+            active,
+            key=lambda e: e.times_referenced * 2 + (1 if not e.dormant else 0),
+            reverse=True,
+        )
+        if limit is not None:
+            return scored[:limit]
+        return scored
+
+    def get_all(self) -> list[NarrativeElement]:
+        """Return all elements including dormant and resolved.
+
+        Story 11.2: Callback Database.
+
+        Returns:
+            List of all NarrativeElement objects.
+        """
+        return list(self.elements)
+
 
 def create_narrative_element(
     element_type: Literal[
@@ -593,10 +757,14 @@ def create_narrative_element(
     turn_introduced: int = 0,
     session_introduced: int = 1,
     characters_involved: list[str] | None = None,
+    potential_callbacks: list[str] | None = None,
 ) -> NarrativeElement:
     """Factory function to create a NarrativeElement with auto-generated ID.
 
     Creates a narrative element with a unique UUID-based identifier.
+
+    Story 11.1: Basic creation.
+    Story 11.2: Added potential_callbacks parameter.
 
     Args:
         element_type: Category of narrative element.
@@ -605,6 +773,7 @@ def create_narrative_element(
         turn_introduced: Turn number when first extracted.
         session_introduced: Session number when introduced.
         characters_involved: List of character names involved.
+        potential_callbacks: AI-suggested callback uses for this element.
 
     Returns:
         A new NarrativeElement instance with unique ID.
@@ -617,6 +786,7 @@ def create_narrative_element(
         turn_introduced=turn_introduced,
         session_introduced=session_introduced,
         characters_involved=characters_involved or [],
+        potential_callbacks=potential_callbacks or [],
     )
 
 
@@ -1295,6 +1465,7 @@ class GameState(TypedDict):
     character_sheets: dict[str, "CharacterSheet"]
     agent_secrets: dict[str, "AgentSecrets"]
     narrative_elements: dict[str, "NarrativeElementStore"]
+    callback_database: "NarrativeElementStore"  # Story 11.2: Campaign-level database
 
 
 class MessageSegment(BaseModel):
@@ -1520,6 +1691,7 @@ def create_initial_game_state() -> GameState:
         character_sheets={},
         agent_secrets={},
         narrative_elements={},
+        callback_database=NarrativeElementStore(),
     )
 
 
@@ -1594,6 +1766,7 @@ def populate_game_state(
         character_sheets={},
         agent_secrets=agent_secrets,
         narrative_elements={session_id: NarrativeElementStore()},
+        callback_database=NarrativeElementStore(),
     )
 
 

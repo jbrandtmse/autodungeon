@@ -41,6 +41,7 @@ This architecture means callbacks "just work" when:
 
 import json
 import logging
+from typing import TypedDict
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
@@ -62,6 +63,16 @@ from models import (
     NarrativeElementStore,
     create_narrative_element,
 )
+
+
+class ExtractionResult(TypedDict):
+    """Return type for extract_narrative_elements.
+
+    Story 11.2: Typed return for both session and campaign stores.
+    """
+
+    narrative_elements: dict[str, NarrativeElementStore]
+    callback_database: NarrativeElementStore
 
 # Logger for error tracking (technical details logged internally)
 logger = logging.getLogger("autodungeon")
@@ -811,6 +822,7 @@ Your task is to extract significant narrative elements from the following game t
 - Focus on elements that could be referenced or called back to later
 - Include context about why the element matters
 - List characters involved (PC names)
+- Suggest potential callbacks: ways the element could be referenced or used later
 - Return an empty array if no significant elements are found
 
 ## Response Format:
@@ -821,7 +833,8 @@ Return ONLY a JSON array:
     "type": "character",
     "name": "Skrix the Goblin",
     "context": "Befriended by party, promised to share info about the caves",
-    "characters_involved": ["Shadowmere", "Aldric"]
+    "characters_involved": ["Shadowmere", "Aldric"],
+    "potential_callbacks": ["Could return as ally in cave exploration", "Might betray party for goblin tribe"]
   }
 ]
 ```
@@ -900,6 +913,15 @@ def _parse_extraction_response(
             else:
                 characters_involved = []
 
+            # Extract potential_callbacks (Story 11.2)
+            raw_callbacks = item.get("potential_callbacks", [])
+            if isinstance(raw_callbacks, list):
+                potential_callbacks = [str(cb) for cb in raw_callbacks if cb]
+            elif isinstance(raw_callbacks, str):
+                potential_callbacks = [raw_callbacks] if raw_callbacks else []
+            else:
+                potential_callbacks = []
+
             element = create_narrative_element(
                 element_type=element_type,  # type: ignore[arg-type]
                 name=str(item.get("name", "")),
@@ -907,6 +929,7 @@ def _parse_extraction_response(
                 turn_introduced=turn_number,
                 session_introduced=session_number,
                 characters_involved=characters_involved,
+                potential_callbacks=potential_callbacks,
             )
             elements.append(element)
         except Exception as e:
@@ -1042,11 +1065,15 @@ class NarrativeElementExtractor:
 
 def extract_narrative_elements(
     state: GameState, turn_content: str, turn_number: int
-) -> dict[str, NarrativeElementStore]:
-    """Extract narrative elements and merge into state's element store.
+) -> ExtractionResult:
+    """Extract narrative elements and merge into both session store and campaign database.
 
     Gets extractor config from AppConfig, extracts elements from the
-    turn content, and merges them into the state's NarrativeElementStore.
+    turn content, and merges them into the state's NarrativeElementStore
+    and the campaign-level callback_database.
+
+    Story 11.1: Basic extraction and session store.
+    Story 11.2: Campaign-level callback database integration.
 
     Args:
         state: Current game state.
@@ -1054,7 +1081,9 @@ def extract_narrative_elements(
         turn_number: Turn number for element attribution.
 
     Returns:
-        Updated narrative_elements dict with extracted elements merged in.
+        ExtractionResult with:
+        - "narrative_elements": Updated per-session dict
+        - "callback_database": Updated campaign-level store
     """
     config = get_config()
 
@@ -1088,4 +1117,19 @@ def extract_narrative_elements(
     merged_elements = list(store.elements) + new_elements
     narrative_elements[session_id] = NarrativeElementStore(elements=merged_elements)
 
-    return narrative_elements
+    # Also merge into campaign-level callback database (Story 11.2)
+    callback_db = state.get("callback_database", NarrativeElementStore())
+    # Create a copy to avoid mutating state
+    callback_db_copy = NarrativeElementStore(
+        elements=[e.model_copy() for e in callback_db.elements]
+    )
+    for element in new_elements:
+        callback_db_copy.add_element(element.model_copy())
+
+    # Update dormancy
+    callback_db_copy.update_dormancy(turn_number)
+
+    return {
+        "narrative_elements": narrative_elements,
+        "callback_database": callback_db_copy,
+    }

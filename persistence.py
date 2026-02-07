@@ -221,6 +221,10 @@ def serialize_game_state(state: GameState) -> str:
             session_id: store.model_dump()
             for session_id, store in state.get("narrative_elements", {}).items()
         },
+        # Story 11.2: Campaign-level callback database
+        "callback_database": state.get(
+            "callback_database", NarrativeElementStore()
+        ).model_dump(),
     }
     return json.dumps(serializable, indent=2)
 
@@ -280,6 +284,17 @@ def deserialize_game_state(json_str: str) -> GameState:
                 elements=elements
             )
 
+    # Handle callback_database deserialization (Story 11.2)
+    # Backward compatible: old checkpoints without callback_database get empty store
+    callback_db_raw = data.get("callback_database", {"elements": []})
+    if isinstance(callback_db_raw, dict):
+        cb_elements = [
+            NarrativeElement(**e) for e in callback_db_raw.get("elements", [])
+        ]
+        callback_database = NarrativeElementStore(elements=cb_elements)
+    else:
+        callback_database = NarrativeElementStore()
+
     return GameState(
         ground_truth_log=data["ground_truth_log"],
         turn_queue=data["turn_queue"],
@@ -298,6 +313,7 @@ def deserialize_game_state(json_str: str) -> GameState:
         character_sheets=character_sheets,
         agent_secrets=agent_secrets,
         narrative_elements=narrative_elements,
+        callback_database=callback_database,
     )
 
 
@@ -944,6 +960,13 @@ def initialize_session_with_previous_memories(
                 token_limit=new_memory.token_limit,
                 character_facts=prev_memory.character_facts,
             )
+
+    # Carry over callback_database (Story 11.2)
+    # Copy to avoid mutating the previous session's state
+    prev_callback_db = prev_state.get("callback_database", NarrativeElementStore())
+    new_state["callback_database"] = NarrativeElementStore(
+        elements=[e.model_copy() for e in prev_callback_db.elements]
+    )
 
     return new_state
 

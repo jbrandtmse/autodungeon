@@ -782,10 +782,11 @@ class TestExtractNarrativeElements:
 
             result = extract_narrative_elements(state, "Found a sword in the chest", 5)
 
-        assert "001" in result
-        assert len(result["001"].elements) == 2
-        assert result["001"].elements[0].name == "Old NPC"
-        assert result["001"].elements[1].name == "New Sword"
+        narr = result["narrative_elements"]
+        assert "001" in narr
+        assert len(narr["001"].elements) == 2
+        assert narr["001"].elements[0].name == "Old NPC"
+        assert narr["001"].elements[1].name == "New Sword"
 
     @patch("memory._extractor_cache", {})
     @patch("memory.get_config")
@@ -816,9 +817,10 @@ class TestExtractNarrativeElements:
 
             result = extract_narrative_elements(state, "Entered the dark forest", 1)
 
-        assert "002" in result
-        assert len(result["002"].elements) == 1
-        assert result["002"].elements[0].name == "Dark Forest"
+        narr = result["narrative_elements"]
+        assert "002" in narr
+        assert len(narr["002"].elements) == 1
+        assert narr["002"].elements[0].name == "Dark Forest"
 
 
 # =============================================================================
@@ -964,7 +966,10 @@ class TestDmTurnNarrativeElements:
                 )
             ]
         )
-        mock_extract.return_value = {"001": extracted_store}
+        mock_extract.return_value = {
+            "narrative_elements": {"001": extracted_store},
+            "callback_database": extracted_store,
+        }
 
         # Create minimal state
         state = create_initial_game_state()
@@ -1033,8 +1038,11 @@ class TestPcTurnNarrativeElements:
         mock_pc.invoke.return_value = mock_response
         mock_create_pc.return_value = mock_pc
 
-        # Setup extraction mock
-        mock_extract.return_value = {"001": NarrativeElementStore()}
+        # Setup extraction mock (Story 11.2: returns dict with both keys)
+        mock_extract.return_value = {
+            "narrative_elements": {"001": NarrativeElementStore()},
+            "callback_database": NarrativeElementStore(),
+        }
 
         # Create minimal state with character
         state = create_initial_game_state()
@@ -1054,6 +1062,8 @@ class TestPcTurnNarrativeElements:
         mock_extract.assert_called_once()
         # Verify narrative_elements in returned state
         assert "narrative_elements" in result
+        # Verify callback_database in returned state (Story 11.2)
+        assert "callback_database" in result
 
     @patch("agents.create_pc_agent")
     def test_pc_turn_extraction_failure_non_blocking(

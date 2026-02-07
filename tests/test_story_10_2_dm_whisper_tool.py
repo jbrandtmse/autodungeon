@@ -15,6 +15,7 @@ from models import (
     DMConfig,
     GameConfig,
     GameState,
+    NarrativeElementStore,
     Whisper,
     create_whisper,
 )
@@ -461,6 +462,8 @@ class TestDmTurnWhisperIntegration:
                 "dm": AgentSecrets(),
                 "fighter": AgentSecrets(),
             },
+            narrative_elements={},
+            callback_database=NarrativeElementStore(),
         )
 
     def test_dm_turn_handles_whisper_tool_call(
@@ -715,6 +718,8 @@ class TestMultipleWhispers:
                 "rogue": AgentSecrets(),
                 "wizard": AgentSecrets(),
             },
+            narrative_elements={},
+            callback_database=NarrativeElementStore(),
         )
 
     def test_multiple_whispers_to_same_agent(
@@ -861,6 +866,8 @@ class TestPcTurnAgentSecrets:
                 "dm": AgentSecrets(),
                 "fighter": AgentSecrets(whispers=[whisper]),
             },
+            narrative_elements={},
+            callback_database=NarrativeElementStore(),
         )
 
     def test_pc_turn_preserves_agent_secrets(
