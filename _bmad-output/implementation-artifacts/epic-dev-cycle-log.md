@@ -1243,3 +1243,27 @@
 
 ---
 
+# Epic 11 - Callback Tracker (Chekhov's Gun)
+
+**Project:** autodungeon
+**Epic:** 11 - Callback Tracker (Chekhov's Gun)
+**Started:** 2026-02-06
+
+**Goal:** Track narrative elements for potential callbacks, helping create a coherent, interwoven story.
+
+**User Outcome:** "The wizard mentions an old mentor in session 1. Ten sessions later, that mentor shows up as an NPC. The system helped the DM remember and use that earlier detail."
+
+**FRs Covered:** FR76-FR80 (5 FRs)
+
+## Cycle Overview
+
+| Story | Status | Phase |
+|-------|--------|-------|
+| 11-1-narrative-element-extraction | ⏳ pending | - |
+| 11-2-callback-database | ⏳ pending | - |
+| 11-3-dm-callback-suggestions | ⏳ pending | - |
+| 11-4-callback-detection | ⏳ pending | - |
+| 11-5-callback-ui-and-history | ⏳ pending | - |
+
+---
+

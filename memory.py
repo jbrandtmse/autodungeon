@@ -39,6 +39,7 @@ This architecture means callbacks "just work" when:
 - LLMs recognize patterns in the provided context
 """
 
+import json
 import logging
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -54,16 +55,25 @@ from agents import (
     get_llm,
 )
 from config import get_config
-from models import CharacterFacts, GameState
+from models import (
+    CharacterFacts,
+    GameState,
+    NarrativeElement,
+    NarrativeElementStore,
+    create_narrative_element,
+)
 
 # Logger for error tracking (technical details logged internally)
 logger = logging.getLogger("autodungeon")
 
 __all__ = [
+    "ELEMENT_EXTRACTION_PROMPT",
     "JANITOR_SYSTEM_PROMPT",
     "MemoryManager",
+    "NarrativeElementExtractor",
     "Summarizer",
     "estimate_tokens",
+    "extract_narrative_elements",
 ]
 
 # Default number of entries to retain after compression
@@ -746,3 +756,336 @@ def _merge_summaries(existing: str, new_summary: str) -> str:
         return new_summary
     # Append new summary as continuation with separator
     return f"{existing}\n\n---\n\n{new_summary}"
+
+
+# =============================================================================
+# Narrative Element Extraction (Story 11.1)
+# =============================================================================
+
+# Module-level cache for NarrativeElementExtractor instances
+# Keyed by (provider, model) tuple, matching _summarizer_cache pattern.
+_extractor_cache: dict[tuple[str, str], "NarrativeElementExtractor"] = {}
+
+# Type aliases for normalizing LLM-returned element types to valid Literal values.
+# LLMs often return "npc" instead of "character", "place" instead of "location", etc.
+_ELEMENT_TYPE_ALIASES: dict[str, str] = {
+    "npc": "character",
+    "person": "character",
+    "creature": "character",
+    "monster": "character",
+    "place": "location",
+    "area": "location",
+    "region": "location",
+    "object": "item",
+    "weapon": "item",
+    "artifact": "item",
+    "deal": "promise",
+    "agreement": "promise",
+    "commitment": "promise",
+    "oath": "promise",
+    "danger": "threat",
+    "warning": "threat",
+    "discovery": "event",
+    "plot": "event",
+    "quest": "event",
+}
+_VALID_ELEMENT_TYPES = frozenset(
+    {"character", "item", "location", "event", "promise", "threat"}
+)
+
+# Extraction prompt for LLM to identify narrative elements from turn content
+ELEMENT_EXTRACTION_PROMPT = """You are a narrative analysis assistant for a D&D game.
+
+Your task is to extract significant narrative elements from the following game turn content.
+
+## Extract These Element Types:
+- **character**: Named NPCs introduced or significantly featured (not PCs)
+- **item**: Notable items mentioned, especially unique or magical ones
+- **location**: Named or described locations
+- **event**: Significant plot events or discoveries
+- **promise**: Promises, deals, or commitments made
+- **threat**: Threats, warnings, or dangers introduced
+
+## Rules:
+- Only extract genuinely significant elements (not every noun)
+- Focus on elements that could be referenced or called back to later
+- Include context about why the element matters
+- List characters involved (PC names)
+- Return an empty array if no significant elements are found
+
+## Response Format:
+Return ONLY a JSON array:
+```json
+[
+  {
+    "type": "character",
+    "name": "Skrix the Goblin",
+    "context": "Befriended by party, promised to share info about the caves",
+    "characters_involved": ["Shadowmere", "Aldric"]
+  }
+]
+```
+
+Return ONLY the JSON array, no additional text."""
+
+
+def _parse_extraction_response(
+    response_text: str, turn_number: int, session_number: int
+) -> list[NarrativeElement]:
+    """Parse JSON array of narrative elements from LLM response.
+
+    Handles common LLM response quirks:
+    - JSON wrapped in markdown code blocks
+    - Leading/trailing whitespace
+    - Extra text before/after JSON
+    - Mixed valid and invalid elements (valid kept, invalid skipped)
+
+    Args:
+        response_text: Raw text from LLM response.
+        turn_number: Turn number for element attribution.
+        session_number: Session number for element attribution.
+
+    Returns:
+        List of validated NarrativeElement objects.
+        Returns empty list on parse failure (graceful degradation).
+    """
+    if not response_text or not response_text.strip():
+        return []
+
+    # Strip markdown code blocks (same pattern as agents.py _parse_module_json)
+    text = response_text.strip()
+    if text.startswith("```json"):
+        text = text[7:]
+    if text.startswith("```"):
+        text = text[3:]
+    if text.endswith("```"):
+        text = text[:-3]
+    text = text.strip()
+
+    # Find JSON array in response
+    start_idx = text.find("[")
+    end_idx = text.rfind("]")
+    if start_idx == -1 or end_idx == -1:
+        return []
+
+    # Parse JSON
+    try:
+        data = json.loads(text[start_idx : end_idx + 1])
+    except json.JSONDecodeError:
+        logger.warning("Failed to parse narrative extraction JSON response")
+        return []
+
+    if not isinstance(data, list):
+        return []
+
+    # Validate and convert to NarrativeElement objects
+    elements: list[NarrativeElement] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        try:
+            # Normalize element_type: map aliases and default to "event"
+            raw_type = str(item.get("type", "event")).lower().strip()
+            element_type = _ELEMENT_TYPE_ALIASES.get(raw_type, raw_type)
+            if element_type not in _VALID_ELEMENT_TYPES:
+                element_type = "event"
+
+            # Validate characters_involved is a list of strings
+            raw_involved = item.get("characters_involved", [])
+            if isinstance(raw_involved, list):
+                characters_involved = [str(c) for c in raw_involved if c]
+            elif isinstance(raw_involved, str):
+                # LLM returned a single string instead of list
+                characters_involved = [raw_involved] if raw_involved else []
+            else:
+                characters_involved = []
+
+            element = create_narrative_element(
+                element_type=element_type,  # type: ignore[arg-type]
+                name=str(item.get("name", "")),
+                description=str(item.get("context", item.get("description", ""))),
+                turn_introduced=turn_number,
+                session_introduced=session_number,
+                characters_involved=characters_involved,
+            )
+            elements.append(element)
+        except Exception as e:
+            logger.warning("Skipping invalid narrative element: %s", e)
+
+    return elements
+
+
+class NarrativeElementExtractor:
+    """Extracts narrative elements from turn content using LLM.
+
+    Uses a lightweight (fast) model to extract significant narrative
+    elements without slowing down gameplay.
+
+    Story 11.1: Narrative Element Extraction.
+
+    Attributes:
+        provider: LLM provider name (gemini, claude, ollama).
+        model: Model name to use for extraction.
+        _llm: The LangChain chat model instance (lazily initialized).
+    """
+
+    MAX_CONTENT_CHARS = 10_000  # Max chars for extraction input
+
+    def __init__(self, provider: str, model: str) -> None:
+        """Initialize NarrativeElementExtractor with LLM provider and model.
+
+        The LLM client is lazily initialized on first use to allow
+        instantiation in tests without requiring API keys.
+
+        Args:
+            provider: LLM provider name (gemini, claude, ollama).
+            model: Model name to use for extraction.
+        """
+        self.provider = provider
+        self.model = model
+        self._llm: BaseChatModel | None = None
+
+    def _get_llm(self) -> BaseChatModel:
+        """Get or create the LLM client.
+
+        Lazily initializes the LLM on first access.
+
+        Returns:
+            The LangChain chat model instance.
+        """
+        if self._llm is None:
+            self._llm = get_llm(self.provider, self.model)
+        return self._llm
+
+    def extract_elements(
+        self, turn_content: str, turn_number: int, session_id: str
+    ) -> list[NarrativeElement]:
+        """Extract narrative elements from turn content.
+
+        Invokes the LLM with the extraction prompt and turn content,
+        then parses the response into NarrativeElement objects.
+
+        Args:
+            turn_content: The text content of the turn to analyze.
+            turn_number: Turn number for element attribution.
+            session_id: Session ID for session number extraction.
+
+        Returns:
+            List of NarrativeElement objects. Empty list on failure
+            (graceful degradation - never raises).
+        """
+        if not turn_content or not turn_content.strip():
+            return []
+
+        # Truncate content if too large
+        content = turn_content
+        if len(content) > self.MAX_CONTENT_CHARS:
+            logger.warning(
+                "Extraction content truncated from %d to %d chars",
+                len(content),
+                self.MAX_CONTENT_CHARS,
+            )
+            content = content[: self.MAX_CONTENT_CHARS]
+
+        # Extract session number from session_id
+        try:
+            session_number = int(session_id)
+        except (ValueError, TypeError):
+            session_number = 1
+
+        try:
+            llm = self._get_llm()
+            messages: list[BaseMessage] = [
+                SystemMessage(content=ELEMENT_EXTRACTION_PROMPT),
+                HumanMessage(
+                    content=f"Extract narrative elements from this turn:\n\n{content}"
+                ),
+            ]
+            response = llm.invoke(messages)
+
+            # Extract text from response
+            response_content = response.content
+            if isinstance(response_content, str):
+                response_text = response_content
+            elif hasattr(response_content, "__iter__"):
+                text_parts = [
+                    part for part in response_content if isinstance(part, str)
+                ]
+                response_text = "".join(text_parts)
+            else:
+                response_text = str(response_content) if response_content else ""
+
+            return _parse_extraction_response(
+                response_text, turn_number, session_number
+            )
+
+        except Exception as e:
+            # Graceful degradation: log and return empty list
+            error_type = categorize_error(e)
+            llm_error = LLMError(
+                provider=self.provider,
+                agent="extractor",
+                error_type=error_type,
+                original_error=e,
+            )
+            logger.warning(
+                "Narrative element extraction failed",
+                extra={
+                    "provider": llm_error.provider,
+                    "agent": llm_error.agent,
+                    "error_type": llm_error.error_type,
+                    "original_error": str(e),
+                },
+            )
+            return []
+
+
+def extract_narrative_elements(
+    state: GameState, turn_content: str, turn_number: int
+) -> dict[str, NarrativeElementStore]:
+    """Extract narrative elements and merge into state's element store.
+
+    Gets extractor config from AppConfig, extracts elements from the
+    turn content, and merges them into the state's NarrativeElementStore.
+
+    Args:
+        state: Current game state.
+        turn_content: The text content of the turn to analyze.
+        turn_number: Turn number for element attribution.
+
+    Returns:
+        Updated narrative_elements dict with extracted elements merged in.
+    """
+    config = get_config()
+
+    # Use extractor config (defaults to summarizer settings for lightweight extraction)
+    provider = config.agents.extractor.provider
+    model = config.agents.extractor.model
+
+    # Get or create cached extractor instance
+    cache_key = (provider, model)
+    if cache_key not in _extractor_cache:
+        _extractor_cache[cache_key] = NarrativeElementExtractor(
+            provider=provider,
+            model=model,
+        )
+    extractor = _extractor_cache[cache_key]
+
+    # Get session ID from state
+    session_id = state.get("session_id", "001")
+
+    # Extract elements
+    new_elements = extractor.extract_elements(turn_content, turn_number, session_id)
+
+    # Merge into existing narrative elements store
+    narrative_elements = dict(state.get("narrative_elements", {}))
+
+    if session_id not in narrative_elements:
+        narrative_elements[session_id] = NarrativeElementStore()
+
+    store = narrative_elements[session_id]
+    # Create new store with merged elements
+    merged_elements = list(store.elements) + new_elements
+    narrative_elements[session_id] = NarrativeElementStore(elements=merged_elements)
+
+    return narrative_elements

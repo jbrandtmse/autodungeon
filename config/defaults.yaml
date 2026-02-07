@@ -12,6 +12,10 @@ agents:
     provider: gemini
     model: gemini-1.5-flash
     token_limit: 4000
+  extractor:
+    provider: gemini
+    model: gemini-1.5-flash
+    token_limit: 4000
 
 # Game defaults
 party_size: 4

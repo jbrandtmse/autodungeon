@@ -45,9 +45,12 @@ __all__ = [
     "ValidationResult",
     "Weapon",
     "Whisper",
+    "NarrativeElement",
+    "NarrativeElementStore",
     "create_agent_memory",
     "create_character_facts_from_config",
     "create_initial_game_state",
+    "create_narrative_element",
     "create_user_error",
     "create_whisper",
     "populate_game_state",
@@ -477,6 +480,143 @@ def create_whisper(
         to_agent=to_agent,
         content=content,
         turn_created=turn_created,
+    )
+
+
+# =============================================================================
+# Narrative Element Extraction (Story 11.1)
+# =============================================================================
+
+
+class NarrativeElement(BaseModel):
+    """Extracted narrative element for callback tracking.
+
+    Story 11.1: Narrative Element Extraction.
+    FRs: FR76 (extract elements), FR77 (store with context).
+
+    Attributes:
+        id: Unique identifier (UUID hex string).
+        element_type: Category of narrative element.
+        name: Name of the element (e.g., NPC name, location name).
+        description: Context description of the element.
+        turn_introduced: Turn number when first extracted.
+        session_introduced: Session number when first extracted.
+        turns_referenced: List of turn numbers where element was referenced.
+        characters_involved: List of character names involved with this element.
+        resolved: Whether this element has been resolved/concluded.
+    """
+
+    id: str = Field(..., min_length=1, description="Unique element ID (UUID hex)")
+    element_type: Literal[
+        "character", "item", "location", "event", "promise", "threat"
+    ] = Field(..., description="Category of narrative element")
+    name: str = Field(..., min_length=1, description="Element name")
+    description: str = Field(default="", description="Context description")
+    turn_introduced: int = Field(..., ge=0, description="Turn when first extracted")
+    session_introduced: int = Field(
+        default=1, ge=1, description="Session when introduced"
+    )
+    turns_referenced: list[int] = Field(
+        default_factory=list, description="Turns where referenced"
+    )
+    characters_involved: list[str] = Field(
+        default_factory=list, description="Characters involved"
+    )
+    resolved: bool = Field(
+        default=False, description="Whether element is resolved"
+    )
+
+
+class NarrativeElementStore(BaseModel):
+    """Container for narrative elements extracted during a session.
+
+    Stores all extracted elements and provides query methods for
+    filtering and lookup.
+
+    Story 11.1: Narrative Element Extraction.
+    FR77: Elements stored with context for callback tracking.
+
+    Attributes:
+        elements: List of all narrative elements for this session.
+    """
+
+    elements: list[NarrativeElement] = Field(
+        default_factory=list, description="All narrative elements for this session"
+    )
+
+    def get_active(self) -> list[NarrativeElement]:
+        """Return unresolved narrative elements.
+
+        Returns:
+            List of NarrativeElement objects where resolved=False.
+        """
+        return [e for e in self.elements if not e.resolved]
+
+    def get_by_type(
+        self,
+        element_type: Literal[
+            "character", "item", "location", "event", "promise", "threat"
+        ],
+    ) -> list[NarrativeElement]:
+        """Filter elements by type.
+
+        Args:
+            element_type: The element type to filter by (e.g., "character", "item").
+
+        Returns:
+            List of NarrativeElement objects matching the type.
+        """
+        return [e for e in self.elements if e.element_type == element_type]
+
+    def find_by_name(self, name: str) -> NarrativeElement | None:
+        """Find an element by name (case-insensitive).
+
+        Args:
+            name: The element name to search for.
+
+        Returns:
+            The matching NarrativeElement, or None if not found.
+        """
+        name_lower = name.lower()
+        for element in self.elements:
+            if element.name.lower() == name_lower:
+                return element
+        return None
+
+
+def create_narrative_element(
+    element_type: Literal[
+        "character", "item", "location", "event", "promise", "threat"
+    ],
+    name: str,
+    description: str = "",
+    turn_introduced: int = 0,
+    session_introduced: int = 1,
+    characters_involved: list[str] | None = None,
+) -> NarrativeElement:
+    """Factory function to create a NarrativeElement with auto-generated ID.
+
+    Creates a narrative element with a unique UUID-based identifier.
+
+    Args:
+        element_type: Category of narrative element.
+        name: Name of the element.
+        description: Context description.
+        turn_introduced: Turn number when first extracted.
+        session_introduced: Session number when introduced.
+        characters_involved: List of character names involved.
+
+    Returns:
+        A new NarrativeElement instance with unique ID.
+    """
+    return NarrativeElement(
+        id=uuid.uuid4().hex,
+        element_type=element_type,
+        name=name,
+        description=description,
+        turn_introduced=turn_introduced,
+        session_introduced=session_introduced,
+        characters_involved=characters_involved or [],
     )
 
 
@@ -1154,6 +1294,7 @@ class GameState(TypedDict):
     selected_module: ModuleInfo | None
     character_sheets: dict[str, "CharacterSheet"]
     agent_secrets: dict[str, "AgentSecrets"]
+    narrative_elements: dict[str, "NarrativeElementStore"]
 
 
 class MessageSegment(BaseModel):
@@ -1378,6 +1519,7 @@ def create_initial_game_state() -> GameState:
         selected_module=None,
         character_sheets={},
         agent_secrets={},
+        narrative_elements={},
     )
 
 
@@ -1451,6 +1593,7 @@ def populate_game_state(
         selected_module=selected_module,
         character_sheets={},
         agent_secrets=agent_secrets,
+        narrative_elements={session_id: NarrativeElementStore()},
     )
 
 

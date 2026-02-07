@@ -29,6 +29,8 @@ from models import (
     GameConfig,
     GameState,
     ModuleInfo,
+    NarrativeElement,
+    NarrativeElementStore,
     SessionMetadata,
     TranscriptEntry,
     Whisper,
@@ -214,6 +216,11 @@ def serialize_game_state(state: GameState) -> str:
         "agent_secrets": {
             k: v.model_dump() for k, v in state.get("agent_secrets", {}).items()
         },
+        # Story 11.1: Narrative elements persistence
+        "narrative_elements": {
+            session_id: store.model_dump()
+            for session_id, store in state.get("narrative_elements", {}).items()
+        },
     }
     return json.dumps(serializable, indent=2)
 
@@ -260,6 +267,19 @@ def deserialize_game_state(json_str: str) -> GameState:
         whispers = [Whisper(**w) for w in secrets_data.get("whispers", [])]
         agent_secrets[agent_name] = AgentSecrets(whispers=whispers)
 
+    # Handle narrative_elements deserialization (Story 11.1)
+    # Backward compatible: old checkpoints may not have this field
+    narrative_elements_raw = data.get("narrative_elements", {})
+    narrative_elements: dict[str, NarrativeElementStore] = {}
+    for ne_session_id, store_data in narrative_elements_raw.items():
+        if isinstance(store_data, dict):
+            elements = [
+                NarrativeElement(**e) for e in store_data.get("elements", [])
+            ]
+            narrative_elements[ne_session_id] = NarrativeElementStore(
+                elements=elements
+            )
+
     return GameState(
         ground_truth_log=data["ground_truth_log"],
         turn_queue=data["turn_queue"],
@@ -277,6 +297,7 @@ def deserialize_game_state(json_str: str) -> GameState:
         selected_module=selected_module,
         character_sheets=character_sheets,
         agent_secrets=agent_secrets,
+        narrative_elements=narrative_elements,
     )
 
 

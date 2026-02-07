@@ -107,6 +107,7 @@ def sample_game_state() -> GameState:
             "dm": AgentSecrets(),
             "fighter": AgentSecrets(),
         },
+        narrative_elements={},
     )
 
 
@@ -220,6 +221,7 @@ class TestGameStateSerialization:
             "selected_module",  # Story 7.3: Module Context Injection
             "character_sheets",  # Story 8.3: Character Sheet Context Injection
             "agent_secrets",  # Story 10.1: Whisper Data Model
+            "narrative_elements",  # Story 11.1: Narrative Element Extraction
         }
         assert set(data.keys()) == expected_keys
 

@@ -125,6 +125,9 @@ class AgentsConfig(BaseSettings):
     summarizer: AgentConfig = Field(
         default_factory=lambda: AgentConfig(token_limit=4000)
     )
+    extractor: AgentConfig = Field(
+        default_factory=lambda: AgentConfig(token_limit=4000)
+    )
 
 
 class AppConfig(BaseSettings):
@@ -171,7 +174,10 @@ class AppConfig(BaseSettings):
         agents_yaml = yaml_defaults.pop("agents", {})
         dm_config = AgentConfig(**agents_yaml.get("dm", {}))
         summarizer_config = AgentConfig(**agents_yaml.get("summarizer", {}))
-        agents_config = AgentsConfig(dm=dm_config, summarizer=summarizer_config)
+        extractor_config = AgentConfig(**agents_yaml.get("extractor", {}))
+        agents_config = AgentsConfig(
+            dm=dm_config, summarizer=summarizer_config, extractor=extractor_config
+        )
 
         # Build kwargs from YAML, but let env vars take precedence
         kwargs: dict[str, Any] = {

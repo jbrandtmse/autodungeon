@@ -1483,6 +1483,18 @@ def dm_turn(state: GameState) -> GameState:
     new_buffer.append(f"[DM]: {response_content}")
     new_memories["dm"] = dm_memory.model_copy(update={"short_term_buffer": new_buffer})
 
+    # Extract narrative elements from DM response (Story 11.1)
+    turn_number = len(new_log)
+    try:
+        from memory import extract_narrative_elements
+
+        updated_narrative = extract_narrative_elements(
+            state, response_content, turn_number
+        )
+    except Exception as e:
+        logger.warning("Narrative element extraction failed: %s", e)
+        updated_narrative = state.get("narrative_elements", {})
+
     # Return new state with current_turn updated to "dm"
     # This is critical for route_to_next_agent to know who just acted
     return GameState(
@@ -1502,6 +1514,7 @@ def dm_turn(state: GameState) -> GameState:
         selected_module=state.get("selected_module"),
         character_sheets=updated_sheets,
         agent_secrets=updated_secrets,
+        narrative_elements=updated_narrative,
     )
 
 
@@ -1903,6 +1916,18 @@ def pc_turn(state: GameState, agent_name: str) -> GameState:
         update={"short_term_buffer": new_buffer}
     )
 
+    # Extract narrative elements from PC response (Story 11.1)
+    turn_number = len(new_log)
+    try:
+        from memory import extract_narrative_elements
+
+        updated_narrative = extract_narrative_elements(
+            state, response_content, turn_number
+        )
+    except Exception as e:
+        logger.warning("Narrative element extraction failed: %s", e)
+        updated_narrative = state.get("narrative_elements", {})
+
     # Return new state with current_turn updated to this agent's name
     # This is critical for route_to_next_agent to know who just acted
     return GameState(
@@ -1922,6 +1947,7 @@ def pc_turn(state: GameState, agent_name: str) -> GameState:
         selected_module=state.get("selected_module"),
         character_sheets=state.get("character_sheets", {}),
         agent_secrets=state.get("agent_secrets", {}),
+        narrative_elements=updated_narrative,
     )
 
 
