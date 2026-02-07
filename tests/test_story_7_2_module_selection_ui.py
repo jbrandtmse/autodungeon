@@ -902,7 +902,9 @@ class TestFilterModulesExtended:
         from app import filter_modules
 
         modules = [
-            ModuleInfo(number=1, name="Module (Revised)", description="Revised edition."),
+            ModuleInfo(
+                number=1, name="Module (Revised)", description="Revised edition."
+            ),
         ]
 
         result = filter_modules(modules, "(Revised)")
@@ -913,7 +915,9 @@ class TestFilterModulesExtended:
         from app import filter_modules
 
         modules = [
-            ModuleInfo(number=1, name="Good|Evil Campaign", description="Moral choices."),
+            ModuleInfo(
+                number=1, name="Good|Evil Campaign", description="Moral choices."
+            ),
         ]
 
         result = filter_modules(modules, "Good|Evil")
@@ -924,7 +928,9 @@ class TestFilterModulesExtended:
         from app import filter_modules
 
         modules = [
-            ModuleInfo(number=1, name="Path\\to\\Adventure", description="Filesystem path."),
+            ModuleInfo(
+                number=1, name="Path\\to\\Adventure", description="Filesystem path."
+            ),
         ]
 
         result = filter_modules(modules, "Path\\to")
@@ -1007,7 +1013,9 @@ class TestFilterModulesExtended:
         from app import filter_modules
 
         modules = [
-            ModuleInfo(number=1, name="Test Module", description="Test desc.", setting=""),
+            ModuleInfo(
+                number=1, name="Test Module", description="Test desc.", setting=""
+            ),
         ]
 
         result = filter_modules(modules, "Test")
@@ -1190,7 +1198,7 @@ class TestHtmlRenderingSecurity:
         html = render_module_card_html(module)
 
         # Should escape the quote
-        assert '&quot;' in html or 'onclick' not in html.lower().replace("&", "")
+        assert "&quot;" in html or "onclick" not in html.lower().replace("&", "")
 
     def test_card_escapes_single_quotes(self) -> None:
         """Test card handles single quotes in content."""
@@ -1655,7 +1663,9 @@ class TestRenderModuleGridExtended:
 
             # ModuleInfo number must be 1-100
             large_list = [
-                ModuleInfo(number=i, name=f"Module {i}", description=f"Description {i}.")
+                ModuleInfo(
+                    number=i, name=f"Module {i}", description=f"Description {i}."
+                )
                 for i in range(1, 101)
             ]
             render_module_grid(large_list)

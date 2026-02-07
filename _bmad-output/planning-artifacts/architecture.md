@@ -22,7 +22,7 @@ _This document builds collaboratively through step-by-step discovery. Sections a
 
 **Functional Requirements:**
 
-55 functional requirements organized across 7 domains:
+84 functional requirements organized across 13 domains (55 MVP + 29 v1.1):
 
 | Domain | FRs | Architectural Significance |
 |--------|-----|---------------------------|
@@ -33,6 +33,12 @@ _This document builds collaboratively through step-by-step discovery. Sections a
 | Persistence & Recovery | FR33-FR41 | Auto-checkpoint, restore, transcript export |
 | LLM Configuration | FR42-FR50 | Multi-provider support with per-agent model selection |
 | Agent Behavior | FR51-FR55 | Improv principles, personality consistency, dice mechanics |
+| Module Selection (v1.1) | FR56-FR59 | LLM-queried module discovery, context injection |
+| Character Sheets (v1.1) | FR60-FR66 | Full D&D 5e sheets, DM tool updates, context injection |
+| Character Creation (v1.1) | FR67-FR70 | Wizard UI, AI backstory, validation, library |
+| DM Whisper & Secrets (v1.1) | FR71-FR75 | Private channels, secret tracking, revelation |
+| Callback Tracking (v1.1) | FR76-FR80 | Narrative element extraction, suggestion, detection |
+| Fork Gameplay (v1.1) | FR81-FR84 | Branch creation, management, comparison, resolution |
 
 **Non-Functional Requirements:**
 
@@ -455,6 +461,12 @@ autodungeon/
 | Persistence (FR33-41) | `persistence.py` | `campaigns/` |
 | LLM Configuration (FR42-50) | `agents.py`, `config.py` | `config/` |
 | Agent Behavior (FR51-55) | `agents.py` | `tools.py` |
+| Module Selection (FR56-59) | `agents.py`, `app.py` | `models.py` |
+| Character Sheets (FR60-66) | `models.py`, `tools.py` | `app.py` |
+| Character Creation (FR67-70) | `app.py` | `agents.py`, `models.py` |
+| DM Whisper & Secrets (FR71-75) | `tools.py`, `models.py` | `graph.py` |
+| Callback Tracking (FR76-80) | `memory.py`, `models.py` | `app.py` |
+| Fork Gameplay (FR81-84) | `persistence.py`, `app.py` | `models.py` |
 
 ### Architectural Boundaries
 
@@ -473,6 +485,305 @@ autodungeon/
 - `save_checkpoint(state, session_id)` serializes full state
 - `load_checkpoint(session_id, turn)` deserializes to GameState
 
+## v1.1 Extension Architecture
+
+### New Data Models
+
+**CharacterSheet (models.py):**
+
+```python
+class AbilityScores(BaseModel):
+    strength: int = 10
+    dexterity: int = 10
+    constitution: int = 10
+    intelligence: int = 10
+    wisdom: int = 10
+    charisma: int = 10
+
+class CharacterSheet(BaseModel):
+    """Full D&D 5e character sheet for a PC."""
+    # Core Identity
+    name: str
+    race: str
+    character_class: str
+    level: int = 1
+    background: str = ""
+    alignment: str = ""
+
+    # Ability Scores & Modifiers
+    abilities: AbilityScores = Field(default_factory=AbilityScores)
+
+    # Combat Stats
+    hit_points: int
+    max_hit_points: int
+    temporary_hp: int = 0
+    armor_class: int
+    initiative_bonus: int = 0
+    speed: int = 30
+    hit_dice: str = "1d8"
+
+    # Proficiencies & Skills
+    proficiency_bonus: int = 2
+    saving_throws: list[str] = Field(default_factory=list)
+    skills: dict[str, int] = Field(default_factory=dict)
+    languages: list[str] = Field(default_factory=list)
+    tool_proficiencies: list[str] = Field(default_factory=list)
+
+    # Equipment & Resources
+    equipment: list[str] = Field(default_factory=list)
+    gold: int = 0
+
+    # Spellcasting (optional)
+    spellcasting_ability: str | None = None
+    spell_save_dc: int | None = None
+    spell_attack_bonus: int | None = None
+    spell_slots: dict[int, int] = Field(default_factory=dict)  # level -> slots
+    spells_known: list[str] = Field(default_factory=list)
+    cantrips: list[str] = Field(default_factory=list)
+
+    # Class Features & Traits
+    class_features: list[str] = Field(default_factory=list)
+    racial_traits: list[str] = Field(default_factory=list)
+
+    # Personality (for RP context)
+    personality_traits: list[str] = Field(default_factory=list)
+    ideals: list[str] = Field(default_factory=list)
+    bonds: list[str] = Field(default_factory=list)
+    flaws: list[str] = Field(default_factory=list)
+    backstory: str = ""
+
+    # Status Effects
+    conditions: list[str] = Field(default_factory=list)  # poisoned, exhausted, etc.
+```
+
+**Whisper (models.py):**
+
+```python
+class Whisper(BaseModel):
+    """Private message from DM to a single agent."""
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    from_agent: str  # "dm" or "human"
+    to_agent: str    # Target PC agent name
+    content: str     # The secret information
+    revealed: bool = False
+    turn_created: int
+    turn_revealed: int | None = None
+```
+
+**NarrativeElement (models.py):**
+
+```python
+class NarrativeElement(BaseModel):
+    """Extracted narrative element for callback tracking."""
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    element_type: Literal["character", "item", "location", "event", "promise", "threat"]
+    name: str
+    description: str
+    turn_introduced: int
+    turns_referenced: list[int] = Field(default_factory=list)
+    resolved: bool = False
+```
+
+**Fork (models.py):**
+
+```python
+class Fork(BaseModel):
+    """A branched timeline from a checkpoint."""
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    name: str
+    parent_session_id: str
+    parent_turn: int
+    created_at: datetime = Field(default_factory=datetime.now)
+    description: str = ""
+    is_canonical: bool = False
+```
+
+**ModuleInfo (models.py):**
+
+```python
+class ModuleInfo(BaseModel):
+    """D&D module information from LLM knowledge."""
+    number: int
+    name: str
+    description: str
+    setting: str = ""
+    level_range: str = ""
+```
+
+### New Tool Definitions
+
+**Character Sheet Tools (tools.py):**
+
+```python
+@tool
+def update_character_sheet(
+    character_name: str,
+    updates: dict[str, Any]
+) -> str:
+    """Update a character's sheet. DM only.
+
+    Args:
+        character_name: Name of the character to update
+        updates: Dictionary of field -> value updates
+            - hit_points: int (current HP)
+            - temporary_hp: int
+            - equipment: list[str] (add/remove items)
+            - gold: int
+            - spell_slots: dict[int, int] (current remaining)
+            - conditions: list[str] (status effects)
+
+    Returns:
+        Confirmation message with changes made.
+    """
+    ...
+```
+
+**Whisper Tools (tools.py):**
+
+```python
+@tool
+def whisper_to_agent(
+    target_agent: str,
+    secret: str
+) -> str:
+    """Send a private whisper to a specific PC agent.
+
+    The whispered information will only be visible to the target
+    agent and will be injected into their context on their next turn.
+
+    Args:
+        target_agent: Name of the PC to whisper to
+        secret: The secret information to share
+
+    Returns:
+        Confirmation that whisper was sent.
+    """
+    ...
+
+@tool
+def reveal_secret(
+    whisper_id: str,
+    dramatic_moment: str
+) -> str:
+    """Mark a secret as revealed during a dramatic moment.
+
+    Args:
+        whisper_id: ID of the whisper to reveal
+        dramatic_moment: Description of how it was revealed
+
+    Returns:
+        The revealed secret content.
+    """
+    ...
+```
+
+### Context Injection Patterns
+
+**Character Sheet Context:**
+
+- DM receives all character sheets in summarized form for encounter balancing
+- Each PC receives only their own character sheet
+- Sheet data injected after system prompt, before memory context
+
+```python
+def get_character_sheet_context(agent_name: str, all_sheets: dict[str, CharacterSheet]) -> str:
+    """Build character sheet context for an agent."""
+    if agent_name == "dm":
+        # DM sees all sheets (summarized)
+        return format_all_sheets_summary(all_sheets)
+    else:
+        # PC sees only their own sheet
+        return format_own_sheet(all_sheets.get(agent_name))
+```
+
+**Module Context:**
+
+- Selected module injected into DM system prompt
+- Contains setting, plot hooks, key NPCs, encounter guidelines
+- Does not contain spoilers for PCs (DM context only)
+
+```python
+MODULE_CONTEXT_TEMPLATE = """
+## Current Module: {module.name}
+
+### Setting
+{module.setting}
+
+### Campaign Hooks
+{module.hooks}
+
+### Key NPCs
+{module.npcs}
+
+### Encounter Guidelines
+{module.guidelines}
+
+Use this module as inspiration while maintaining improvisational flexibility.
+"""
+```
+
+**Whisper Context:**
+
+- Pending whispers injected into target PC's context only
+- Marked as [SECRET - DO NOT REVEAL DIRECTLY]
+- PC should act on information without explicitly stating it
+
+```python
+WHISPER_CONTEXT_TEMPLATE = """
+[SECRET - DO NOT REVEAL DIRECTLY]
+You have received private information from the DM:
+{whisper.content}
+
+Act on this knowledge naturally without explicitly stating you received a whisper.
+"""
+```
+
+### Callback Tracking System
+
+**Element Extraction:**
+
+- Run after each agent turn
+- Use LLM to extract narrative elements from dialogue
+- Store in NarrativeElement database
+
+**Callback Suggestion:**
+
+- Before DM turn, query callback database
+- Suggest elements that haven't been referenced recently
+- Prioritize unresolved promises and threats
+
+**Detection & Logging:**
+
+- After each turn, check for references to existing elements
+- Update `turns_referenced` for matched elements
+- Track callback rate as research metric
+
+### Fork Management
+
+**Storage Structure:**
+
+```text
+campaigns/
+└── session_001/
+    ├── config.yaml
+    ├── turn_001.json
+    ├── turn_042.json         # Fork point
+    └── forks/
+        ├── fork_abc123/
+        │   ├── fork_meta.yaml  # Fork model data
+        │   ├── turn_043.json   # Divergent history
+        │   └── turn_044.json
+        └── fork_def456/
+            └── ...
+```
+
+**Fork Operations:**
+
+1. **Create Fork:** Copy GameState at checkpoint, create new fork directory
+2. **Switch Fork:** Load fork's latest state into session
+3. **Compare Forks:** Side-by-side ground_truth_log display
+4. **Resolve Fork:** Mark one as canonical, optionally archive others
+
 ## Architecture Validation
 
 ### Validation Results
@@ -482,9 +793,12 @@ autodungeon/
 | Decision Compatibility | ✅ LangGraph + Pydantic + Streamlit cohesive |
 | Pattern Consistency | ✅ PEP 8, node naming, session state keys |
 | Structure Alignment | ✅ Flat layout supports all decisions |
-| FR Coverage | ✅ All 7 domains mapped to modules |
+| FR Coverage | ✅ All 13 domains mapped to modules (MVP + v1.1) |
 | NFR Coverage | ✅ 16GB RAM, 2min timeout addressed |
 | Implementation Ready | ✅ Patterns + examples complete |
+| v1.1 Models Defined | ✅ CharacterSheet, Whisper, NarrativeElement, Fork, ModuleInfo |
+| v1.1 Tools Defined | ✅ update_character_sheet, whisper_to_agent, reveal_secret |
+| v1.1 Context Patterns | ✅ Sheet injection, module context, whisper context |
 
 ### Architecture Readiness: READY FOR IMPLEMENTATION
 

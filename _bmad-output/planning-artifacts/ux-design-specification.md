@@ -5,9 +5,19 @@ inputDocuments:
   - 'planning-artifacts/product-brief-autodungeon-2026-01-24.md'
   - 'planning-artifacts/prd.md'
   - 'docs/prompt.md'
+  - 'planning-artifacts/epics-v1.1.md'
 date: 2026-01-24
+lastUpdated: 2026-02-01
 author: Developer
 project: autodungeon
+version: '1.1'
+v1_1_features:
+  - module-selection-ui
+  - character-sheet-viewer
+  - character-creation-wizard
+  - dm-whisper-ui
+  - callback-history-panel
+  - fork-management-ui
 ---
 
 # UX Design Specification - autodungeon
@@ -1796,3 +1806,1428 @@ st.markdown("""
 - [ ] Focus is managed on modal open/close
 - [ ] Skip link to main content (if header is added)
 - [ ] Color is not the only indicator of state
+
+---
+
+## v1.1 Enhancement Features
+
+This section covers UX specifications for the v1.1 enhancement features (Epics 7-12). These designs extend the established MVP patterns while maintaining visual consistency with the campfire aesthetic.
+
+### Design Principles for v1.1
+
+All v1.1 features follow these principles:
+
+1. **Consistency with MVP** - Use established color palette, typography, and component patterns
+2. **Non-Disruptive** - New features should enhance, not interrupt, the core Watch/Drop-In experience
+3. **Progressive Disclosure** - Complex information (character sheets, fork history) available on demand
+4. **Campfire Aesthetic** - Maintain warm, intimate feel even in new UI components
+
+---
+
+## v1.1 Feature: Module Selection UI
+
+### Overview
+
+**Purpose:** Allow users to select from D&D modules the DM knows from training data when starting a new adventure.
+
+**Entry Point:** "New Adventure" button → Module Selection step
+
+**FRs Covered:** FR56-FR59
+
+### User Flow
+
+```mermaid
+flowchart TD
+    A[Click New Adventure] --> B[Module Discovery]
+    B --> C{Modules Loading?}
+    C -->|Yes| D[Show Loading State]
+    D --> E[Display Module Grid]
+    C -->|No Cache| F[Query DM LLM]
+    F --> D
+
+    E --> G{User Action}
+    G -->|Search| H[Filter Modules]
+    H --> E
+    G -->|Random| I[Select Random Module]
+    G -->|Select| J[Show Module Preview]
+
+    J --> K{Confirm?}
+    K -->|Yes| L[Proceed to Party Setup]
+    K -->|Back| E
+
+    I --> J
+
+    G -->|Freeform| M[Skip Module Selection]
+    M --> L
+```
+
+### Component: Module Browser
+
+**Layout:** Full-width modal overlay during adventure creation flow
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  ⚔️ Choose Your Adventure                              [X]   │
+├──────────────────────────────────────────────────────────────┤
+│  [🔍 Search modules...                    ] [🎲 Random]      │
+├──────────────────────────────────────────────────────────────┤
+│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐            │
+│  │ Curse of    │ │ Lost Mine   │ │ Tomb of     │            │
+│  │ Strahd      │ │ of Phandelv │ │ Annihilat.  │            │
+│  │             │ │             │ │             │            │
+│  │ Gothic      │ │ Classic     │ │ Deadly      │            │
+│  │ horror...   │ │ starter...  │ │ dungeon...  │            │
+│  │             │ │             │ │             │            │
+│  │ [Select]    │ │ [Select]    │ │ [Select]    │            │
+│  └─────────────┘ └─────────────┘ └─────────────┘            │
+│                                                              │
+│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐            │
+│  │ Dragon of   │ │ Descent     │ │ Waterdeep   │            │
+│  │ Icespire... │ │ into Aver...│ │ Dragon He...│            │
+│  │ ...         │ │ ...         │ │ ...         │            │
+│  └─────────────┘ └─────────────┘ └─────────────┘            │
+│                                                              │
+│  [← Back]                        [Skip - Freeform Adventure] │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Component: Module Card
+
+**CSS Specification:**
+
+```css
+.module-card {
+    background: var(--bg-secondary);       /* #2D2520 */
+    border-radius: 8px;
+    padding: var(--space-md);              /* 16px */
+    border: 1px solid var(--bg-message);   /* #3D3530 */
+    transition: all 0.15s ease;
+    cursor: pointer;
+    min-height: 180px;
+    display: flex;
+    flex-direction: column;
+}
+
+.module-card:hover {
+    border-color: var(--accent-warm);      /* #E8A849 */
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.module-card.selected {
+    border-color: var(--accent-warm);
+    background: var(--bg-message);
+}
+
+.module-title {
+    font-family: Lora, Georgia, serif;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);            /* #F5E6D3 */
+    margin-bottom: var(--space-xs);
+}
+
+.module-description {
+    font-family: Inter, system-ui, sans-serif;
+    font-size: 13px;
+    color: var(--text-secondary);          /* #B8A896 */
+    line-height: 1.5;
+    flex-grow: 1;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+}
+
+.module-select-btn {
+    margin-top: var(--space-sm);
+    background: transparent;
+    border: 1px solid var(--color-dm);     /* #D4A574 */
+    color: var(--color-dm);
+    border-radius: 4px;
+    padding: 6px 12px;
+    font-family: Inter;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.module-select-btn:hover {
+    background: var(--color-dm);
+    color: var(--bg-primary);
+}
+```
+
+### Component: Module Preview Modal
+
+**Shown when:** User clicks "Select" on a module card
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  Curse of Strahd                                       [X]   │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│  A gothic horror adventure in the haunted realm of           │
+│  Barovia, where the vampire lord Strahd von Zarovich         │
+│  rules with an iron fist. Players must navigate a land       │
+│  of eternal mist, treacherous allies, and dark secrets       │
+│  to confront the master of Castle Ravenloft.                 │
+│                                                              │
+│  Setting: Ravenloft / Barovia                                │
+│  Tone: Gothic Horror, Mystery                                │
+│  Levels: 1-10                                                │
+│                                                              │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│  [← Choose Different]              [Begin This Adventure →]  │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Loading State
+
+**During module discovery:**
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                                                              │
+│                    📜                                        │
+│                                                              │
+│         Consulting the Dungeon Master's Library...           │
+│                                                              │
+│                   [·····○·····]                              │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Search & Filter
+
+**Search behavior:**
+- Filter as you type (debounced 300ms)
+- Searches module name and description
+- Case-insensitive matching
+- Shows "No modules match" if empty results
+
+**Random button:**
+- Selects random module from current filtered set
+- Opens preview modal directly
+- Labeled with dice icon (🎲)
+
+### Freeform Option
+
+**Button:** "Skip - Freeform Adventure"
+- Positioned at bottom of modal
+- Subtle styling (not primary)
+- Allows DM to improvise without module context
+
+---
+
+## v1.1 Feature: Character Sheet Viewer
+
+### Overview
+
+**Purpose:** Display full D&D 5e character sheets for party members, viewable at any time during gameplay.
+
+**Entry Point:** Click character name (not Drop-In button) in party panel
+
+**FRs Covered:** FR60-FR66
+
+### User Flow
+
+```mermaid
+flowchart TD
+    A[Click Character Name] --> B[Open Sheet Panel]
+    B --> C[Display Full Sheet]
+
+    C --> D{User Action}
+    D -->|Scroll| E[Navigate Sections]
+    D -->|Click Section| F[Expand/Collapse]
+    D -->|Close| G[Return to Game]
+
+    E --> C
+    F --> C
+
+    H[Sheet Update Event] --> I[Highlight Changed Section]
+    I --> J[Animate Value Change]
+    J --> C
+```
+
+### Component: Character Sheet Panel
+
+**Layout:** Slide-out panel from right side (480px width)
+
+```
+┌────────────────────────────────────────────────────┐
+│ [X]  Thorin Ironforge                              │
+│      Dwarf Fighter • Level 5                       │
+├────────────────────────────────────────────────────┤
+│                                                    │
+│  ┌─────────────────────────────────────────────┐  │
+│  │  ❤️ 45/52 HP  │  🛡️ AC 18  │  ⚡ Init +1   │  │
+│  │  ████████░░░░ │             │               │  │
+│  └─────────────────────────────────────────────┘  │
+│                                                    │
+│  ▼ ABILITIES                                       │
+│  ┌─────┬─────┬─────┬─────┬─────┬─────┐           │
+│  │ STR │ DEX │ CON │ INT │ WIS │ CHA │           │
+│  │ 18  │ 12  │ 16  │ 10  │ 14  │  8  │           │
+│  │ +4  │ +1  │ +3  │ +0  │ +2  │ -1  │           │
+│  └─────┴─────┴─────┴─────┴─────┴─────┘           │
+│                                                    │
+│  ▼ SKILLS                                         │
+│  • Athletics (+7)  ◆                              │
+│  • Intimidation (+2)  ◆                           │
+│  • Perception (+5)  ◆                             │
+│                                                    │
+│  ▶ EQUIPMENT (collapsed)                          │
+│                                                    │
+│  ▶ FEATURES (collapsed)                           │
+│                                                    │
+│  ▶ PERSONALITY (collapsed)                        │
+│                                                    │
+└────────────────────────────────────────────────────┘
+```
+
+### Component: HP Bar
+
+**CSS Specification:**
+
+```css
+.hp-bar-container {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.hp-bar {
+    flex-grow: 1;
+    height: 12px;
+    background: var(--bg-primary);
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid var(--bg-message);
+}
+
+.hp-bar-fill {
+    height: 100%;
+    transition: width 0.3s ease, background-color 0.3s ease;
+}
+
+.hp-bar-fill.healthy {   /* >50% */
+    background: linear-gradient(to right, #4a7c4a, #6B8E6B);
+}
+
+.hp-bar-fill.wounded {   /* 25-50% */
+    background: linear-gradient(to right, #c4954a, #E8A849);
+}
+
+.hp-bar-fill.critical {  /* <25% */
+    background: linear-gradient(to right, #8b3a3a, #C45C4A);
+}
+
+.hp-text {
+    font-family: JetBrains Mono, monospace;
+    font-size: 14px;
+    color: var(--text-primary);
+    min-width: 70px;
+}
+```
+
+### Component: Ability Score Block
+
+**CSS Specification:**
+
+```css
+.ability-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: var(--space-sm);
+    text-align: center;
+}
+
+.ability-block {
+    background: var(--bg-message);
+    border-radius: 8px;
+    padding: var(--space-sm);
+    border: 1px solid var(--bg-secondary);
+}
+
+.ability-label {
+    font-family: Inter;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    letter-spacing: 0.05em;
+}
+
+.ability-score {
+    font-family: JetBrains Mono;
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.ability-modifier {
+    font-family: JetBrains Mono;
+    font-size: 14px;
+    color: var(--accent-warm);
+}
+
+.ability-modifier.negative {
+    color: var(--text-secondary);
+}
+```
+
+### Component: Equipment Section
+
+```
+▼ EQUIPMENT
+
+  Weapons:
+  • Longsword      +7 to hit, 1d8+4 slashing
+  • Handaxe (2)    +7 to hit, 1d6+4 slashing
+
+  Armor:
+  • Chain Mail (AC 16)
+  • Shield (+2 AC)
+
+  Inventory:
+  • 50ft rope
+  • Torches (5)
+  • Rations (3 days)
+
+  Currency: 47 gp, 15 sp
+```
+
+### Component: Spell Slots (for casters)
+
+```css
+.spell-slot-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-xs);
+}
+
+.spell-level {
+    font-family: Inter;
+    font-size: 13px;
+    color: var(--text-secondary);
+    min-width: 60px;
+}
+
+.spell-slot {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 2px solid var(--color-wizard);
+}
+
+.spell-slot.available {
+    background: var(--color-wizard);
+}
+
+.spell-slot.used {
+    background: transparent;
+}
+```
+
+### Sheet Change Notification
+
+When a character sheet updates during gameplay:
+
+**Toast Notification:**
+```
+┌─────────────────────────────────────┐
+│ ⚔️ Thorin: 52 HP → 35 HP (-17)      │
+└─────────────────────────────────────┘
+```
+
+**If sheet panel is open:**
+- Changed value pulses with amber glow
+- Brief highlight animation (0.5s)
+- Value updates smoothly
+
+---
+
+## v1.1 Feature: Character Creation Wizard
+
+### Overview
+
+**Purpose:** Guide users through creating new D&D 5e characters via a step-by-step wizard interface.
+
+**Entry Point:** "Create Character" button in party setup or character library
+
+**FRs Covered:** FR67-FR70
+
+### Wizard Flow
+
+```mermaid
+flowchart TD
+    A[Start Creation] --> B[Step 1: Basics]
+    B --> C[Step 2: Abilities]
+    C --> D[Step 3: Background]
+    D --> E[Step 4: Equipment]
+    E --> F[Step 5: Personality]
+    F --> G[Step 6: Review]
+    G --> H{Valid?}
+    H -->|Yes| I[Save Character]
+    H -->|No| J[Show Errors]
+    J --> K[Navigate to Error Step]
+```
+
+### Component: Wizard Container
+
+**Layout:** Full-screen modal with step indicator
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  Create Your Character                                 [X]   │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│  ① Basics   ② Abilities   ③ Background   ④ Equipment        │
+│  ────●──────────○────────────○─────────────○────────────     │
+│  ⑤ Personality   ⑥ Review                                    │
+│  ────○─────────────○────                                     │
+│                                                              │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│                     [Step Content Area]                      │
+│                                                              │
+├──────────────────────────────────────────────────────────────┤
+│  [← Previous]                                    [Next →]    │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Step 1: Basics
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  What's your character's name?                               │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │ Thalia Brightwood                                      │  │
+│  └────────────────────────────────────────────────────────┘  │
+│                                                              │
+│  Choose a Race:                                              │
+│  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐           │
+│  │  Human  │ │   Elf   │ │  Dwarf  │ │Halfling │           │
+│  │    ○    │ │    ●    │ │    ○    │ │    ○    │           │
+│  └─────────┘ └─────────┘ └─────────┘ └─────────┘           │
+│  [More races ▼]                                             │
+│                                                              │
+│  Elf: +2 Dexterity, Darkvision, Fey Ancestry...            │
+│                                                              │
+│  Choose a Class:                                             │
+│  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐           │
+│  │ Fighter │ │  Rogue  │ │  Wizard │ │ Cleric  │           │
+│  │    ○    │ │    ○    │ │    ●    │ │    ○    │           │
+│  └─────────┘ └─────────┘ └─────────┘ └─────────┘           │
+│  [More classes ▼]                                           │
+│                                                              │
+│  Wizard: Spellcasting, Arcane Recovery...                   │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Step 2: Abilities (Point Buy)
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  Assign Ability Scores                                       │
+│  Points Remaining: 5                                         │
+│                                                              │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │ STR    8  [-] [+]    Modifier: -1                    │   │
+│  │ DEX   14  [-] [+]    Modifier: +2    ★ Racial +2     │   │
+│  │ CON   12  [-] [+]    Modifier: +1                    │   │
+│  │ INT   16  [-] [+]    Modifier: +3                    │   │
+│  │ WIS   10  [-] [+]    Modifier: +0                    │   │
+│  │ CHA   10  [-] [+]    Modifier: +0                    │   │
+│  └──────────────────────────────────────────────────────┘   │
+│                                                              │
+│  [Use Standard Array Instead]                                │
+│                                                              │
+│  Point Cost: 8=0, 9=1, 10=2, 11=3, 12=4, 13=5, 14=7, 15=9   │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Step 5: Personality with AI Assist
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  Personality & Backstory                                     │
+│                                                              │
+│  Personality Traits:                                         │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │ I always have a plan for when things go wrong.         │  │
+│  │                                                        │  │
+│  └────────────────────────────────────────────────────────┘  │
+│                                                              │
+│  Ideals:                                                     │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │ Knowledge is the path to power and self-improvement.   │  │
+│  └────────────────────────────────────────────────────────┘  │
+│                                                              │
+│  Bonds:                                                      │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │ I owe everything to my mentor—a cruel wizard who...    │  │
+│  └────────────────────────────────────────────────────────┘  │
+│                                                              │
+│  Flaws:                                                      │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │ I overlook obvious solutions in favor of complicated...│  │
+│  └────────────────────────────────────────────────────────┘  │
+│                                                              │
+│  Backstory:                                                  │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │ Thalia grew up in the shadow of the great library...   │  │
+│  │                                                        │  │
+│  │                                                        │  │
+│  └────────────────────────────────────────────────────────┘  │
+│                                                              │
+│  [✨ Generate with AI]  [🔄 Regenerate]                      │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### AI Generation Loading
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                                                              │
+│            ✨ Crafting your character's story...             │
+│                                                              │
+│                    [·····○·····]                             │
+│                                                              │
+│    Based on: Elf Wizard with Sage background                 │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### CSS Specifications
+
+```css
+.wizard-progress {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-sm);
+    padding: var(--space-md);
+    border-bottom: 1px solid var(--bg-secondary);
+}
+
+.wizard-step {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+}
+
+.wizard-step-number {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: Inter;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.wizard-step-number.completed {
+    background: var(--color-success);
+    color: var(--bg-primary);
+}
+
+.wizard-step-number.active {
+    background: var(--accent-warm);
+    color: var(--bg-primary);
+}
+
+.wizard-step-number.pending {
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+}
+
+.wizard-step-label {
+    font-family: Inter;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.wizard-step-label.active {
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.race-class-card {
+    background: var(--bg-secondary);
+    border: 2px solid transparent;
+    border-radius: 8px;
+    padding: var(--space-md);
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.race-class-card:hover {
+    border-color: var(--accent-warm);
+}
+
+.race-class-card.selected {
+    border-color: var(--accent-warm);
+    background: var(--bg-message);
+}
+
+.ai-generate-btn {
+    background: linear-gradient(135deg, var(--color-wizard), var(--accent-warm));
+    border: none;
+    color: var(--bg-primary);
+    border-radius: 4px;
+    padding: 8px 16px;
+    font-family: Inter;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.ai-generate-btn:hover {
+    transform: scale(1.02);
+    box-shadow: 0 4px 12px rgba(123, 104, 184, 0.3);
+}
+```
+
+---
+
+## v1.1 Feature: DM Whisper UI
+
+### Overview
+
+**Purpose:** Enable private communication between DM and individual characters, creating dramatic secrets and reveals.
+
+**Entry Points:**
+- DM whispers appear in character context (agent side)
+- Human can whisper to DM via dedicated input (user side)
+- Secret revelations shown in narrative
+
+**FRs Covered:** FR71-FR75
+
+### Whisper Message Display
+
+**In narrative area (when revealed):**
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ 🤫 DM whispers to Shadowmere:                                │
+│ ┌──────────────────────────────────────────────────────────┐ │
+│ │ You notice a concealed door behind the tapestry. The     │ │
+│ │ others haven't seen it yet.                              │ │
+│ └──────────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Component: Whisper Message Styling
+
+**CSS Specification:**
+
+```css
+.whisper-message {
+    background: linear-gradient(135deg,
+        rgba(123, 104, 184, 0.15),    /* Wizard purple, faded */
+        rgba(45, 37, 32, 0.9)
+    );
+    border-left: 3px solid var(--color-wizard);
+    border-radius: 0 8px 8px 0;
+    padding: var(--space-md);
+    margin: var(--space-md) 0;
+    position: relative;
+}
+
+.whisper-message::before {
+    content: '🤫';
+    position: absolute;
+    top: -10px;
+    left: -10px;
+    font-size: 20px;
+}
+
+.whisper-header {
+    font-family: Inter;
+    font-size: 12px;
+    font-style: italic;
+    color: var(--color-wizard);
+    margin-bottom: var(--space-xs);
+}
+
+.whisper-content {
+    font-family: Lora, Georgia, serif;
+    font-size: 16px;
+    line-height: 1.6;
+    color: var(--text-primary);
+    font-style: italic;
+}
+
+.whisper-message.revealed {
+    border-color: var(--accent-warm);
+    animation: whisper-reveal 0.5s ease;
+}
+
+@keyframes whisper-reveal {
+    0% {
+        background: rgba(232, 168, 73, 0.3);
+        transform: scale(1.02);
+    }
+    100% {
+        background: linear-gradient(135deg,
+            rgba(123, 104, 184, 0.15),
+            rgba(45, 37, 32, 0.9)
+        );
+        transform: scale(1);
+    }
+}
+```
+
+### Component: Human Whisper Input
+
+**Location:** Below main input area when dropped in
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  You are Shadowmere, the Rogue                               │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │ What do you do?                                        │  │
+│  └────────────────────────────────────────────────────────┘  │
+│  [Send]                                                      │
+│                                                              │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │ 🤫 Whisper to DM (private)...                          │  │
+│  └────────────────────────────────────────────────────────┘  │
+│  [Send Whisper]                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**CSS Specification:**
+
+```css
+.whisper-input-container {
+    margin-top: var(--space-md);
+    padding-top: var(--space-md);
+    border-top: 1px dashed var(--bg-message);
+}
+
+.whisper-input {
+    background: rgba(123, 104, 184, 0.1);
+    border: 1px solid var(--color-wizard);
+    border-radius: 4px;
+    padding: 8px 12px;
+    font-family: Inter;
+    font-size: 14px;
+    color: var(--text-primary);
+    width: 100%;
+}
+
+.whisper-input::placeholder {
+    color: var(--color-wizard);
+    font-style: italic;
+}
+
+.whisper-send-btn {
+    background: transparent;
+    border: 1px solid var(--color-wizard);
+    color: var(--color-wizard);
+    border-radius: 4px;
+    padding: 6px 12px;
+    font-family: Inter;
+    font-size: 13px;
+    cursor: pointer;
+    margin-top: var(--space-xs);
+}
+
+.whisper-send-btn:hover {
+    background: var(--color-wizard);
+    color: var(--bg-primary);
+}
+```
+
+### Secret Revelation Moment
+
+**When a secret is revealed in narrative:**
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                    ✨ SECRET REVEALED ✨                      │
+│  ───────────────────────────────────────────────────────     │
+│                                                              │
+│  Shadowmere, the Rogue:                                      │
+│  "Wait... I noticed something earlier." *She moves to the    │
+│  tapestry and pulls it aside, revealing a hidden door.*      │
+│  "There's a passage here."                                   │
+│                                                              │
+│  ───────────────────────────────────────────────────────     │
+│  The party now knows about the hidden door!                  │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**CSS for reveal effect:**
+
+```css
+.secret-reveal-banner {
+    text-align: center;
+    padding: var(--space-md);
+    background: linear-gradient(90deg,
+        transparent,
+        rgba(232, 168, 73, 0.2),
+        transparent
+    );
+    margin: var(--space-lg) 0;
+}
+
+.secret-reveal-title {
+    font-family: Lora;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--accent-warm);
+    letter-spacing: 0.1em;
+}
+
+.secret-reveal-divider {
+    border: none;
+    border-top: 1px solid var(--accent-warm);
+    opacity: 0.5;
+    margin: var(--space-sm) 0;
+}
+```
+
+---
+
+## v1.1 Feature: Callback History Panel
+
+### Overview
+
+**Purpose:** Track narrative elements (NPCs, locations, items, plot hooks) for potential callbacks, creating a coherent, interwoven story.
+
+**Entry Point:** "Story Threads" button in sidebar or dedicated panel
+
+**FRs Covered:** FR76-FR80
+
+### Component: Story Threads Panel
+
+**Layout:** Slide-out panel from right (400px width) or sidebar section
+
+```
+┌────────────────────────────────────────────────────┐
+│ [X]  📖 Story Threads                              │
+├────────────────────────────────────────────────────┤
+│  Active Elements                                    │
+│  ┌──────────────────────────────────────────────┐  │
+│  │ 👤 Skrix the Goblin              ×3 refs     │  │
+│  │    Befriended goblin with cave info          │  │
+│  │    Turn 15 • Session 2                       │  │
+│  └──────────────────────────────────────────────┘  │
+│  ┌──────────────────────────────────────────────┐  │
+│  │ 🗡️ The Broken Amulet             ×1 refs     │  │
+│  │    Half of a mysterious amulet               │  │
+│  │    Turn 42 • Session 3                       │  │
+│  └──────────────────────────────────────────────┘  │
+│  ┌──────────────────────────────────────────────┐  │
+│  │ 📍 The Whispering Caves          ×2 refs     │  │
+│  │    Unexplored cave system                    │  │
+│  │    Turn 8 • Session 1                        │  │
+│  └──────────────────────────────────────────────┘  │
+│                                                    │
+│  ─────────────────────────────────────────────     │
+│  Dormant Elements (20+ turns)                      │
+│  ┌──────────────────────────────────────────────┐  │
+│  │ 👤 Old Marvin the Innkeeper      ×1 refs     │  │
+│  │    Mentioned a treasure map                  │  │
+│  │    Turn 3 • Session 1           [dormant]    │  │
+│  └──────────────────────────────────────────────┘  │
+│                                                    │
+└────────────────────────────────────────────────────┘
+```
+
+### Component: Narrative Element Card
+
+**CSS Specification:**
+
+```css
+.story-element-card {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: var(--space-md);
+    margin-bottom: var(--space-sm);
+    border-left: 3px solid var(--element-color);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.story-element-card:hover {
+    background: var(--bg-message);
+}
+
+.story-element-card.dormant {
+    opacity: 0.6;
+    border-left-color: var(--text-secondary);
+}
+
+.element-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--space-xs);
+}
+
+.element-icon {
+    font-size: 16px;
+    margin-right: var(--space-xs);
+}
+
+.element-name {
+    font-family: Lora;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.element-refs {
+    font-family: JetBrains Mono;
+    font-size: 12px;
+    color: var(--accent-warm);
+    background: rgba(232, 168, 73, 0.15);
+    padding: 2px 8px;
+    border-radius: 10px;
+}
+
+.element-description {
+    font-family: Inter;
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: var(--space-xs);
+}
+
+.element-meta {
+    font-family: Inter;
+    font-size: 11px;
+    color: var(--text-secondary);
+    opacity: 0.7;
+}
+
+/* Element type colors */
+.story-element-card[data-type="npc"] { --element-color: #C45C4A; }
+.story-element-card[data-type="location"] { --element-color: #6B8E6B; }
+.story-element-card[data-type="item"] { --element-color: #E8A849; }
+.story-element-card[data-type="plot"] { --element-color: #7B68B8; }
+```
+
+### Element Detail View
+
+**When clicking an element:**
+
+```
+┌────────────────────────────────────────────────────┐
+│ [←]  👤 Skrix the Goblin                           │
+├────────────────────────────────────────────────────┤
+│                                                    │
+│  Type: NPC                                         │
+│  First Appeared: Turn 15, Session 2                │
+│  Times Referenced: 3                               │
+│                                                    │
+│  Description:                                      │
+│  A nervous goblin befriended by the party after    │
+│  they spared his life. Promised to share info      │
+│  about the caves in exchange for protection.       │
+│                                                    │
+│  Characters Involved:                              │
+│  • Shadowmere (initial contact)                    │
+│  • Aldric (intimidation attempt)                   │
+│                                                    │
+│  ─────────────────────────────────────────────     │
+│  Reference History:                                │
+│                                                    │
+│  Turn 15: First met in ambush                      │
+│  Turn 23: Mentioned by Shadowmere                  │
+│  Turn 41: DM referenced as potential ally          │
+│                                                    │
+│  ─────────────────────────────────────────────     │
+│  Potential Callbacks:                              │
+│  • Could appear with promised cave information     │
+│  • Might be in danger, requiring rescue            │
+│  • Could betray party to goblin king               │
+│                                                    │
+└────────────────────────────────────────────────────┘
+```
+
+### Callback Detection Indicator
+
+**When a callback naturally occurs in narrative:**
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  DM:                                                         │
+│  As you enter the tavern, a familiar figure waves           │
+│  frantically from the corner—Skrix the goblin, looking      │
+│  more disheveled than when you last saw him.                │
+│                                                              │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │ 📖 Callback detected: Skrix the Goblin (26 turns)    │   │
+│  └──────────────────────────────────────────────────────┘   │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**CSS:**
+
+```css
+.callback-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    background: rgba(232, 168, 73, 0.15);
+    border: 1px solid var(--accent-warm);
+    border-radius: 4px;
+    padding: 4px 10px;
+    font-family: Inter;
+    font-size: 12px;
+    color: var(--accent-warm);
+    margin-top: var(--space-sm);
+}
+
+.callback-badge.long-gap {
+    background: rgba(107, 142, 107, 0.15);
+    border-color: var(--color-success);
+    color: var(--color-success);
+}
+```
+
+---
+
+## v1.1 Feature: Fork Management UI
+
+### Overview
+
+**Purpose:** Enable users to branch the story to explore "what if" scenarios without losing the main timeline.
+
+**Entry Point:** "Create Fork" button in session controls, Fork indicator when in a fork
+
+**FRs Covered:** FR81-FR84
+
+### Component: Fork Creation
+
+**Trigger:** "Create Fork" button visible during active gameplay
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  Create a Fork                                         [X]   │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│  You're about to create a branch point in the story.         │
+│  The current timeline will continue as "Main".               │
+│                                                              │
+│  Fork Name:                                                  │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │ Diplomacy with the Dragon                              │  │
+│  └────────────────────────────────────────────────────────┘  │
+│                                                              │
+│  Current Turn: 47                                            │
+│  This fork will start from Turn 47.                          │
+│                                                              │
+├──────────────────────────────────────────────────────────────┤
+│  [Cancel]                              [Create Fork →]       │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Component: Fork Indicator
+
+**When playing in a fork:**
+
+```
+┌────────────────────────────────────────┐
+│ 🔀 Fork: Diplomacy with the Dragon     │
+│    Branched from Turn 47 • Now Turn 52 │
+│    [Return to Main] [Fork Options ▼]   │
+└────────────────────────────────────────┘
+```
+
+**CSS Specification:**
+
+```css
+.fork-indicator {
+    background: linear-gradient(135deg,
+        rgba(123, 104, 184, 0.2),
+        rgba(45, 37, 32, 0.9)
+    );
+    border: 1px solid var(--color-wizard);
+    border-radius: 8px;
+    padding: var(--space-sm) var(--space-md);
+    margin-bottom: var(--space-md);
+}
+
+.fork-icon {
+    font-size: 16px;
+    margin-right: var(--space-xs);
+}
+
+.fork-name {
+    font-family: Inter;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--color-wizard);
+}
+
+.fork-meta {
+    font-family: Inter;
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: var(--space-xs);
+}
+
+.fork-actions {
+    display: flex;
+    gap: var(--space-sm);
+    margin-top: var(--space-sm);
+}
+
+.fork-btn {
+    background: transparent;
+    border: 1px solid var(--text-secondary);
+    color: var(--text-primary);
+    border-radius: 4px;
+    padding: 4px 10px;
+    font-family: Inter;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.fork-btn:hover {
+    border-color: var(--color-wizard);
+    color: var(--color-wizard);
+}
+```
+
+### Component: Fork Manager
+
+**Access via:** "Forks" button in sidebar or session history
+
+```
+┌────────────────────────────────────────────────────┐
+│ [X]  🔀 Timeline Forks                             │
+├────────────────────────────────────────────────────┤
+│                                                    │
+│  ┌──────────────────────────────────────────────┐  │
+│  │ ★ Main Timeline                    [Active]  │  │
+│  │   Turn 47 → Turn 63                          │  │
+│  │   Last played: 2 hours ago                   │  │
+│  └──────────────────────────────────────────────┘  │
+│            │                                       │
+│            ├─ Turn 47 ─────────────────────────   │
+│            │                                       │
+│  ┌──────────────────────────────────────────────┐  │
+│  │ 🔀 Diplomacy with Dragon                     │  │
+│  │   Turn 47 → Turn 52                          │  │
+│  │   Last played: 1 hour ago                    │  │
+│  │   [Switch] [Compare] [⋮]                     │  │
+│  └──────────────────────────────────────────────┘  │
+│            │                                       │
+│  ┌──────────────────────────────────────────────┐  │
+│  │ 🔀 Fight the Dragon                          │  │
+│  │   Turn 47 → Turn 49 (party wiped)            │  │
+│  │   Last played: 1 hour ago                    │  │
+│  │   [Switch] [Compare] [⋮]                     │  │
+│  └──────────────────────────────────────────────┘  │
+│                                                    │
+│  [+ Create New Fork]                               │
+└────────────────────────────────────────────────────┘
+```
+
+### Component: Fork Comparison View
+
+**When clicking "Compare" on a fork:**
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  Compare Timelines                                     [X]   │
+│  Main Timeline  ←→  Diplomacy with Dragon                    │
+├────────────────────────────────────┬─────────────────────────┤
+│  Main Timeline                     │  Diplomacy Fork         │
+├────────────────────────────────────┼─────────────────────────┤
+│  Turn 47 (Branch Point)            │  Turn 47 (Branch Point) │
+│  The dragon descends...            │  The dragon descends... │
+│                                    │                         │
+│  Turn 48                           │  Turn 48                │
+│  Thorin charges forward,           │  Aldric steps forward,  │
+│  sword raised...                   │  hands raised in peace..│
+│                                    │                         │
+│  Turn 49                           │  Turn 49                │
+│  The dragon's breath               │  The dragon pauses,     │
+│  engulfs Thorin...                 │  curious about this     │
+│                                    │  bold mortal...         │
+│                                    │                         │
+│  [Party Wiped]                     │  Turn 50                │
+│                                    │  "Speak, tiny one..."   │
+│                                    │                         │
+│                                    │  Turn 51                │
+│                                    │  Aldric offers a deal...│
+│                                    │                         │
+│                                    │  Turn 52                │
+│                                    │  [Current]              │
+├────────────────────────────────────┴─────────────────────────┤
+│  [Make "Diplomacy" the Main Timeline]    [Close]             │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**CSS Specification:**
+
+```css
+.comparison-container {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--bg-secondary);
+}
+
+.comparison-column {
+    background: var(--bg-primary);
+    padding: var(--space-md);
+}
+
+.comparison-header {
+    font-family: Inter;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    padding-bottom: var(--space-md);
+    border-bottom: 1px solid var(--bg-secondary);
+    margin-bottom: var(--space-md);
+}
+
+.comparison-turn {
+    margin-bottom: var(--space-md);
+}
+
+.comparison-turn-number {
+    font-family: JetBrains Mono;
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-bottom: var(--space-xs);
+}
+
+.comparison-turn-content {
+    font-family: Lora;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--text-primary);
+}
+
+.comparison-divergence {
+    background: rgba(232, 168, 73, 0.1);
+    border-left: 2px solid var(--accent-warm);
+    padding-left: var(--space-sm);
+}
+
+.comparison-ended {
+    text-align: center;
+    padding: var(--space-lg);
+    color: var(--color-error);
+    font-family: Inter;
+    font-style: italic;
+}
+
+.comparison-current {
+    text-align: center;
+    padding: var(--space-sm);
+    background: rgba(107, 142, 107, 0.15);
+    border-radius: 4px;
+    color: var(--color-success);
+    font-family: Inter;
+    font-size: 12px;
+}
+```
+
+### Fork Options Menu
+
+**When clicking "⋮" on a fork:**
+
+```
+┌───────────────────────────┐
+│ Rename Fork               │
+│ Make Primary Timeline     │
+│ ─────────────────────     │
+│ Delete Fork               │
+└───────────────────────────┘
+```
+
+### Fork Resolution
+
+**"Make Primary Timeline" confirmation:**
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  Promote Fork to Main Timeline                         [X]   │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│  ⚠️ This will:                                               │
+│                                                              │
+│  • Make "Diplomacy with Dragon" your main timeline           │
+│  • Preserve the old main timeline as a fork called           │
+│    "Previous Main (Turn 63)"                                 │
+│                                                              │
+│  No data will be lost.                                       │
+│                                                              │
+├──────────────────────────────────────────────────────────────┤
+│  [Cancel]                        [Promote to Main →]         │
+└──────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## v1.1 Implementation Notes
+
+### Integration with MVP
+
+All v1.1 features must integrate seamlessly with MVP patterns:
+
+| Feature | Integration Point |
+|---------|-------------------|
+| Module Selection | Extends "New Adventure" flow before party setup |
+| Character Sheet | Opens from party panel character name click |
+| Character Creation | Available in party setup and new "Library" section |
+| DM Whisper | Extends existing message styling, adds input option |
+| Callback Tracker | New sidebar section/panel, integrates with narrative |
+| Fork Management | Extends checkpoint/session system |
+
+### CSS Variable Extensions
+
+Add to existing CSS variables:
+
+```css
+/* v1.1 Feature Colors */
+--color-whisper: var(--color-wizard);     /* Purple for secrets */
+--color-callback: var(--accent-warm);     /* Amber for story threads */
+--color-fork: var(--color-wizard);        /* Purple for forks */
+--color-sheet-healthy: #4a7c4a;
+--color-sheet-wounded: #c4954a;
+--color-sheet-critical: #8b3a3a;
+
+/* Element type colors */
+--element-npc: var(--color-fighter);      /* Red */
+--element-location: var(--color-rogue);   /* Green */
+--element-item: var(--accent-warm);       /* Amber */
+--element-plot: var(--color-wizard);      /* Purple */
+```
+
+### Accessibility Additions
+
+| Feature | ARIA Requirements |
+|---------|-------------------|
+| Module Browser | `role="listbox"` for module grid, `aria-selected` for selection |
+| Character Sheet | Collapsible sections use `aria-expanded` |
+| Wizard Steps | `role="tablist"` with `aria-current="step"` |
+| Whisper Input | `aria-label="Private message to DM"` |
+| Story Threads | `role="list"` with `aria-label` for each element type |
+| Fork Comparison | `role="grid"` with column headers |
+
+### Keyboard Shortcuts (v1.1)
+
+| Shortcut | Action |
+|----------|--------|
+| `C` | Open character sheet for controlled character |
+| `F` | Open fork manager |
+| `T` | Open story threads panel |
+| `W` | Focus whisper input (when dropped in) |

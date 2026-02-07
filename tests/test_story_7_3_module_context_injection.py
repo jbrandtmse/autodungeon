@@ -1251,7 +1251,7 @@ class TestModuleContextInDMPrompt:
         """Test module name and description are not HTML-escaped."""
         module = ModuleInfo(
             number=1,
-            name="<Module> & \"Test\"",
+            name='<Module> & "Test"',
             description="Description with <html> & 'quotes'",
         )
         result = format_module_context(module)

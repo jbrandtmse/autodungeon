@@ -1117,7 +1117,7 @@ class TestModuleInfoEdgeCases:
         module = ModuleInfo(
             number=1,
             name="Test Module",
-            description="Heroes must defeat the \"Dark Lord\" & save the realm!",
+            description='Heroes must defeat the "Dark Lord" & save the realm!',
         )
 
         assert '"' in module.description
@@ -1316,7 +1316,9 @@ class TestParseModuleJsonEdgeCases:
         """Test parsing handles null values (converts via str())."""
         from agents import _parse_module_json
 
-        response = '[{"number": 1, "name": "Test", "description": "Desc.", "setting": null}]'
+        response = (
+            '[{"number": 1, "name": "Test", "description": "Desc.", "setting": null}]'
+        )
 
         modules = _parse_module_json(response)
         assert len(modules) == 1
@@ -1446,7 +1448,9 @@ class TestDiscoverModulesEdgeCases:
         invalid_response.content = "Not valid JSON"
 
         valid_response = MagicMock()
-        valid_response.content = '[{"number": 1, "name": "Test", "description": "Desc."}]'
+        valid_response.content = (
+            '[{"number": 1, "name": "Test", "description": "Desc."}]'
+        )
 
         captured_prompts: list[str] = []
 

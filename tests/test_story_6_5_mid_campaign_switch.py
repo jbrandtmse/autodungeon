@@ -322,8 +322,13 @@ class TestConfirmationMessages:
         mock_st.session_state = {
             "game": game,
             "agent_model_overrides": {
-                "dm": {"provider": "claude", "model": "claude-3-haiku-20240307"},  # Valid
-                "summarizer": {"model": "gemini-1.5-flash"},  # Invalid - missing provider
+                "dm": {
+                    "provider": "claude",
+                    "model": "claude-3-haiku-20240307",
+                },  # Valid
+                "summarizer": {
+                    "model": "gemini-1.5-flash"
+                },  # Invalid - missing provider
             },
         }
 
@@ -344,14 +349,15 @@ class TestCampaignDataPreservation:
     """Tests verifying that model changes don't affect campaign data."""
 
     @patch("app.st")
-    def test_model_change_preserves_ground_truth_log(
-        self, mock_st: MagicMock
-    ) -> None:
+    def test_model_change_preserves_ground_truth_log(self, mock_st: MagicMock) -> None:
         """Test that ground_truth_log is unchanged by model switch."""
         from models import populate_game_state
 
         game = populate_game_state()
-        game["ground_truth_log"] = ["[DM]: The adventure begins...", "[Fighter]: I draw my sword!"]
+        game["ground_truth_log"] = [
+            "[DM]: The adventure begins...",
+            "[Fighter]: I draw my sword!",
+        ]
         original_log = game["ground_truth_log"].copy()
 
         mock_st.session_state = {
@@ -466,7 +472,9 @@ class TestMemoryContinuity:
         state["dm_config"] = DMConfig(provider="gemini", model="gemini-1.5-flash")
         context_gemini = _build_dm_context(state)
 
-        state["dm_config"] = DMConfig(provider="claude", model="claude-3-haiku-20240307")
+        state["dm_config"] = DMConfig(
+            provider="claude", model="claude-3-haiku-20240307"
+        )
         context_claude = _build_dm_context(state)
 
         # Both should produce identical context
@@ -518,7 +526,9 @@ class TestMemoryContinuity:
         state = populate_game_state()
         summary = "The heroes fought bravely against the dragon."
         state["agent_memories"]["dm"] = AgentMemory(long_term_summary=summary)
-        state["dm_config"] = DMConfig(provider="claude", model="claude-3-haiku-20240307")
+        state["dm_config"] = DMConfig(
+            provider="claude", model="claude-3-haiku-20240307"
+        )
 
         context = _build_dm_context(state)
 
@@ -1037,9 +1047,7 @@ class TestAcceptanceCriteria:
         # Second switch: Claude -> Ollama
         mock_st.session_state = {
             "game": game,
-            "agent_model_overrides": {
-                "dm": {"provider": "ollama", "model": "llama3"}
-            },
+            "agent_model_overrides": {"dm": {"provider": "ollama", "model": "llama3"}},
         }
         apply_model_config_changes()
 
@@ -1076,7 +1084,10 @@ class TestAcceptanceCriteria:
             "game": game,
             "agent_model_overrides": {
                 "dm": {"provider": "claude", "model": "claude-3-haiku-20240307"},
-                "summarizer": {"provider": "claude", "model": "claude-3-haiku-20240307"},
+                "summarizer": {
+                    "provider": "claude",
+                    "model": "claude-3-haiku-20240307",
+                },
                 "fighter": {"provider": "ollama", "model": "llama3"},
                 "rogue": {"provider": "ollama", "model": "mistral"},
             },
@@ -1471,7 +1482,9 @@ class TestApplyModelConfigChangesExpanded:
         assert updated_game["dm_config"].model == "claude-3-haiku-20240307"
 
     @patch("app.st")
-    def test_apply_missing_game_config_creates_default(self, mock_st: MagicMock) -> None:
+    def test_apply_missing_game_config_creates_default(
+        self, mock_st: MagicMock
+    ) -> None:
         """Test apply handles missing game_config by creating default."""
         from models import populate_game_state
 
@@ -1574,7 +1587,10 @@ class TestGenerateModelChangeMessagesExpanded:
         mock_st.session_state = {
             "game": game,
             "agent_model_overrides": {
-                "unknown_character": {"provider": "claude", "model": "claude-3-haiku-20240307"}
+                "unknown_character": {
+                    "provider": "claude",
+                    "model": "claude-3-haiku-20240307",
+                }
             },
         }
 
@@ -1583,7 +1599,10 @@ class TestGenerateModelChangeMessagesExpanded:
         messages = generate_model_change_messages()
 
         assert len(messages) == 1
-        assert "Unknown_Character" in messages[0] or "unknown_character".title() in messages[0]
+        assert (
+            "Unknown_Character" in messages[0]
+            or "unknown_character".title() in messages[0]
+        )
 
     @patch("app.st")
     def test_generate_message_unknown_provider_uses_key(
@@ -1656,7 +1675,10 @@ class TestGenerateModelChangeMessagesExpanded:
         mock_st.session_state = {
             "game": game,
             "agent_model_overrides": {
-                "dm": {"provider": "", "model": "claude-3-haiku-20240307"}  # Empty provider
+                "dm": {
+                    "provider": "",
+                    "model": "claude-3-haiku-20240307",
+                }  # Empty provider
             },
         }
 
@@ -1668,9 +1690,7 @@ class TestGenerateModelChangeMessagesExpanded:
         assert len(messages) == 0
 
     @patch("app.st")
-    def test_generate_message_with_empty_model_string(
-        self, mock_st: MagicMock
-    ) -> None:
+    def test_generate_message_with_empty_model_string(self, mock_st: MagicMock) -> None:
         """Test that empty model string is skipped."""
         from models import populate_game_state
 

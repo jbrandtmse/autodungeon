@@ -122,11 +122,14 @@ This is a passion project with research value, not a commercial product.
 
 | Feature | Target Version |
 |---------|----------------|
-| INT-based variable memory | v1.1 |
-| DM whisper/secrets system | v1.1 |
+| Module selection & campaign setup | v1.1 |
+| Character sheets (dynamic, DM-editable) | v1.1 |
 | Character creation UI | v1.1 |
+| DM whisper/secrets system | v1.1 |
+| Callback tracker (Chekhov's Gun) | v1.1 |
+| Fork gameplay (branch exploration) | v1.1 |
 | Advanced pacing curves | v1.2 |
-| Campaign/module library | v1.2 |
+| INT-based variable memory | v1.2 |
 
 ### Vision (Future)
 
@@ -473,15 +476,23 @@ The goal is to prove that watching AI agents play D&D together is genuinely fun 
 
 ### Post-MVP Features
 
-**Phase 2 - Enhanced Experience (v1.1-v1.2):**
+**Phase 2 - Enhanced Experience (v1.1):**
 
-| Feature | Version | Rationale |
-|---------|---------|-----------|
-| INT-based variable memory | v1.1 | Smarter characters remember more - adds depth |
-| DM whisper/secrets system | v1.1 | Dramatic irony, private info to agents |
-| Character creation UI | v1.1 | Replace config files with friendly interface |
-| Advanced pacing curves | v1.2 | Tension → release → climax rhythms |
-| Campaign/module library | v1.2 | Multiple starting scenarios |
+| Feature | Rationale |
+|---------|-----------|
+| Module selection & campaign setup | Query LLM for 100 known modules, select for DM context |
+| Character sheets (dynamic) | Full D&D 5e sheets, DM updates via tools, context injection |
+| Character creation UI | Step-by-step wizard with AI backstory generation |
+| DM whisper/secrets system | Private channels to agents, dramatic irony |
+| Callback tracker | Extract narrative elements, suggest callbacks, track references |
+| Fork gameplay | Branch exploration from checkpoints, compare timelines |
+
+**Phase 2.5 - Refinements (v1.2):**
+
+| Feature | Rationale |
+|---------|-----------|
+| INT-based variable memory | Smarter characters remember more - adds depth |
+| Advanced pacing curves | Tension → release → climax rhythms |
 
 **Phase 3 - Community & Scale (v2.x):**
 
@@ -602,6 +613,53 @@ The goal is to prove that watching AI agents play D&D together is genuinely fun 
 - FR53: Agents can make callbacks to earlier events in the narrative
 - FR54: DM Agent can use dice roll results to inform narrative outcomes
 - FR55: System can execute dice rolls with standard D&D notation
+
+### Module Selection & Campaign Setup (v1.1)
+
+- FR56: User can query the DM for available D&D modules from its training knowledge
+- FR57: System can present a list of 100 modules with number, name, and description in JSON format
+- FR58: User can select a specific module or choose random selection from available modules
+- FR59: Selected module context can be injected into the DM's system prompt for campaign guidance
+
+### Character Sheets (v1.1)
+
+- FR60: Each PC can have a complete D&D 5e character sheet with abilities, skills, HP, AC, and equipment
+- FR61: Character sheets can include spells, spell slots, and class features
+- FR62: Character sheets can include personality traits, ideals, bonds, and flaws
+- FR63: User can view any character's sheet in a dedicated UI panel
+- FR64: DM Agent can update character sheets via tool calls (HP changes, inventory, status effects)
+- FR65: Character sheet data can be injected into agent context (DM sees all, PC sees own)
+- FR66: System can display notifications when character sheet values change during gameplay
+
+### Character Creation (v1.1)
+
+- FR67: User can create new characters through a step-by-step wizard interface
+- FR68: System can use AI to assist with backstory generation based on class/race/background
+- FR69: System can validate character builds against D&D 5e rules (ability scores, proficiencies)
+- FR70: User can save created characters to a persistent character library for reuse
+
+### DM Whisper & Secrets System (v1.1)
+
+- FR71: DM Agent can send private whispers to individual PC agents not visible to others
+- FR72: PC agents can receive and act on secret information from whispers
+- FR73: User can send whispers to the DM to influence story direction
+- FR74: System can track which secrets have been revealed vs. still hidden
+- FR75: DM can trigger secret revelation moments when dramatically appropriate
+
+### Callback Tracking (v1.1)
+
+- FR76: System can extract narrative elements (names, items, events, promises) from agent dialogue
+- FR77: System can store extracted elements in a structured callback database
+- FR78: DM Agent can receive suggestions for callbacks to earlier narrative elements
+- FR79: System can detect when agents naturally reference earlier narrative elements
+- FR80: User can view callback history and track unresolved narrative threads
+
+### Fork Gameplay (v1.1)
+
+- FR81: User can create a fork from any checkpoint to explore alternate storylines
+- FR82: System can manage multiple active forks with distinct GameState branches
+- FR83: User can compare forks side-by-side to see divergent narratives
+- FR84: User can resolve forks by selecting one branch to continue as canonical
 
 ## Non-Functional Requirements
 

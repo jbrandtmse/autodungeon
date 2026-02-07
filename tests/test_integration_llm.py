@@ -94,7 +94,7 @@ def mock_streamlit() -> MagicMock:
 
 
 @pytest.fixture
-def dm_config() -> "DMConfig":
+def dm_config() -> DMConfig:
     """Create a DMConfig using integration test model."""
     from models import DMConfig
 
@@ -107,7 +107,7 @@ def dm_config() -> "DMConfig":
 
 
 @pytest.fixture
-def pc_configs() -> dict[str, "CharacterConfig"]:
+def pc_configs() -> dict[str, CharacterConfig]:
     """Create CharacterConfigs for test characters using integration test model."""
     from models import CharacterConfig
 
@@ -134,7 +134,9 @@ def pc_configs() -> dict[str, "CharacterConfig"]:
 
 
 @pytest.fixture
-def game_state(dm_config: "DMConfig", pc_configs: dict[str, "CharacterConfig"]) -> "GameState":
+def game_state(
+    dm_config: DMConfig, pc_configs: dict[str, CharacterConfig]
+) -> GameState:
     """Create a minimal GameState for integration testing."""
     from models import (
         AgentMemory,
@@ -147,7 +149,9 @@ def game_state(dm_config: "DMConfig", pc_configs: dict[str, "CharacterConfig"]) 
     turn_queue = ["dm"] + list(pc_configs.keys())
 
     # Initialize agent memories with CharacterFacts
-    agent_memories: dict[str, AgentMemory] = {"dm": AgentMemory(token_limit=dm_config.token_limit)}
+    agent_memories: dict[str, AgentMemory] = {
+        "dm": AgentMemory(token_limit=dm_config.token_limit)
+    }
     for char_name, char_config in pc_configs.items():
         facts = CharacterFacts(
             name=char_config.name,
@@ -180,8 +184,8 @@ def game_state(dm_config: "DMConfig", pc_configs: dict[str, "CharacterConfig"]) 
 
 @pytest.fixture
 def game_state_with_context(
-    game_state: "GameState",
-) -> "GameState":
+    game_state: GameState,
+) -> GameState:
     """Create a GameState with existing context in short_term_buffer."""
     from models import AgentMemory
 
@@ -293,7 +297,7 @@ class TestLLMFactory:
 class TestAgentCreation:
     """Test agent creation with real LLM clients."""
 
-    def test_create_dm_agent_with_tools(self, dm_config: "DMConfig") -> None:
+    def test_create_dm_agent_with_tools(self, dm_config: DMConfig) -> None:
         """Test that create_dm_agent binds dice rolling tools."""
         from agents import create_dm_agent
 
@@ -302,7 +306,9 @@ class TestAgentCreation:
         assert agent is not None
         assert hasattr(agent, "invoke")
 
-    def test_create_pc_agent_with_tools(self, pc_configs: dict[str, "CharacterConfig"]) -> None:
+    def test_create_pc_agent_with_tools(
+        self, pc_configs: dict[str, CharacterConfig]
+    ) -> None:
         """Test that create_pc_agent binds dice rolling tools."""
         from agents import create_pc_agent
 
@@ -311,7 +317,9 @@ class TestAgentCreation:
             assert agent is not None
             assert hasattr(agent, "invoke")
 
-    def test_build_pc_system_prompt(self, pc_configs: dict[str, "CharacterConfig"]) -> None:
+    def test_build_pc_system_prompt(
+        self, pc_configs: dict[str, CharacterConfig]
+    ) -> None:
         """Test that system prompts are built correctly for each class."""
         from agents import CLASS_GUIDANCE, build_pc_system_prompt
 
@@ -336,7 +344,7 @@ class TestContextBuilding:
     """Test context building functions."""
 
     def test_build_dm_context_includes_all_memories(
-        self, game_state_with_context: "GameState"
+        self, game_state_with_context: GameState
     ) -> None:
         """Test that DM context includes all agent memories (asymmetric access)."""
         from agents import _build_dm_context
@@ -347,7 +355,7 @@ class TestContextBuilding:
         assert "Story So Far" in context or "Recent Events" in context
 
     def test_build_pc_context_only_includes_own_memory(
-        self, game_state_with_context: "GameState"
+        self, game_state_with_context: GameState
     ) -> None:
         """Test that PC context only includes the PC's own memory (isolation)."""
         from agents import _build_pc_context
@@ -355,7 +363,10 @@ class TestContextBuilding:
         fighter_context = _build_pc_context(game_state_with_context, "fighter")
 
         # Fighter should see their own memory
-        assert "Character Identity" in fighter_context or "Recent Events" in fighter_context
+        assert (
+            "Character Identity" in fighter_context
+            or "Recent Events" in fighter_context
+        )
 
     def test_format_character_facts(self) -> None:
         """Test that CharacterFacts are formatted correctly."""
@@ -388,7 +399,7 @@ class TestSingleTurn:
     """Test single turn execution with real LLM calls."""
 
     def test_dm_turn_generates_response(
-        self, game_state: "GameState", mock_streamlit: MagicMock
+        self, game_state: GameState, mock_streamlit: MagicMock
     ) -> None:
         """Test that DM turn generates a narrative response."""
         from agents import LLMError, dm_turn
@@ -413,7 +424,7 @@ class TestSingleTurn:
         assert result["current_turn"] == "dm"
 
     def test_pc_turn_generates_response(
-        self, game_state_with_context: "GameState", mock_streamlit: MagicMock
+        self, game_state_with_context: GameState, mock_streamlit: MagicMock
     ) -> None:
         """Test that PC turn generates an in-character response."""
         from agents import LLMError, pc_turn
@@ -443,7 +454,10 @@ class TestSingleTurn:
         )
 
     def test_dm_turn_with_empty_context(
-        self, mock_streamlit: MagicMock, dm_config: "DMConfig", pc_configs: dict[str, "CharacterConfig"]
+        self,
+        mock_streamlit: MagicMock,
+        dm_config: DMConfig,
+        pc_configs: dict[str, CharacterConfig],
     ) -> None:
         """Test DM turn works with no prior context."""
         from agents import LLMError, dm_turn
@@ -488,7 +502,7 @@ class TestFullRound:
     """Test full game rounds with real LLM calls."""
 
     def test_run_single_round_executes_all_agents(
-        self, game_state: "GameState", mock_streamlit: MagicMock
+        self, game_state: GameState, mock_streamlit: MagicMock
     ) -> None:
         """Test that run_single_round executes DM and all PCs."""
         from graph import run_single_round
@@ -521,7 +535,7 @@ class TestFullRound:
         assert len(pc_entries) >= 1, "At least one PC should have acted"
 
     def test_round_preserves_state_structure(
-        self, game_state: "GameState", mock_streamlit: MagicMock
+        self, game_state: GameState, mock_streamlit: MagicMock
     ) -> None:
         """Test that game state structure is preserved after a round."""
         from graph import run_single_round
@@ -569,7 +583,7 @@ class TestMemoryManagement:
     """Test memory management with real LLM calls."""
 
     def test_memory_isolation_between_pcs(
-        self, game_state_with_context: "GameState"
+        self, game_state_with_context: GameState
     ) -> None:
         """Test that PC agents maintain memory isolation."""
         from agents import _build_pc_context
@@ -584,7 +598,7 @@ class TestMemoryManagement:
         )
 
     def test_dm_has_access_to_all_memories(
-        self, game_state_with_context: "GameState"
+        self, game_state_with_context: GameState
     ) -> None:
         """Test that DM can read all agent memories."""
         from agents import _build_dm_context
@@ -604,7 +618,7 @@ class TestMemoryManagement:
 class TestWorkflow:
     """Test LangGraph workflow creation and execution."""
 
-    def test_create_game_workflow(self, game_state: "GameState") -> None:
+    def test_create_game_workflow(self, game_state: GameState) -> None:
         """Test that game workflow can be created."""
         from graph import create_game_workflow
 
@@ -623,7 +637,7 @@ class TestWorkflow:
         assert workflow is not None
 
     def test_context_manager_node(
-        self, game_state: "GameState", mock_streamlit: MagicMock
+        self, game_state: GameState, mock_streamlit: MagicMock
     ) -> None:
         """Test the context_manager node processes without errors."""
         from graph import context_manager
@@ -635,7 +649,7 @@ class TestWorkflow:
         assert "summarization_in_progress" in result
         assert result["summarization_in_progress"] is False
 
-    def test_route_to_next_agent_progression(self, game_state: "GameState") -> None:
+    def test_route_to_next_agent_progression(self, game_state: GameState) -> None:
         """Test that routing progresses through turn queue correctly."""
         from langgraph.graph import END
 
@@ -667,7 +681,7 @@ class TestErrorHandling:
     """Test error handling with LLM calls."""
 
     def test_invalid_model_name_error(
-        self, mock_streamlit: MagicMock, pc_configs: dict[str, "CharacterConfig"]
+        self, mock_streamlit: MagicMock, pc_configs: dict[str, CharacterConfig]
     ) -> None:
         """Test that invalid model name produces appropriate error."""
         from agents import LLMError, dm_turn
@@ -737,12 +751,11 @@ class TestMultiRound:
     """
 
     def test_two_consecutive_rounds(
-        self, game_state: "GameState", mock_streamlit: MagicMock
+        self, game_state: GameState, mock_streamlit: MagicMock
     ) -> None:
         """Test that two rounds can be executed consecutively."""
-        from models import GameState as GameStateType
-
         from graph import run_single_round
+        from models import GameState as GameStateType
 
         with (
             patch.dict("sys.modules", {"streamlit": mock_streamlit}),
@@ -782,7 +795,7 @@ class TestMultiRound:
             assert len(result2["ground_truth_log"]) > log_length_after_round1
 
     def test_context_accumulates_across_rounds(
-        self, game_state: "GameState", mock_streamlit: MagicMock
+        self, game_state: GameState, mock_streamlit: MagicMock
     ) -> None:
         """Test that context accumulates correctly across rounds."""
         from graph import run_single_round
@@ -803,8 +816,7 @@ class TestMultiRound:
 
             # At least one PC should have memory entries
             pc_memories = [
-                result["agent_memories"][name]
-                for name in result["characters"].keys()
+                result["agent_memories"][name] for name in result["characters"].keys()
             ]
             has_pc_memory = any(len(m.short_term_buffer) > 0 for m in pc_memories)
             assert has_pc_memory, "At least one PC should have memory entries"
@@ -819,7 +831,7 @@ class TestMultiRound:
 class TestToolBinding:
     """Test that tools are correctly bound to agents."""
 
-    def test_dm_agent_has_dice_tool(self, dm_config: "DMConfig") -> None:
+    def test_dm_agent_has_dice_tool(self, dm_config: DMConfig) -> None:
         """Test that DM agent has dice rolling tool bound."""
         from agents import create_dm_agent
 
@@ -827,7 +839,9 @@ class TestToolBinding:
 
         assert agent is not None
 
-    def test_pc_agent_has_dice_tool(self, pc_configs: dict[str, "CharacterConfig"]) -> None:
+    def test_pc_agent_has_dice_tool(
+        self, pc_configs: dict[str, CharacterConfig]
+    ) -> None:
         """Test that PC agents have dice rolling tool bound."""
         from agents import create_pc_agent
 
@@ -846,7 +860,7 @@ class TestResponseQuality:
     """Test the quality of LLM responses."""
 
     def test_dm_response_is_narrative(
-        self, game_state: "GameState", mock_streamlit: MagicMock
+        self, game_state: GameState, mock_streamlit: MagicMock
     ) -> None:
         """Test that DM response contains narrative content."""
         from agents import LLMError, dm_turn
@@ -868,10 +882,12 @@ class TestResponseQuality:
         if content in ("", "[]", "None"):
             pytest.skip(f"Model returned empty/minimal response: {dm_response!r}")
 
-        assert len(content) > 20, f"DM response should be substantial, got: {dm_response!r}"
+        assert len(content) > 20, (
+            f"DM response should be substantial, got: {dm_response!r}"
+        )
 
     def test_pc_response_is_in_character(
-        self, game_state_with_context: "GameState", mock_streamlit: MagicMock
+        self, game_state_with_context: GameState, mock_streamlit: MagicMock
     ) -> None:
         """Test that PC response reflects character personality."""
         from agents import LLMError, pc_turn
@@ -891,13 +907,17 @@ class TestResponseQuality:
 
         # PC response should be non-trivial
         pc_response = new_entries[-1]
-        content = pc_response.split(":", 1)[-1].strip() if ":" in pc_response else pc_response
+        content = (
+            pc_response.split(":", 1)[-1].strip() if ":" in pc_response else pc_response
+        )
 
         # Skip if model returned empty/minimal response (edge case)
         if content in ("", "[]", "None"):
             pytest.skip(f"Model returned empty/minimal response: {pc_response!r}")
 
-        assert len(content) > 10, f"PC response should be substantial, got: {pc_response!r}"
+        assert len(content) > 10, (
+            f"PC response should be substantial, got: {pc_response!r}"
+        )
 
 
 # =============================================================================
@@ -963,7 +983,9 @@ class TestSummarizer:
         # Summarizer returns empty string on error (graceful degradation)
         # Skip test if summary is empty - likely rate limited
         if summary == "":
-            pytest.skip("Summary empty - likely rate limited (summarizer handles errors silently)")
+            pytest.skip(
+                "Summary empty - likely rate limited (summarizer handles errors silently)"
+            )
 
         # Summary should be generated
         assert len(summary) > 0

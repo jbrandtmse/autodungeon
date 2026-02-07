@@ -961,7 +961,9 @@ class TestHandleTokenLimitChange:
                     handle_token_limit_change("dm")
 
                     # Should store clamped value
-                    assert mock_st.session_state["token_limit_overrides"]["dm"] == 128000
+                    assert (
+                        mock_st.session_state["token_limit_overrides"]["dm"] == 128000
+                    )
                     # Should store info message
                     assert "token_limit_info_dm" in mock_st.session_state
                     assert "128,000" in mock_st.session_state["token_limit_info_dm"]
@@ -1407,7 +1409,9 @@ class TestMemoryManagerIntegrationExtended:
             "agent_memories": {
                 "fighter": AgentMemory(
                     token_limit=10000,
-                    short_term_buffer=["Entry " * 100 for _ in range(50)],  # Large buffer
+                    short_term_buffer=[
+                        "Entry " * 100 for _ in range(50)
+                    ],  # Large buffer
                 ),
             }
         }
@@ -1496,7 +1500,7 @@ class TestConfigModalIntegrationExtended:
 
     def test_save_click_with_only_token_limit_changes(self) -> None:
         """Test saving when only token limits changed (no model changes)."""
-        from models import AgentMemory, DMConfig
+        from models import DMConfig
 
         with patch("app.st") as mock_st:
             mock_st.toast = MagicMock()
