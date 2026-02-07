@@ -607,11 +607,11 @@ class TestParseLogEntry:
         """Test entry with empty brackets uses fallback agent."""
         from models import parse_log_entry
 
-        # LOG_ENTRY_PATTERN requires \w+ so [] won't match - treated as no-bracket
+        # Empty brackets [] produce empty agent string, which defaults to "unknown"
         entry = "[] Some text"
         msg = parse_log_entry(entry)
-        assert msg.agent == "dm"  # Falls back to dm for non-matching entries
-        assert msg.content == "[] Some text"
+        assert msg.agent == "unknown"  # Empty bracket content defaults to "unknown"
+        assert msg.content == "Some text"
 
     def test_parse_entry_with_brackets_in_content(self) -> None:
         """Test that only first [agent] is parsed, brackets in content preserved."""
@@ -932,21 +932,21 @@ class TestGetCharacterInfo:
         assert char_class == "Fighter"
 
     def test_get_character_info_unknown_agent(self) -> None:
-        """Test fallback for unknown agent."""
+        """Test fallback for unknown agent uses agent_name as-is."""
         from app import get_character_info
         from models import populate_game_state
 
         state = populate_game_state()
         result = get_character_info(state, "unknown_agent")
-        assert result == ("Unknown", "Adventurer")
+        assert result == ("unknown_agent", "Adventurer")
 
     def test_get_character_info_empty_state(self) -> None:
-        """Test with empty state dict."""
+        """Test with empty state dict uses agent_name as-is."""
         from app import get_character_info
 
         state = {}  # type: ignore
         result = get_character_info(state, "fighter")
-        assert result == ("Unknown", "Adventurer")
+        assert result == ("fighter", "Adventurer")
 
 
 class TestNarrativeContainer:
@@ -3899,9 +3899,9 @@ class TestRenderNarrativeMessagesFallback:
             "controlled_character": None,
         }
 
-        # get_character_info returns fallback tuple for unknown agent
+        # get_character_info returns fallback tuple with agent_name as-is
         result = get_character_info(state, "unknown_agent")
-        assert result == ("Unknown", "Adventurer")
+        assert result == ("unknown_agent", "Adventurer")
 
     def test_render_narrative_dm_returns_none(self) -> None:
         """Test that DM agent returns None from get_character_info."""
@@ -3958,10 +3958,10 @@ class TestRenderNarrativeMessagesFallback:
 
             render_narrative_messages(state)
 
-            # Should have called render_pc_message with fallback values
+            # Should have called render_pc_message with agent_name as-is
             mock_pc.assert_called_once()
             args = mock_pc.call_args[0]
-            assert args[0] == "Unknown"  # Fallback name
+            assert args[0] == "mystery_char"  # agent_name used as-is
             assert args[1] == "Adventurer"  # Fallback class
 
 

@@ -312,22 +312,16 @@ class TestValidateGoogleApiKey:
 
     def test_validate_google_valid_key_returns_models(self) -> None:
         """Test validation with mocked successful API call."""
+        from config import validate_google_api_key
+
         mock_model = MagicMock()
         mock_model.name = "models/gemini-1.5-pro"
         mock_model.supported_generation_methods = ["generateContent"]
 
-        mock_genai = MagicMock()
-        mock_genai.list_models.return_value = [mock_model]
-
-        with patch.dict("sys.modules", {"google.generativeai": mock_genai}):
-            # Need to re-import after mocking
-            import importlib
-
-            import config
-
-            importlib.reload(config)
-            from config import validate_google_api_key
-
+        with (
+            patch("google.generativeai.configure"),
+            patch("google.generativeai.list_models", return_value=[mock_model]),
+        ):
             result = validate_google_api_key("sk-valid-key")
             assert result.valid is True
             assert result.models is not None
@@ -335,17 +329,15 @@ class TestValidateGoogleApiKey:
 
     def test_validate_google_invalid_key_error(self) -> None:
         """Test validation with mocked auth error."""
-        mock_genai = MagicMock()
-        mock_genai.list_models.side_effect = Exception("Invalid API_KEY")
+        from config import validate_google_api_key
 
-        with patch.dict("sys.modules", {"google.generativeai": mock_genai}):
-            import importlib
-
-            import config
-
-            importlib.reload(config)
-            from config import validate_google_api_key
-
+        with (
+            patch("google.generativeai.configure"),
+            patch(
+                "google.generativeai.list_models",
+                side_effect=Exception("Invalid API_KEY"),
+            ),
+        ):
             result = validate_google_api_key("sk-invalid-key")
             assert result.valid is False
             assert "invalid" in result.message.lower()
@@ -901,17 +893,15 @@ class TestApiKeyEdgeCases:
 
     def test_validation_handles_network_error(self) -> None:
         """Test that validation gracefully handles network errors."""
-        mock_genai = MagicMock()
-        mock_genai.list_models.side_effect = Exception("Network unreachable")
+        from config import validate_google_api_key
 
-        with patch.dict("sys.modules", {"google.generativeai": mock_genai}):
-            import importlib
-
-            import config
-
-            importlib.reload(config)
-            from config import validate_google_api_key
-
+        with (
+            patch("google.generativeai.configure"),
+            patch(
+                "google.generativeai.list_models",
+                side_effect=Exception("Network unreachable"),
+            ),
+        ):
             result = validate_google_api_key("sk-valid-key")
             assert result.valid is False
             assert (
@@ -996,22 +986,18 @@ class TestApiKeySecuritySanitization:
 
     def test_google_validation_error_does_not_leak_key(self) -> None:
         """Test that Google validation errors don't expose the API key."""
-        mock_genai = MagicMock()
-        # Simulate an error that includes the key in the message
+        from config import validate_google_api_key
+
         test_key = "AIzaSyTest123456789abcdefghijklmnop"
-        mock_genai.list_models.side_effect = Exception(
-            f"Error with key {test_key}: rate limit"
-        )
 
-        with patch.dict("sys.modules", {"google.generativeai": mock_genai}):
-            import importlib
-
-            import config
-
-            importlib.reload(config)
-            from config import validate_google_api_key as validate_fn
-
-            result = validate_fn(test_key)
+        with (
+            patch("google.generativeai.configure"),
+            patch(
+                "google.generativeai.list_models",
+                side_effect=Exception(f"Error with key {test_key}: rate limit"),
+            ),
+        ):
+            result = validate_google_api_key(test_key)
             # Key should NOT appear in the message
             assert test_key not in result.message
             # But error info should still be present
@@ -1431,20 +1417,15 @@ class TestApiKeySpecialChars:
 
     def test_google_key_with_dashes(self) -> None:
         """Test Google API key with dashes is handled."""
-        mock_genai = MagicMock()
-        mock_genai.list_models.return_value = []
+        from config import validate_google_api_key
 
-        with patch.dict("sys.modules", {"google.generativeai": mock_genai}):
-            import importlib
-
-            import config
-
-            importlib.reload(config)
-            from config import validate_google_api_key
-
+        with (
+            patch("google.generativeai.configure") as mock_configure,
+            patch("google.generativeai.list_models", return_value=[]),
+        ):
             result = validate_google_api_key("AIza-SyA-key-with-dashes-123")
             # Should attempt validation (not fail on format)
-            assert mock_genai.configure.called
+            assert mock_configure.called
 
     def test_anthropic_key_with_underscores(self) -> None:
         """Test Anthropic API key with underscores is handled."""
@@ -1818,6 +1799,8 @@ class TestValidateGoogleEdgeCases:
 
     def test_validate_google_filters_to_generate_content(self) -> None:
         """Test that Google validation filters to models with generateContent."""
+        from config import validate_google_api_key
+
         mock_model_with_generate = MagicMock()
         mock_model_with_generate.name = "models/gemini-1.5-pro"
         mock_model_with_generate.supported_generation_methods = ["generateContent"]
@@ -1826,48 +1809,37 @@ class TestValidateGoogleEdgeCases:
         mock_model_without.name = "models/embedding-001"
         mock_model_without.supported_generation_methods = ["embedContent"]
 
-        mock_genai = MagicMock()
-        mock_genai.list_models.return_value = [
-            mock_model_with_generate,
-            mock_model_without,
-        ]
-
-        with patch.dict("sys.modules", {"google.generativeai": mock_genai}):
-            import importlib
-
-            import config
-
-            importlib.reload(config)
-            from config import validate_google_api_key
-
+        with (
+            patch("google.generativeai.configure"),
+            patch(
+                "google.generativeai.list_models",
+                return_value=[mock_model_with_generate, mock_model_without],
+            ),
+        ):
             result = validate_google_api_key("valid-key")
             assert result.valid is True
-            assert "models/gemini-1.5-pro" in result.models
-            assert "models/embedding-001" not in result.models
+            # Validation strips "models/" prefix from model names
+            assert "gemini-1.5-pro" in result.models
+            assert "embedding-001" not in result.models
 
-    def test_validate_google_limits_models_to_10(self) -> None:
-        """Test that Google validation limits model list to 10."""
+    def test_validate_google_returns_all_gemini_models(self) -> None:
+        """Test that Google validation returns all matching gemini models."""
+        from config import validate_google_api_key
+
         mock_models = []
         for i in range(15):
             m = MagicMock()
-            m.name = f"models/model-{i}"
+            m.name = f"models/gemini-{i}"  # Must start with "models/gemini-"
             m.supported_generation_methods = ["generateContent"]
             mock_models.append(m)
 
-        mock_genai = MagicMock()
-        mock_genai.list_models.return_value = mock_models
-
-        with patch.dict("sys.modules", {"google.generativeai": mock_genai}):
-            import importlib
-
-            import config
-
-            importlib.reload(config)
-            from config import validate_google_api_key
-
+        with (
+            patch("google.generativeai.configure"),
+            patch("google.generativeai.list_models", return_value=mock_models),
+        ):
             result = validate_google_api_key("valid-key")
             assert result.valid is True
-            assert len(result.models) == 10
+            assert len(result.models) == 15  # All gemini models returned
 
 
 # =============================================================================

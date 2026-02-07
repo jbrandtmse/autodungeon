@@ -278,26 +278,29 @@ class TestRollDice:
 class TestRollDiceValidation:
     """Tests for roll_dice validation and error handling."""
 
-    def test_roll_dice_empty_string_raises_value_error(self) -> None:
-        """Test empty string raises ValueError."""
+    def test_roll_dice_empty_string_defaults_to_1d20(self) -> None:
+        """Test empty string defaults to 1d20."""
         from tools import roll_dice
 
-        with pytest.raises(ValueError):
-            roll_dice("")
+        result = roll_dice("")
+        assert result.notation == "1d20"
+        assert 1 <= result.total <= 20
 
-    def test_roll_dice_none_raises_type_error(self) -> None:
-        """Test None input raises TypeError."""
+    def test_roll_dice_none_defaults_to_1d20(self) -> None:
+        """Test None input defaults to 1d20."""
         from tools import roll_dice
 
-        with pytest.raises(TypeError):
-            roll_dice(None)  # type: ignore[arg-type]
+        result = roll_dice(None)  # type: ignore[arg-type]
+        assert result.notation == "1d20"
+        assert 1 <= result.total <= 20
 
-    def test_roll_dice_whitespace_only_raises_value_error(self) -> None:
-        """Test whitespace-only string raises ValueError."""
+    def test_roll_dice_whitespace_only_defaults_to_1d20(self) -> None:
+        """Test whitespace-only string defaults to 1d20."""
         from tools import roll_dice
 
-        with pytest.raises(ValueError):
-            roll_dice("   ")
+        result = roll_dice("   ")
+        assert result.notation == "1d20"
+        assert 1 <= result.total <= 20
 
     @pytest.mark.parametrize(
         "invalid_notation",

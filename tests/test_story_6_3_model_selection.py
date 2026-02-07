@@ -24,14 +24,10 @@ class TestGetAvailableModels:
 
     def test_gemini_models_returned(self) -> None:
         """Test that Gemini returns the correct model list."""
-        from config import get_available_models
+        from config import GEMINI_MODELS, get_available_models
 
         models = get_available_models("gemini")
-        assert models == [
-            "gemini-1.5-flash",
-            "gemini-1.5-pro",
-            "gemini-2.0-flash",
-        ]
+        assert models == GEMINI_MODELS
 
     def test_claude_models_returned(self) -> None:
         """Test that Claude returns the correct model list."""

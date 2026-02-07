@@ -615,15 +615,20 @@ class TestProviderAvailability:
     """Tests for provider availability status functions."""
 
     @patch("requests.get")
+    @patch("app.get_effective_api_key")
     @patch("app.get_config")
     def test_get_provider_availability_gemini_available(
-        self, mock_config: MagicMock, mock_requests_get: MagicMock
+        self,
+        mock_config: MagicMock,
+        mock_effective_key: MagicMock,
+        mock_requests_get: MagicMock,
     ) -> None:
         """Test that Gemini shows available when API key is set."""
         mock_config.return_value = MagicMock(
-            google_api_key="test-key",
-            anthropic_api_key=None,
             ollama_base_url="http://localhost:11434",
+        )
+        mock_effective_key.side_effect = lambda p, _o=None: (
+            "test-key" if p == "google" else None
         )
         mock_requests_get.side_effect = Exception("Connection refused")
 
@@ -635,15 +640,20 @@ class TestProviderAvailability:
         assert status["claude"] is False
 
     @patch("requests.get")
+    @patch("app.get_effective_api_key")
     @patch("app.get_config")
     def test_get_provider_availability_claude_available(
-        self, mock_config: MagicMock, mock_requests_get: MagicMock
+        self,
+        mock_config: MagicMock,
+        mock_effective_key: MagicMock,
+        mock_requests_get: MagicMock,
     ) -> None:
         """Test that Claude shows available when API key is set."""
         mock_config.return_value = MagicMock(
-            google_api_key=None,
-            anthropic_api_key="test-key",
             ollama_base_url="http://localhost:11434",
+        )
+        mock_effective_key.side_effect = lambda p, _o=None: (
+            "test-key" if p == "anthropic" else None
         )
         mock_requests_get.side_effect = Exception("Connection refused")
 
@@ -655,16 +665,19 @@ class TestProviderAvailability:
         assert status["claude"] is True
 
     @patch("requests.get")
+    @patch("app.get_effective_api_key")
     @patch("app.get_config")
     def test_get_provider_availability_ollama_available(
-        self, mock_config: MagicMock, mock_requests_get: MagicMock
+        self,
+        mock_config: MagicMock,
+        mock_effective_key: MagicMock,
+        mock_requests_get: MagicMock,
     ) -> None:
         """Test that Ollama shows available when server responds."""
         mock_config.return_value = MagicMock(
-            google_api_key=None,
-            anthropic_api_key=None,
             ollama_base_url="http://localhost:11434",
         )
+        mock_effective_key.return_value = None
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_requests_get.return_value = mock_response
@@ -676,16 +689,19 @@ class TestProviderAvailability:
         assert status["ollama"] is True
 
     @patch("requests.get")
+    @patch("app.get_effective_api_key")
     @patch("app.get_config")
     def test_get_provider_availability_ollama_unavailable(
-        self, mock_config: MagicMock, mock_requests_get: MagicMock
+        self,
+        mock_config: MagicMock,
+        mock_effective_key: MagicMock,
+        mock_requests_get: MagicMock,
     ) -> None:
         """Test that Ollama shows unavailable when server doesn't respond."""
         mock_config.return_value = MagicMock(
-            google_api_key=None,
-            anthropic_api_key=None,
             ollama_base_url="http://localhost:11434",
         )
+        mock_effective_key.return_value = None
         mock_requests_get.side_effect = Exception("Connection refused")
 
         from app import get_provider_availability_status
@@ -1298,15 +1314,20 @@ class TestGetProviderAvailabilityStatusExpanded:
     """Additional tests for get_provider_availability_status()."""
 
     @patch("requests.get")
+    @patch("app.get_effective_api_key")
     @patch("app.get_config")
     def test_all_providers_available(
-        self, mock_config: MagicMock, mock_requests_get: MagicMock
+        self,
+        mock_config: MagicMock,
+        mock_effective_key: MagicMock,
+        mock_requests_get: MagicMock,
     ) -> None:
         """Test when all providers are available."""
         mock_config.return_value = MagicMock(
-            google_api_key="test-google-key",
-            anthropic_api_key="test-anthropic-key",
             ollama_base_url="http://localhost:11434",
+        )
+        mock_effective_key.side_effect = lambda p, _o=None: (
+            "test-key" if p in ("google", "anthropic") else None
         )
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -1321,16 +1342,19 @@ class TestGetProviderAvailabilityStatusExpanded:
         assert status["ollama"] is True
 
     @patch("requests.get")
+    @patch("app.get_effective_api_key")
     @patch("app.get_config")
     def test_all_providers_unavailable(
-        self, mock_config: MagicMock, mock_requests_get: MagicMock
+        self,
+        mock_config: MagicMock,
+        mock_effective_key: MagicMock,
+        mock_requests_get: MagicMock,
     ) -> None:
         """Test when all providers are unavailable."""
         mock_config.return_value = MagicMock(
-            google_api_key=None,
-            anthropic_api_key=None,
             ollama_base_url="http://localhost:11434",
         )
+        mock_effective_key.return_value = None
         mock_requests_get.side_effect = Exception("Connection refused")
 
         from app import get_provider_availability_status
@@ -1342,16 +1366,19 @@ class TestGetProviderAvailabilityStatusExpanded:
         assert status["ollama"] is False
 
     @patch("requests.get")
+    @patch("app.get_effective_api_key")
     @patch("app.get_config")
     def test_ollama_non_200_status(
-        self, mock_config: MagicMock, mock_requests_get: MagicMock
+        self,
+        mock_config: MagicMock,
+        mock_effective_key: MagicMock,
+        mock_requests_get: MagicMock,
     ) -> None:
         """Test Ollama returns non-200 status code."""
         mock_config.return_value = MagicMock(
-            google_api_key=None,
-            anthropic_api_key=None,
             ollama_base_url="http://localhost:11434",
         )
+        mock_effective_key.return_value = None
         mock_response = MagicMock()
         mock_response.status_code = 500  # Server error
         mock_requests_get.return_value = mock_response
@@ -1363,16 +1390,19 @@ class TestGetProviderAvailabilityStatusExpanded:
         assert status["ollama"] is False
 
     @patch("requests.get")
+    @patch("app.get_effective_api_key")
     @patch("app.get_config")
     def test_empty_api_keys_vs_none(
-        self, mock_config: MagicMock, mock_requests_get: MagicMock
+        self,
+        mock_config: MagicMock,
+        mock_effective_key: MagicMock,
+        mock_requests_get: MagicMock,
     ) -> None:
         """Test empty string API keys treated as unavailable."""
         mock_config.return_value = MagicMock(
-            google_api_key="",  # Empty string
-            anthropic_api_key="",  # Empty string
             ollama_base_url="http://localhost:11434",
         )
+        mock_effective_key.return_value = ""  # Empty string
         mock_requests_get.side_effect = Exception("Connection refused")
 
         from app import get_provider_availability_status
@@ -1384,17 +1414,22 @@ class TestGetProviderAvailabilityStatusExpanded:
         assert status["claude"] is False
 
     @patch("requests.get")
+    @patch("app.get_effective_api_key")
     @patch("app.get_config")
     def test_ollama_timeout_exception(
-        self, mock_config: MagicMock, mock_requests_get: MagicMock
+        self,
+        mock_config: MagicMock,
+        mock_effective_key: MagicMock,
+        mock_requests_get: MagicMock,
     ) -> None:
         """Test Ollama timeout is handled gracefully."""
         import requests
 
         mock_config.return_value = MagicMock(
-            google_api_key="test-key",
-            anthropic_api_key=None,
             ollama_base_url="http://localhost:11434",
+        )
+        mock_effective_key.side_effect = lambda p, _o=None: (
+            "test-key" if p == "google" else None
         )
         mock_requests_get.side_effect = requests.exceptions.Timeout("Timeout")
 

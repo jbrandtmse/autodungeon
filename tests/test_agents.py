@@ -706,7 +706,7 @@ class TestPCSystemPromptTemplate:
 
     def test_pc_system_prompt_template_contains_dice_instructions(self) -> None:
         """Test that template contains dice rolling guidance."""
-        assert "dice rolling tool" in PC_SYSTEM_PROMPT_TEMPLATE
+        assert "pc_roll_dice" in PC_SYSTEM_PROMPT_TEMPLATE
         assert "skill check" in PC_SYSTEM_PROMPT_TEMPLATE
 
 
