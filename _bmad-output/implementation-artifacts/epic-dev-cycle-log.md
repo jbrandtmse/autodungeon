@@ -1448,3 +1448,28 @@
 - Check sprint status: /bmad-bmm-sprint-status
 - Continue with Epic 12 (Fork Gameplay) if available
 
+---
+
+# Epic 12 - Fork Gameplay
+
+**Project:** autodungeon
+**Epic:** 12 - Fork Gameplay
+**Started:** 2026-02-07
+
+**Goal:** User can branch the story to explore "what if" scenarios without losing the main timeline.
+
+**User Outcome:** "The party is about to fight the dragon. I create a fork, try diplomacy in the fork, see how it plays out, then go back to my main timeline and fight."
+
+**FRs Covered:** FR81-FR84 (4 FRs)
+
+## Cycle Overview
+
+| Story | Status | Phase |
+|-------|--------|-------|
+| 12-1-fork-creation | backlog | Pending |
+| 12-2-fork-management-ui | backlog | Pending |
+| 12-3-fork-comparison-view | backlog | Pending |
+| 12-4-fork-resolution | backlog | Pending |
+
+---
+

@@ -47,6 +47,8 @@ __all__ = [
     "ValidationResult",
     "Weapon",
     "Whisper",
+    "ForkMetadata",
+    "ForkRegistry",
     "NarrativeElement",
     "NarrativeElementStore",
     "create_agent_memory",
@@ -919,6 +921,105 @@ def create_callback_entry(
 
 
 # =============================================================================
+# Fork System (Story 12.1)
+# =============================================================================
+
+
+class ForkMetadata(BaseModel):
+    """Metadata for a game state fork (alternate timeline).
+
+    Tracks a single fork's identity and state within a session.
+    Forks branch from a specific turn and maintain independent
+    checkpoint histories.
+
+    Story 12.1: Fork Creation.
+    FR81: User can create a fork from current state.
+
+    Attributes:
+        fork_id: Unique fork identifier (zero-padded, e.g., "001").
+        name: User-provided fork name (e.g., "Diplomacy attempt").
+        parent_session_id: Session ID this fork belongs to.
+        branch_turn: Turn number where the fork was created.
+        created_at: ISO timestamp when fork was created.
+        updated_at: ISO timestamp of last fork checkpoint.
+        turn_count: Number of turns played in this fork beyond branch point.
+    """
+
+    fork_id: str = Field(..., min_length=1, description="Fork identifier (zero-padded)")
+    name: str = Field(..., min_length=1, description="User-provided fork name")
+    parent_session_id: str = Field(
+        ..., min_length=1, description="Parent session ID"
+    )
+    branch_turn: int = Field(..., ge=0, description="Turn number at branch point")
+    created_at: str = Field(..., description="ISO timestamp when fork was created")
+    updated_at: str = Field(..., description="ISO timestamp of last checkpoint")
+    turn_count: int = Field(
+        default=0, ge=0, description="Turns played beyond branch point"
+    )
+
+    @field_validator("name")
+    @classmethod
+    def name_not_whitespace(cls, v: str) -> str:
+        """Validate that name is not empty or whitespace-only."""
+        if not v.strip():
+            raise ValueError("name must not be empty or whitespace-only")
+        return v
+
+
+class ForkRegistry(BaseModel):
+    """Registry of all forks for a game session.
+
+    Stored as forks.yaml in the session directory. Tracks all
+    alternate timelines branching from the main session.
+
+    Story 12.1: Fork Creation.
+    FR81: User can create a fork from current state.
+
+    Attributes:
+        session_id: Parent session ID.
+        forks: List of all fork metadata for this session.
+    """
+
+    session_id: str = Field(..., min_length=1, description="Parent session ID")
+    forks: list[ForkMetadata] = Field(
+        default_factory=list, description="All forks for this session"
+    )
+
+    def get_fork(self, fork_id: str) -> ForkMetadata | None:
+        """Lookup a fork by its ID."""
+        for fork in self.forks:
+            if fork.fork_id == fork_id:
+                return fork
+        return None
+
+    def get_forks_at_turn(self, turn_number: int) -> list[ForkMetadata]:
+        """Get all forks branching from a specific turn."""
+        return [f for f in self.forks if f.branch_turn == turn_number]
+
+    def next_fork_id(self) -> str:
+        """Return the next available zero-padded fork ID.
+
+        Parses existing fork IDs as integers to find the maximum,
+        skipping any non-numeric IDs gracefully.
+        """
+        if not self.forks:
+            return "001"
+        max_id = 0
+        for f in self.forks:
+            try:
+                fid = int(f.fork_id)
+                if fid > max_id:
+                    max_id = fid
+            except ValueError:
+                continue
+        return f"{max_id + 1:03d}"
+
+    def add_fork(self, fork: ForkMetadata) -> None:
+        """Add a fork to the registry."""
+        self.forks.append(fork)
+
+
+# =============================================================================
 # Module Discovery (Story 7.1)
 # =============================================================================
 
@@ -1595,6 +1696,7 @@ class GameState(TypedDict):
     narrative_elements: dict[str, "NarrativeElementStore"]
     callback_database: "NarrativeElementStore"  # Story 11.2: Campaign-level database
     callback_log: "CallbackLog"  # Story 11.4: Detected callback log
+    active_fork_id: str | None  # Story 12.1: None = main timeline
 
 
 class MessageSegment(BaseModel):
@@ -1822,6 +1924,7 @@ def create_initial_game_state() -> GameState:
         narrative_elements={},
         callback_database=NarrativeElementStore(),
         callback_log=CallbackLog(),
+        active_fork_id=None,
     )
 
 
@@ -1898,6 +2001,7 @@ def populate_game_state(
         narrative_elements={session_id: NarrativeElementStore()},
         callback_database=NarrativeElementStore(),
         callback_log=CallbackLog(),
+        active_fork_id=None,
     )
 
 

@@ -15,6 +15,7 @@ import pytest
 
 from models import (
     AgentMemory,
+    CallbackLog,
     CharacterConfig,
     DMConfig,
     GameConfig,
@@ -110,6 +111,8 @@ def sample_game_state() -> GameState:
         },
         narrative_elements={},
         callback_database=NarrativeElementStore(),
+        callback_log=CallbackLog(),
+        active_fork_id=None,
     )
 
 
@@ -226,6 +229,7 @@ class TestGameStateSerialization:
             "narrative_elements",  # Story 11.1: Narrative Element Extraction
             "callback_database",  # Story 11.2: Callback Database
             "callback_log",  # Story 11.4: Callback Detection
+            "active_fork_id",  # Story 12.1: Fork Creation
         }
         assert set(data.keys()) == expected_keys
 

@@ -28,6 +28,8 @@ from models import (
     CharacterConfig,
     CharacterSheet,
     DMConfig,
+    ForkMetadata,
+    ForkRegistry,
     GameConfig,
     GameState,
     ModuleInfo,
@@ -42,15 +44,19 @@ __all__ = [
     "CAMPAIGNS_DIR",
     "CheckpointInfo",
     "append_transcript_entry",
+    "create_fork",
     "create_new_session",
     "delete_session",
     "deserialize_game_state",
+    "ensure_fork_dir",
     "ensure_session_dir",
     "format_session_id",
     "generate_recap_summary",
     "get_checkpoint_info",
     "get_checkpoint_path",
     "get_checkpoint_preview",
+    "get_fork_dir",
+    "get_fork_registry_path",
     "get_latest_checkpoint",
     "get_next_session_number",
     "get_session_dir",
@@ -59,12 +65,15 @@ __all__ = [
     "initialize_session_with_previous_memories",
     "list_checkpoint_info",
     "list_checkpoints",
+    "list_forks",
     "list_sessions",
     "list_sessions_with_metadata",
     "load_checkpoint",
+    "load_fork_registry",
     "load_session_metadata",
     "load_transcript",
     "save_checkpoint",
+    "save_fork_registry",
     "save_session_metadata",
     "serialize_game_state",
 ]
@@ -229,6 +238,8 @@ def serialize_game_state(state: GameState) -> str:
         ).model_dump(),
         # Story 11.4: Callback detection log
         "callback_log": state.get("callback_log", CallbackLog()).model_dump(),
+        # Story 12.1: Fork tracking
+        "active_fork_id": state.get("active_fork_id", None),
     }
     return json.dumps(serializable, indent=2)
 
@@ -330,6 +341,7 @@ def deserialize_game_state(json_str: str) -> GameState:
         narrative_elements=narrative_elements,
         callback_database=callback_database,
         callback_log=callback_log,
+        active_fork_id=data.get("active_fork_id", None),
     )
 
 
@@ -1130,3 +1142,238 @@ def get_transcript_download_data(session_id: str) -> str | None:
         return json.dumps(data, indent=2, ensure_ascii=False)
     except (json.JSONDecodeError, OSError):
         return None
+
+
+# =============================================================================
+# Fork System (Story 12.1)
+# =============================================================================
+
+
+def _validate_fork_id(fork_id: str) -> None:
+    """Validate fork_id to prevent path traversal attacks.
+
+    Args:
+        fork_id: Fork ID string to validate.
+
+    Raises:
+        ValueError: If fork_id contains invalid characters.
+    """
+    if not fork_id or not fork_id.replace("_", "").isalnum():
+        raise ValueError(
+            f"Invalid fork_id: {fork_id!r}. "
+            "Must be alphanumeric (underscores allowed)."
+        )
+
+
+def get_fork_dir(session_id: str, fork_id: str) -> Path:
+    """Get path to fork directory.
+
+    Args:
+        session_id: Session ID string.
+        fork_id: Fork ID string.
+
+    Returns:
+        Path to fork directory.
+
+    Raises:
+        ValueError: If session_id or fork_id contain invalid characters.
+    """
+    _validate_session_id(session_id)
+    _validate_fork_id(fork_id)
+    return get_session_dir(session_id) / "forks" / f"fork_{fork_id}"
+
+
+def ensure_fork_dir(session_id: str, fork_id: str) -> Path:
+    """Ensure fork directory exists, create if needed.
+
+    Args:
+        session_id: Session ID string.
+        fork_id: Fork ID string.
+
+    Returns:
+        Path to fork directory.
+    """
+    fork_dir = get_fork_dir(session_id, fork_id)
+    fork_dir.mkdir(parents=True, exist_ok=True)
+    return fork_dir
+
+
+def get_fork_registry_path(session_id: str) -> Path:
+    """Get path to fork registry (forks.yaml) for a session.
+
+    Args:
+        session_id: Session ID string.
+
+    Returns:
+        Path to forks.yaml file in session directory.
+    """
+    return get_session_dir(session_id) / "forks.yaml"
+
+
+def save_fork_registry(session_id: str, registry: ForkRegistry) -> Path:
+    """Save fork registry to forks.yaml in session directory.
+
+    Uses atomic write pattern (temp file + rename).
+
+    Args:
+        session_id: Session ID string.
+        registry: ForkRegistry object to save.
+
+    Returns:
+        Path where registry was saved.
+    """
+    ensure_session_dir(session_id)
+    registry_path = get_fork_registry_path(session_id)
+
+    data = registry.model_dump()
+    yaml_content = yaml.safe_dump(data, default_flow_style=False, sort_keys=False)
+
+    # Atomic write pattern (matching save_session_metadata)
+    temp_path = registry_path.with_suffix(".yaml.tmp")
+    try:
+        temp_path.write_text(yaml_content, encoding="utf-8")
+        temp_path.replace(registry_path)
+    except Exception:
+        temp_path.unlink(missing_ok=True)
+        raise
+
+    return registry_path
+
+
+def load_fork_registry(session_id: str) -> ForkRegistry | None:
+    """Load fork registry from forks.yaml.
+
+    Returns None if file doesn't exist or is invalid.
+    Backward compatible: old sessions without forks return None.
+
+    Args:
+        session_id: Session ID string.
+
+    Returns:
+        ForkRegistry object, or None if not found or invalid.
+    """
+    registry_path = get_fork_registry_path(session_id)
+
+    if not registry_path.exists():
+        return None
+
+    try:
+        yaml_content = registry_path.read_text(encoding="utf-8")
+        data = yaml.safe_load(yaml_content)
+        return ForkRegistry(**data)
+    except (yaml.YAMLError, TypeError, ValidationError):
+        return None
+
+
+def create_fork(
+    state: GameState,
+    session_id: str,
+    fork_name: str,
+    turn_number: int | None = None,
+) -> ForkMetadata:
+    """Create a fork (branch point) from the current game state.
+
+    Story 12.1: Fork Creation.
+    FR81: User can create a fork from current state.
+
+    1. Loads or creates ForkRegistry for the session
+    2. Generates next fork_id
+    3. Determines branch turn
+    4. Creates fork directory
+    5. Copies branch checkpoint into fork directory
+    6. Saves registry
+
+    Args:
+        state: Current game state.
+        session_id: Session ID to fork from.
+        fork_name: User-provided name for the fork.
+        turn_number: Specific turn to branch from (default: latest checkpoint).
+
+    Returns:
+        ForkMetadata for the created fork.
+
+    Raises:
+        ValueError: If fork_name is empty or session has no checkpoints.
+    """
+    # Validate fork name
+    if not fork_name or not fork_name.strip():
+        raise ValueError("Fork name must not be empty or whitespace-only")
+
+    # Determine branch turn
+    if turn_number is None:
+        turn_number = get_latest_checkpoint(session_id)
+        if turn_number is None:
+            raise ValueError(
+                f"Session {session_id!r} has no checkpoints to branch from"
+            )
+    else:
+        _validate_turn_number(turn_number)
+
+    # Load or create fork registry
+    registry = load_fork_registry(session_id)
+    if registry is None:
+        registry = ForkRegistry(session_id=session_id)
+
+    # Generate fork ID
+    fork_id = registry.next_fork_id()
+
+    # Create fork directory
+    ensure_fork_dir(session_id, fork_id)
+
+    # Copy branch point checkpoint into fork directory
+    # Load the source checkpoint
+    source_state = load_checkpoint(session_id, turn_number)
+    if source_state is None:
+        raise ValueError(
+            f"Checkpoint at turn {turn_number} not found in session {session_id!r}"
+        )
+
+    # Save as the starting checkpoint in the fork directory
+    fork_dir = get_fork_dir(session_id, fork_id)
+    fork_checkpoint_path = fork_dir / f"turn_{turn_number:03d}.json"
+    json_content = serialize_game_state(source_state)
+
+    # Atomic write
+    temp_fd, temp_path_str = tempfile.mkstemp(dir=fork_dir, suffix=".json.tmp")
+    try:
+        with os.fdopen(temp_fd, "w", encoding="utf-8") as f:
+            f.write(json_content)
+        Path(temp_path_str).replace(fork_checkpoint_path)
+    except Exception:
+        Path(temp_path_str).unlink(missing_ok=True)
+        raise
+
+    # Create fork metadata
+    now = datetime.now(UTC).isoformat() + "Z"
+    fork_metadata = ForkMetadata(
+        fork_id=fork_id,
+        name=fork_name.strip(),
+        parent_session_id=session_id,
+        branch_turn=turn_number,
+        created_at=now,
+        updated_at=now,
+        turn_count=0,
+    )
+
+    # Update and save registry
+    registry.add_fork(fork_metadata)
+    save_fork_registry(session_id, registry)
+
+    return fork_metadata
+
+
+def list_forks(session_id: str) -> list[ForkMetadata]:
+    """List all forks for a session, sorted by creation time.
+
+    Returns empty list if no forks exist.
+
+    Args:
+        session_id: Session ID string.
+
+    Returns:
+        List of ForkMetadata sorted by created_at.
+    """
+    registry = load_fork_registry(session_id)
+    if registry is None:
+        return []
+    return sorted(registry.forks, key=lambda f: f.created_at)

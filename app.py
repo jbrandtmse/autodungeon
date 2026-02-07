@@ -69,12 +69,14 @@ from models import (
     populate_game_state,
 )
 from persistence import (
+    create_fork,
     create_new_session,
     delete_session,
     generate_recap_summary,
     get_latest_checkpoint,
     get_transcript_download_data,
     get_transcript_path,
+    list_forks,
     list_sessions,
     list_sessions_with_metadata,
     load_checkpoint,
@@ -6855,6 +6857,11 @@ def render_sidebar(config: AppConfig) -> None:
 
         st.markdown("---")
 
+        # Fork Timeline (Story 12.1 - FR81)
+        render_fork_controls()
+
+        st.markdown("---")
+
         # Configuration status (condensed, moved from main area) (2.5)
         with st.expander("LLM Status", expanded=False):
             st.markdown(get_api_key_status(config))
@@ -6883,6 +6890,52 @@ def handle_start_game_click() -> None:
     """
     if run_game_turn():
         st.rerun()
+
+
+def render_fork_controls() -> None:
+    """Render fork creation controls in the sidebar.
+
+    Story 12.1: Fork Creation (FR81).
+    Only visible when a game session is active.
+    Provides a text input and button to create a named fork,
+    plus a fork count indicator.
+    """
+    if "game" not in st.session_state:
+        return
+
+    game: GameState = st.session_state["game"]
+    session_id = game.get("session_id", "001")
+
+    with st.expander("Fork Timeline"):
+        fork_name = st.text_input(
+            "Fork name",
+            placeholder="e.g., Diplomacy attempt",
+            key="fork_name_input",
+        )
+        if st.button("Create Fork", key="create_fork_btn"):
+            if fork_name and fork_name.strip():
+                try:
+                    fork_meta = create_fork(
+                        state=game,
+                        session_id=session_id,
+                        fork_name=fork_name,
+                    )
+                    safe_name = escape_html(fork_meta.name)
+                    st.success(
+                        f"Fork '{safe_name}' created"
+                        f" at turn {fork_meta.branch_turn}"
+                    )
+                except ValueError as e:
+                    st.error(str(e))
+                except OSError as e:
+                    st.error(f"Failed to create fork: {e}")
+            else:
+                st.warning("Please enter a fork name")
+
+        # Show fork count indicator
+        forks = list_forks(session_id)
+        if forks:
+            st.caption(f"Forks: {len(forks)}")
 
 
 def render_game_controls() -> None:
