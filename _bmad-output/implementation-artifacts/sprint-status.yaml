@@ -140,8 +140,8 @@ development_status:
   # Epic 11: Callback Tracker (5 stories)
   epic-11: in-progress
   11-1-narrative-element-extraction: done
-  11-2-callback-database: review
-  11-3-dm-callback-suggestions: backlog
+  11-2-callback-database: done
+  11-3-dm-callback-suggestions: review
   11-4-callback-detection: backlog
   11-5-callback-ui-and-history: backlog
   epic-11-retrospective: optional

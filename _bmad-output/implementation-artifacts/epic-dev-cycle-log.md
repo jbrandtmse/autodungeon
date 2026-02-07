@@ -1260,7 +1260,7 @@
 | Story | Status | Phase |
 |-------|--------|-------|
 | 11-1-narrative-element-extraction | ✅ done | complete |
-| 11-2-callback-database | ⏳ pending | - |
+| 11-2-callback-database | ✅ done | complete |
 | 11-3-dm-callback-suggestions | ⏳ pending | - |
 | 11-4-callback-detection | ⏳ pending | - |
 | 11-5-callback-ui-and-history | ⏳ pending | - |
@@ -1297,6 +1297,39 @@
 - **MEDIUM**: Constants recreated per-call in parser — Moved to module-level
 - **MEDIUM**: `json` import inside function body — Moved to module top
 - **MEDIUM**: Unused imports and sorting in test file — Cleaned up via ruff
+
+### User Input Required
+- None — all issues auto-resolved
+
+---
+
+## Story: 11-2-callback-database
+
+**Status:** Completed
+**Date:** 2026-02-06
+
+### Files Touched
+- `models.py` — Enhanced NarrativeElement (6 new fields), NarrativeElementStore (5 new methods)
+- `memory.py` — Updated extract_narrative_elements for dual-store (session + campaign)
+- `agents.py` — Updated dm_turn/pc_turn for callback_database propagation
+- `persistence.py` — callback_database serialization/deserialization
+- `tests/test_persistence.py` — Updated fixture and expected fields
+- `tests/test_story_11_1_narrative_element_extraction.py` — Updated for new return format
+- `tests/test_integration_llm.py` — Updated for new GameState fields
+- `tests/test_story_10_2_dm_whisper_tool.py` — Updated fixture
+- `tests/test_story_10_3_secret_knowledge_injection.py` — Updated fixture
+
+### Key Design Decisions
+- Campaign-level callback_database separate from per-session narrative_elements
+- Dormancy threshold at 20 turns (elements not referenced become dormant)
+- Relevance scoring: prioritizes longer gap since last reference + character involvement
+- add_element() for mutable store operations vs immutable state pattern for GameState
+- Backward-compatible deserialization (missing callback_database defaults to empty store)
+
+### Issues Auto-Resolved
+- **HIGH**: 11-1 tests broken by new return format — Fixed to access result["narrative_elements"]
+- **HIGH**: test_serialize_includes_all_fields missing callback_database — Added to expected set
+- **MEDIUM**: pc_turn test mock missing callback_database in return — Fixed mock format
 
 ### User Input Required
 - None — all issues auto-resolved

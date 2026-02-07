@@ -31,6 +31,8 @@ from models import (
     GameState,
     ModuleDiscoveryResult,
     ModuleInfo,
+    NarrativeElement,
+    NarrativeElementStore,
 )
 from tools import (
     apply_character_sheet_update,
@@ -52,6 +54,8 @@ __all__ = [
     "DM_SYSTEM_PROMPT",
     "LLMConfigurationError",
     "LLMError",
+    "MAX_CALLBACK_SUGGESTIONS",
+    "MIN_CALLBACK_SCORE",
     "MODULE_DISCOVERY_MAX_RETRIES",
     "MODULE_DISCOVERY_PROMPT",
     "MODULE_DISCOVERY_RETRY_PROMPT",
@@ -73,6 +77,7 @@ __all__ = [
     "dm_turn",
     "format_all_secrets_context",
     "format_all_sheets_context",
+    "format_callback_suggestions",
     "format_character_facts",
     "format_character_sheet_context",
     "format_module_context",
@@ -80,6 +85,7 @@ __all__ = [
     "get_default_model",
     "get_llm",
     "pc_turn",
+    "score_callback_relevance",
 ]
 
 # Context building limits for DM
@@ -139,6 +145,8 @@ Reference earlier events naturally to maintain immersion:
 - Weave plot threads from earlier scenes into current narration
 - Acknowledge character growth and relationships
 - Reward callbacks to earlier details with meaningful payoffs
+- Check the "Callback Opportunities" section in your context for specific story threads to weave in
+- These suggestions are optional inspiration - use them when they fit naturally, ignore when they don't
 
 ## Dice Rolling
 
@@ -1075,6 +1083,137 @@ def format_all_secrets_context(agent_secrets: dict[str, AgentSecrets]) -> str:
     return "\n".join(lines)
 
 
+# =============================================================================
+# Callback Suggestions (Story 11.3)
+# =============================================================================
+
+# Constants for callback suggestions
+MAX_CALLBACK_SUGGESTIONS = 5  # Max suggestions to include in DM context
+MIN_CALLBACK_SCORE = 0.0  # Minimum score threshold (0.0 = include all scored)
+
+
+def score_callback_relevance(
+    element: NarrativeElement,
+    current_turn: int,
+    active_characters: list[str],
+) -> float:
+    """Score a narrative element for callback suggestion relevance.
+
+    Higher scores indicate better candidates for DM callback suggestions.
+    The scoring considers:
+    - How long since the element was last referenced (longer gap = more impactful)
+    - Whether involved characters are currently active
+    - How established the element is in the narrative
+    - Whether AI-suggested callback uses exist
+    - Whether the element is dormant (penalty)
+
+    Story 11.3: DM Callback Suggestions.
+    FR78: DM context includes callback suggestions.
+
+    Args:
+        element: The NarrativeElement to score.
+        current_turn: Current turn number for recency calculation.
+        active_characters: List of currently active character names (from turn_queue).
+
+    Returns:
+        Float score (higher = better callback candidate).
+    """
+    score = 0.0
+
+    # Recency gap bonus: elements unreferenced longer are more impactful callbacks
+    # Capped at 5.0 to prevent ancient dormant elements from dominating
+    # Floor at 0 to handle edge cases where last_referenced_turn > current_turn
+    turns_since_reference = max(0, current_turn - element.last_referenced_turn)
+    score += min(turns_since_reference / 10.0, 5.0)
+
+    # Character involvement: bonus if involved characters are in active party
+    active_lower = [c.lower() for c in active_characters]
+    if any(c.lower() in active_lower for c in element.characters_involved):
+        score += 2.0
+
+    # Importance: more-referenced elements are more established
+    score += element.times_referenced * 0.5
+
+    # Potential callbacks: bonus if AI already suggested uses
+    if element.potential_callbacks:
+        score += 1.0
+
+    # Dormancy penalty: still available but deprioritized
+    if element.dormant:
+        score -= 3.0
+
+    return score
+
+
+def format_callback_suggestions(
+    callback_database: NarrativeElementStore,
+    current_turn: int,
+    active_characters: list[str],
+) -> str:
+    """Format callback suggestions for DM context injection.
+
+    Scores active narrative elements by callback relevance, selects
+    the top candidates, and formats them into a markdown section
+    matching the epic AC format.
+
+    Story 11.3: DM Callback Suggestions.
+    FR78: DM context includes callback suggestions.
+
+    Args:
+        callback_database: Campaign-level NarrativeElementStore.
+        current_turn: Current turn number.
+        active_characters: List of active character names from turn_queue.
+
+    Returns:
+        Formatted markdown section, or empty string if no suggestions.
+    """
+    # Get active (non-resolved) elements
+    active_elements = callback_database.get_active()
+    if not active_elements:
+        return ""
+
+    # Score and rank elements
+    scored: list[tuple[float, NarrativeElement]] = []
+    for element in active_elements:
+        element_score = score_callback_relevance(
+            element, current_turn, active_characters
+        )
+        if element_score >= MIN_CALLBACK_SCORE:
+            scored.append((element_score, element))
+
+    if not scored:
+        return ""
+
+    # Sort by score descending
+    scored.sort(key=lambda x: x[0], reverse=True)
+
+    # Take top N
+    top_suggestions = scored[:MAX_CALLBACK_SUGGESTIONS]
+
+    # Format output matching epic AC
+    lines = [
+        "## Callback Opportunities",
+        "Consider weaving in these earlier story elements:",
+        "",
+    ]
+
+    for idx, (_score, element) in enumerate(top_suggestions, 1):
+        # Header: name, turn, session
+        lines.append(
+            f"{idx}. **{element.name}** (Turn {element.turn_introduced}, Session {element.session_introduced})"
+        )
+        # Description
+        if element.description:
+            lines.append(f"   {element.description}")
+        # Potential use (first suggestion only, for brevity)
+        if element.potential_callbacks:
+            lines.append(f"   Potential use: {element.potential_callbacks[0]}")
+        # Blank line between entries
+        lines.append("")
+
+    return "\n".join(lines).rstrip()
+
+
 def _build_dm_context(state: GameState) -> str:
     """Build the context string for the DM from all agent memories.
 
@@ -1137,6 +1276,18 @@ def _build_dm_context(state: GameState) -> str:
         secrets_context = format_all_secrets_context(agent_secrets)
         if secrets_context:
             context_parts.append(secrets_context)
+
+    # Add callback suggestions from campaign database (Story 11.3 - FR78)
+    callback_database = state.get("callback_database", NarrativeElementStore())
+    if callback_database.elements:
+        current_turn = len(state.get("ground_truth_log", []))
+        # Active characters are all agents except DM
+        active_characters = [name for name in state["turn_queue"] if name != "dm"]
+        callback_context = format_callback_suggestions(
+            callback_database, current_turn, active_characters
+        )
+        if callback_context:
+            context_parts.append(callback_context)
 
     # Player nudge/suggestion (Story 3.4 - Nudge System)
     # Note: We access Streamlit session_state here because the nudge is UI-specific
@@ -1496,8 +1647,6 @@ def dm_turn(state: GameState) -> GameState:
     except Exception as e:
         logger.warning("Narrative element extraction failed: %s", e)
         updated_narrative = state.get("narrative_elements", {})
-        from models import NarrativeElementStore
-
         updated_callback_db = state.get("callback_database", NarrativeElementStore())
 
     # Return new state with current_turn updated to "dm"
@@ -1935,8 +2084,6 @@ def pc_turn(state: GameState, agent_name: str) -> GameState:
     except Exception as e:
         logger.warning("Narrative element extraction failed: %s", e)
         updated_narrative = state.get("narrative_elements", {})
-        from models import NarrativeElementStore
-
         updated_callback_db = state.get("callback_database", NarrativeElementStore())
 
     # Return new state with current_turn updated to this agent's name

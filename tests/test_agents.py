@@ -306,6 +306,16 @@ class TestModuleExports:
             "_execute_sheet_update",
             # Story 10.2: DM Whisper Tool
             "_execute_whisper",
+            # Story 10.3: Secret Knowledge Injection
+            "format_pc_secrets_context",
+            "format_all_secrets_context",
+            # Story 10.5: Secret Revelation System
+            "_execute_reveal",
+            # Story 11.3: DM Callback Suggestions
+            "MAX_CALLBACK_SUGGESTIONS",
+            "MIN_CALLBACK_SCORE",
+            "score_callback_relevance",
+            "format_callback_suggestions",
         }
 
         assert set(agents.__all__) == expected_exports
