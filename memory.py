@@ -41,6 +41,7 @@ This architecture means callbacks "just work" when:
 
 import json
 import logging
+import re
 from typing import TypedDict
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -57,10 +58,13 @@ from agents import (
 )
 from config import get_config
 from models import (
+    CallbackEntry,
+    CallbackLog,
     CharacterFacts,
     GameState,
     NarrativeElement,
     NarrativeElementStore,
+    create_callback_entry,
     create_narrative_element,
 )
 
@@ -69,20 +73,25 @@ class ExtractionResult(TypedDict):
     """Return type for extract_narrative_elements.
 
     Story 11.2: Typed return for both session and campaign stores.
+    Story 11.4: Callback detection log.
     """
 
     narrative_elements: dict[str, NarrativeElementStore]
     callback_database: NarrativeElementStore
+    callback_log: CallbackLog  # Story 11.4
 
 # Logger for error tracking (technical details logged internally)
 logger = logging.getLogger("autodungeon")
 
 __all__ = [
+    "CALLBACK_MATCH_CONTEXT_LENGTH",
+    "CALLBACK_NAME_MIN_LENGTH",
     "ELEMENT_EXTRACTION_PROMPT",
     "JANITOR_SYSTEM_PROMPT",
     "MemoryManager",
     "NarrativeElementExtractor",
     "Summarizer",
+    "detect_callbacks",
     "estimate_tokens",
     "extract_narrative_elements",
 ]
@@ -770,6 +779,263 @@ def _merge_summaries(existing: str, new_summary: str) -> str:
 
 
 # =============================================================================
+# Callback Detection (Story 11.4)
+# =============================================================================
+
+CALLBACK_NAME_MIN_LENGTH = 3  # Skip very short names to avoid false positives
+CALLBACK_MATCH_CONTEXT_LENGTH = 200  # Max chars for match context excerpt
+
+# Stop words to exclude from fuzzy name matching (common short words in NPC titles)
+_FUZZY_NAME_STOP_WORDS = frozenset({"the", "and", "for", "but", "not", "was", "are"})
+
+# Common English/D&D stop words to exclude from description keyword matching
+_DESCRIPTION_STOP_WORDS = frozenset({
+    "the", "and", "that", "with", "from", "they", "their", "this",
+    "have", "been", "were", "will", "into", "when", "then", "about",
+    "some", "what", "more", "also", "very", "just", "like", "only",
+    "back", "over", "such", "after", "each", "most", "much", "could",
+    "would", "should", "which", "there", "where", "other", "than",
+    "them", "these", "those", "your", "said", "says", "here",
+    "does", "doing", "done", "being", "make", "made",
+    "party", "character", "player",  # D&D generic terms
+})
+
+
+def _normalize_text(text: str) -> str:
+    """Normalize text for comparison: lowercase, strip punctuation, collapse whitespace."""
+    text = text.lower()
+    # Replace punctuation with spaces (preserves word boundaries)
+    text = re.sub(r"[^\w\s]", " ", text)
+    # Collapse whitespace
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def _extract_match_context(
+    raw_content: str, match_position: int, max_length: int = CALLBACK_MATCH_CONTEXT_LENGTH
+) -> str:
+    """Extract surrounding context around a match position.
+
+    Args:
+        raw_content: The full turn content.
+        match_position: Character position of the match in raw_content.
+        max_length: Maximum characters for the context excerpt.
+
+    Returns:
+        Context string with ellipsis if truncated.
+    """
+    half = max_length // 2
+    start = max(0, match_position - half)
+    end = min(len(raw_content), match_position + half)
+
+    context = raw_content[start:end]
+    if start > 0:
+        context = "..." + context
+    if end < len(raw_content):
+        context = context + "..."
+
+    return context
+
+
+def _detect_name_match(
+    element: NarrativeElement,
+    normalized_content: str,
+    raw_content: str,
+) -> tuple[str, str] | None:
+    """Detect if element name appears in turn content.
+
+    Tries exact match first, then fuzzy (distinctive word) match.
+
+    Args:
+        element: NarrativeElement to check for.
+        normalized_content: Lowercased, punctuation-stripped turn content.
+        raw_content: Original turn content for context extraction.
+
+    Returns:
+        (match_type, match_context) tuple, or None if no match.
+    """
+    name = element.name
+    if len(name) < CALLBACK_NAME_MIN_LENGTH:
+        return None
+
+    normalized_name = _normalize_text(name)
+
+    # Exact match: full name appears in content (word-boundary aware)
+    exact_pattern = r"\b" + re.escape(normalized_name) + r"\b"
+    exact_match = re.search(exact_pattern, normalized_content)
+    if exact_match:
+        # Find position in raw content for context extraction
+        pos = raw_content.lower().find(name.lower())
+        if pos == -1:
+            pos = 0
+        context = _extract_match_context(raw_content, pos)
+        return ("name_exact", context)
+
+    # Fuzzy match: longest distinctive word (>= 3 chars) appears as standalone word
+    words = normalized_name.split()
+    if len(words) > 1:
+        # Sort by length descending, take the longest as most distinctive
+        # Exclude common words that would cause false positives
+        distinctive_words = sorted(
+            [
+                w for w in words
+                if len(w) >= CALLBACK_NAME_MIN_LENGTH and w not in _FUZZY_NAME_STOP_WORDS
+            ],
+            key=len,
+            reverse=True,
+        )
+        for word in distinctive_words:
+            # Word boundary matching to avoid substring false positives
+            pattern = r"\b" + re.escape(word) + r"\b"
+            match = re.search(pattern, normalized_content)
+            if match:
+                # Find position in raw content for accurate context extraction
+                raw_match = re.search(
+                    r"\b" + re.escape(word) + r"\b", raw_content, re.IGNORECASE
+                )
+                pos = raw_match.start() if raw_match else 0
+                context = _extract_match_context(raw_content, pos)
+                return ("name_fuzzy", context)
+
+    return None
+
+
+def _detect_description_match(
+    element: NarrativeElement,
+    normalized_content: str,
+    raw_content: str,
+) -> tuple[str, str] | None:
+    """Detect if element description keywords appear in turn content.
+
+    Extracts significant keywords from description and checks if
+    2+ appear in the turn content.
+
+    Args:
+        element: NarrativeElement to check for.
+        normalized_content: Lowercased, punctuation-stripped turn content.
+        raw_content: Original turn content for context extraction.
+
+    Returns:
+        ("description_keyword", match_context) tuple, or None if no match.
+    """
+    if not element.description:
+        return None
+
+    # Extract significant keywords (>= 4 chars, not stop words, deduplicated)
+    desc_words = _normalize_text(element.description).split()
+    keywords = list(dict.fromkeys(
+        w for w in desc_words
+        if len(w) >= 4 and w not in _DESCRIPTION_STOP_WORDS
+    ))
+
+    if len(keywords) < 2:
+        return None  # Not enough unique keywords to match against
+
+    # Check how many keywords appear in content
+    matched_keywords: list[str] = []
+    first_raw_match_pos = -1
+    for keyword in keywords:
+        pattern = r"\b" + re.escape(keyword) + r"\b"
+        match = re.search(pattern, normalized_content)
+        if match:
+            matched_keywords.append(keyword)
+            if first_raw_match_pos == -1:
+                # Find position in raw content for accurate context extraction
+                raw_match = re.search(
+                    r"\b" + re.escape(keyword) + r"\b", raw_content, re.IGNORECASE
+                )
+                first_raw_match_pos = raw_match.start() if raw_match else 0
+
+    # Require 2+ unique keyword matches for confidence
+    if len(matched_keywords) >= 2:
+        context = _extract_match_context(raw_content, max(0, first_raw_match_pos))
+        return ("description_keyword", context)
+
+    return None
+
+
+def detect_callbacks(
+    turn_content: str,
+    turn_number: int,
+    session_number: int,
+    callback_database: NarrativeElementStore,
+) -> list[CallbackEntry]:
+    """Detect callbacks in turn content against stored narrative elements.
+
+    Scans turn content for references to previously-stored elements using
+    name matching and description keyword matching.
+
+    Story 11.4: Callback Detection.
+    FR79: System can detect when callbacks occur.
+
+    Args:
+        turn_content: The text content of the turn to analyze.
+        turn_number: Current turn number.
+        session_number: Current session number.
+        callback_database: Campaign-level NarrativeElementStore to match against.
+
+    Returns:
+        List of detected CallbackEntry objects. Empty list on failure.
+    """
+    if not turn_content or not turn_content.strip():
+        return []
+
+    try:
+        active_elements = callback_database.get_active()
+        if not active_elements:
+            return []
+
+        normalized = _normalize_text(turn_content)
+        detected: list[CallbackEntry] = []
+        matched_element_ids: set[str] = set()  # Prevent duplicate detections
+
+        for element in active_elements:
+            # Skip self-references (element introduced this turn)
+            if element.turn_introduced == turn_number:
+                continue
+
+            # Skip if already referenced this turn (avoid double-count from extraction)
+            if turn_number in element.turns_referenced:
+                continue
+
+            # Skip if already matched (one match per element per turn)
+            if element.id in matched_element_ids:
+                continue
+
+            # Try name match first (higher confidence)
+            match_result = _detect_name_match(element, normalized, turn_content)
+            if match_result is None:
+                # Try description keyword match
+                match_result = _detect_description_match(element, normalized, turn_content)
+
+            if match_result is not None:
+                match_type_str, match_context = match_result
+                entry = create_callback_entry(
+                    element=element,
+                    turn_detected=turn_number,
+                    match_type=match_type_str,  # type: ignore[arg-type]
+                    match_context=match_context,
+                    session_detected=session_number,
+                )
+                detected.append(entry)
+                matched_element_ids.add(element.id)
+
+                # Log story moments at INFO level
+                if entry.is_story_moment:
+                    logger.info(
+                        "Story moment detected: %s referenced after %d turns!",
+                        element.name,
+                        entry.turn_gap,
+                    )
+
+        return detected
+
+    except Exception as e:
+        logger.warning("Callback detection failed: %s", e)
+        return []
+
+
+# =============================================================================
 # Narrative Element Extraction (Story 11.1)
 # =============================================================================
 
@@ -1074,6 +1340,7 @@ def extract_narrative_elements(
 
     Story 11.1: Basic extraction and session store.
     Story 11.2: Campaign-level callback database integration.
+    Story 11.4: Callback detection integration.
 
     Args:
         state: Current game state.
@@ -1084,6 +1351,7 @@ def extract_narrative_elements(
         ExtractionResult with:
         - "narrative_elements": Updated per-session dict
         - "callback_database": Updated campaign-level store
+        - "callback_log": Updated callback log with detected callbacks
     """
     config = get_config()
 
@@ -1129,7 +1397,32 @@ def extract_narrative_elements(
     # Update dormancy
     callback_db_copy.update_dormancy(turn_number)
 
+    # Detect callbacks in turn content (Story 11.4)
+    try:
+        session_number = int(session_id)
+    except (ValueError, TypeError):
+        session_number = 1
+
+    try:
+        detected_callbacks = detect_callbacks(
+            turn_content, turn_number, session_number, callback_db_copy
+        )
+
+        # Record references for detected callbacks in callback_database
+        for cb_entry in detected_callbacks:
+            callback_db_copy.record_reference(cb_entry.element_id, turn_number)
+    except Exception as e:
+        logger.warning("Callback detection in extraction pipeline failed: %s", e)
+        detected_callbacks = []
+
+    # Merge into callback log
+    existing_log = state.get("callback_log", CallbackLog())
+    new_log = CallbackLog(entries=list(existing_log.entries))
+    for cb_entry in detected_callbacks:
+        new_log.add_entry(cb_entry)
+
     return {
         "narrative_elements": narrative_elements,
         "callback_database": callback_db_copy,
+        "callback_log": new_log,
     }

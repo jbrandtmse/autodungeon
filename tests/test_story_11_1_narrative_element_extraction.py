@@ -966,9 +966,12 @@ class TestDmTurnNarrativeElements:
                 )
             ]
         )
+        from models import CallbackLog
+
         mock_extract.return_value = {
             "narrative_elements": {"001": extracted_store},
             "callback_database": extracted_store,
+            "callback_log": CallbackLog(),
         }
 
         # Create minimal state
@@ -1038,10 +1041,13 @@ class TestPcTurnNarrativeElements:
         mock_pc.invoke.return_value = mock_response
         mock_create_pc.return_value = mock_pc
 
+        from models import CallbackLog
+
         # Setup extraction mock (Story 11.2: returns dict with both keys)
         mock_extract.return_value = {
             "narrative_elements": {"001": NarrativeElementStore()},
             "callback_database": NarrativeElementStore(),
+            "callback_log": CallbackLog(),
         }
 
         # Create minimal state with character

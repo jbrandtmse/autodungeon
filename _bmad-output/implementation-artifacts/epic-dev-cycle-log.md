@@ -1261,7 +1261,7 @@
 |-------|--------|-------|
 | 11-1-narrative-element-extraction | ✅ done | complete |
 | 11-2-callback-database | ✅ done | complete |
-| 11-3-dm-callback-suggestions | ⏳ pending | - |
+| 11-3-dm-callback-suggestions | ✅ done | complete |
 | 11-4-callback-detection | ⏳ pending | - |
 | 11-5-callback-ui-and-history | ⏳ pending | - |
 
@@ -1330,6 +1330,32 @@
 - **HIGH**: 11-1 tests broken by new return format — Fixed to access result["narrative_elements"]
 - **HIGH**: test_serialize_includes_all_fields missing callback_database — Added to expected set
 - **MEDIUM**: pc_turn test mock missing callback_database in return — Fixed mock format
+
+### User Input Required
+- None — all issues auto-resolved
+
+---
+
+## Story: 11-3-dm-callback-suggestions
+
+**Status:** Completed
+**Date:** 2026-02-06
+
+### Files Touched
+- `agents.py` — score_callback_relevance(), format_callback_suggestions(), _build_dm_context() integration, DM_SYSTEM_PROMPT update
+- `tests/test_story_11_3_dm_callback_suggestions.py` — 40 comprehensive tests
+- `tests/test_agents.py` — Updated export list
+
+### Key Design Decisions
+- Pure heuristic scoring (no LLM calls) for callback relevance
+- Scoring: recency gap (capped 5.0), character involvement (+2.0), importance (times_referenced * 0.5), callbacks bonus (+1.0), dormancy penalty (-3.0)
+- MAX_CALLBACK_SUGGESTIONS = 5, ~300 tokens additional context
+- Read-only: no new GameState fields, no state mutations, no persistence changes
+- Format matches epic AC exactly: bold names, turn/session, "Potential use:" lines
+- Graceful fallback if callback_database missing from state
+
+### Issues Auto-Resolved
+- Code review identified and fixed minor scoring/formatting issues
 
 ### User Input Required
 - None — all issues auto-resolved

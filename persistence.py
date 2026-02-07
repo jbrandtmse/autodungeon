@@ -23,6 +23,8 @@ from pydantic import BaseModel, Field, ValidationError
 from models import (
     AgentMemory,
     AgentSecrets,
+    CallbackEntry,
+    CallbackLog,
     CharacterConfig,
     CharacterSheet,
     DMConfig,
@@ -225,6 +227,8 @@ def serialize_game_state(state: GameState) -> str:
         "callback_database": state.get(
             "callback_database", NarrativeElementStore()
         ).model_dump(),
+        # Story 11.4: Callback detection log
+        "callback_log": state.get("callback_log", CallbackLog()).model_dump(),
     }
     return json.dumps(serializable, indent=2)
 
@@ -295,6 +299,17 @@ def deserialize_game_state(json_str: str) -> GameState:
     else:
         callback_database = NarrativeElementStore()
 
+    # Handle callback_log deserialization (Story 11.4)
+    # Backward compatible: old checkpoints without callback_log get empty CallbackLog
+    callback_log_raw = data.get("callback_log", {"entries": []})
+    if isinstance(callback_log_raw, dict):
+        cb_entries = [
+            CallbackEntry(**e) for e in callback_log_raw.get("entries", [])
+        ]
+        callback_log = CallbackLog(entries=cb_entries)
+    else:
+        callback_log = CallbackLog()
+
     return GameState(
         ground_truth_log=data["ground_truth_log"],
         turn_queue=data["turn_queue"],
@@ -314,6 +329,7 @@ def deserialize_game_state(json_str: str) -> GameState:
         agent_secrets=agent_secrets,
         narrative_elements=narrative_elements,
         callback_database=callback_database,
+        callback_log=callback_log,
     )
 
 
@@ -966,6 +982,12 @@ def initialize_session_with_previous_memories(
     prev_callback_db = prev_state.get("callback_database", NarrativeElementStore())
     new_state["callback_database"] = NarrativeElementStore(
         elements=[e.model_copy() for e in prev_callback_db.elements]
+    )
+
+    # Carry over callback_log (Story 11.4)
+    prev_callback_log = prev_state.get("callback_log", CallbackLog())
+    new_state["callback_log"] = CallbackLog(
+        entries=list(prev_callback_log.entries)
     )
 
     return new_state

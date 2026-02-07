@@ -24,6 +24,8 @@ __all__ = [
     "AgentSecrets",
     "ApiKeyFieldState",
     "Armor",
+    "CallbackEntry",
+    "CallbackLog",
     "CharacterConfig",
     "CharacterFacts",
     "CharacterSheet",
@@ -48,6 +50,7 @@ __all__ = [
     "NarrativeElement",
     "NarrativeElementStore",
     "create_agent_memory",
+    "create_callback_entry",
     "create_character_facts_from_config",
     "create_initial_game_state",
     "create_narrative_element",
@@ -791,6 +794,131 @@ def create_narrative_element(
 
 
 # =============================================================================
+# Callback Detection (Story 11.4)
+# =============================================================================
+
+
+class CallbackEntry(BaseModel):
+    """A detected callback where turn content references a stored narrative element.
+
+    Story 11.4: Callback Detection.
+    FR79: System can detect when callbacks occur.
+
+    Attributes:
+        id: Unique identifier (UUID hex string).
+        element_id: ID of the NarrativeElement that was referenced.
+        element_name: Name of the element (denormalized for display).
+        element_type: Type of the element (denormalized for display).
+        turn_detected: Turn number where callback was detected.
+        turn_gap: Number of turns between last reference and this detection.
+        match_type: How the callback was matched.
+        match_context: Excerpt from turn content showing the reference.
+        is_story_moment: True if turn_gap >= 20 (Chekhov's Gun payoff).
+        session_detected: Session number when callback was detected.
+    """
+
+    id: str = Field(..., min_length=1, description="Unique entry ID (UUID hex)")
+    element_id: str = Field(..., min_length=1, description="Referenced NarrativeElement ID")
+    element_name: str = Field(..., min_length=1, description="Element name (denormalized)")
+    element_type: str = Field(..., description="Element type (denormalized)")
+    turn_detected: int = Field(..., ge=0, description="Turn when callback detected")
+    turn_gap: int = Field(..., ge=0, description="Turns since element last referenced")
+    match_type: Literal["name_exact", "name_fuzzy", "description_keyword"] = Field(
+        ..., description="How the callback was matched"
+    )
+    match_context: str = Field(
+        default="", description="Excerpt from turn content showing reference"
+    )
+    is_story_moment: bool = Field(
+        default=False, description="True if turn_gap >= 20 (Chekhov's Gun)"
+    )
+    session_detected: int = Field(
+        default=1, ge=1, description="Session when callback was detected"
+    )
+
+
+class CallbackLog(BaseModel):
+    """Container for detected callback entries.
+
+    Tracks all detected callbacks across the campaign for research
+    metrics and UI display.
+
+    Story 11.4: Callback Detection.
+    FR79: System can detect when callbacks occur.
+
+    Attributes:
+        entries: List of all detected callback entries.
+    """
+
+    STORY_MOMENT_THRESHOLD: ClassVar[int] = 20  # Turn gap for "story moment"
+
+    entries: list[CallbackEntry] = Field(
+        default_factory=list, description="All detected callback entries"
+    )
+
+    def add_entry(self, entry: CallbackEntry) -> None:
+        """Append a new callback entry."""
+        self.entries.append(entry)
+
+    def get_by_element(self, element_id: str) -> list[CallbackEntry]:
+        """Get all callbacks for a specific element."""
+        return [e for e in self.entries if e.element_id == element_id]
+
+    def get_story_moments(self) -> list[CallbackEntry]:
+        """Get callbacks flagged as story moments (20+ turn gap)."""
+        return [e for e in self.entries if e.is_story_moment]
+
+    def get_by_turn(self, turn_number: int) -> list[CallbackEntry]:
+        """Get callbacks detected at a specific turn."""
+        return [e for e in self.entries if e.turn_detected == turn_number]
+
+    def get_recent(self, limit: int = 10) -> list[CallbackEntry]:
+        """Get most recent callback entries."""
+        sorted_entries = sorted(
+            self.entries, key=lambda e: e.turn_detected, reverse=True
+        )
+        return sorted_entries[:limit]
+
+
+def create_callback_entry(
+    element: NarrativeElement,
+    turn_detected: int,
+    match_type: Literal["name_exact", "name_fuzzy", "description_keyword"],
+    match_context: str,
+    session_detected: int,
+) -> CallbackEntry:
+    """Factory function to create a CallbackEntry with auto-generated ID.
+
+    Creates a callback entry with computed turn_gap and story moment flag.
+
+    Story 11.4: Callback Detection.
+
+    Args:
+        element: The NarrativeElement that was referenced.
+        turn_detected: Turn number where callback was detected.
+        match_type: How the callback was matched.
+        match_context: Excerpt from turn content showing the reference.
+        session_detected: Session number when callback was detected.
+
+    Returns:
+        A new CallbackEntry with unique ID and computed fields.
+    """
+    turn_gap = max(0, turn_detected - element.last_referenced_turn)
+    return CallbackEntry(
+        id=uuid.uuid4().hex,
+        element_id=element.id,
+        element_name=element.name,
+        element_type=element.element_type,
+        turn_detected=turn_detected,
+        turn_gap=turn_gap,
+        match_type=match_type,
+        match_context=match_context,
+        is_story_moment=turn_gap >= CallbackLog.STORY_MOMENT_THRESHOLD,
+        session_detected=session_detected,
+    )
+
+
+# =============================================================================
 # Module Discovery (Story 7.1)
 # =============================================================================
 
@@ -1466,6 +1594,7 @@ class GameState(TypedDict):
     agent_secrets: dict[str, "AgentSecrets"]
     narrative_elements: dict[str, "NarrativeElementStore"]
     callback_database: "NarrativeElementStore"  # Story 11.2: Campaign-level database
+    callback_log: "CallbackLog"  # Story 11.4: Detected callback log
 
 
 class MessageSegment(BaseModel):
@@ -1692,6 +1821,7 @@ def create_initial_game_state() -> GameState:
         agent_secrets={},
         narrative_elements={},
         callback_database=NarrativeElementStore(),
+        callback_log=CallbackLog(),
     )
 
 
@@ -1767,6 +1897,7 @@ def populate_game_state(
         agent_secrets=agent_secrets,
         narrative_elements={session_id: NarrativeElementStore()},
         callback_database=NarrativeElementStore(),
+        callback_log=CallbackLog(),
     )
 
 

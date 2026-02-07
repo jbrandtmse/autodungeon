@@ -225,6 +225,7 @@ class TestGameStateSerialization:
             "agent_secrets",  # Story 10.1: Whisper Data Model
             "narrative_elements",  # Story 11.1: Narrative Element Extraction
             "callback_database",  # Story 11.2: Callback Database
+            "callback_log",  # Story 11.4: Callback Detection
         }
         assert set(data.keys()) == expected_keys
 
