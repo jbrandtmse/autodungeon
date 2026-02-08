@@ -71,6 +71,7 @@ from models import (
 )
 from persistence import (
     build_comparison_data,
+    collapse_all_forks,
     create_fork,
     create_new_session,
     delete_fork,
@@ -86,6 +87,7 @@ from persistence import (
     load_checkpoint,
     load_fork_checkpoint,
     load_fork_registry,
+    promote_fork,
     rename_fork,
     save_fork_checkpoint,
 )
@@ -7019,6 +7021,75 @@ def handle_return_to_main(session_id: str) -> None:
     st.toast("Returned to main timeline")
 
 
+def handle_promote_fork(session_id: str, fork_id: str) -> None:
+    """Promote a fork to become the main timeline.
+
+    Story 12.4: Fork Resolution (FR84).
+    Stops autopilot, promotes the fork, reloads the main timeline state.
+
+    Args:
+        session_id: Session ID string.
+        fork_id: Fork ID to promote.
+    """
+    # Stop autopilot
+    st.session_state["is_autopilot_running"] = False
+
+    # Get fork name for display before promotion removes it
+    registry = load_fork_registry(session_id)
+    fork_name = "Unknown"
+    if registry:
+        fork_meta = registry.get_fork(fork_id)
+        if fork_meta:
+            fork_name = fork_meta.name
+
+    try:
+        # Promote the fork
+        latest_turn = promote_fork(session_id, fork_id)
+
+        # Load the new main timeline state
+        main_state = load_checkpoint(session_id, latest_turn)
+        if main_state is None:
+            st.error(f"Failed to load promoted main timeline at turn {latest_turn}")
+            return
+
+        # Clear active_fork_id (we're now on main)
+        main_state["active_fork_id"] = None
+
+        # Update session state
+        st.session_state["game"] = main_state
+        safe_name = escape_html(fork_name)
+        st.toast(f"Fork '{safe_name}' promoted to main timeline")
+
+    except ValueError as e:
+        st.error(str(e))
+    except OSError as e:
+        st.error(f"Failed to promote fork: {e}")
+
+
+def handle_collapse_all_forks(session_id: str) -> None:
+    """Remove all forks for the current session.
+
+    Story 12.4: Fork Resolution (FR84).
+    If currently in a fork, returns to main first.
+
+    Args:
+        session_id: Session ID string.
+    """
+    # Stop autopilot
+    st.session_state["is_autopilot_running"] = False
+
+    # If currently in a fork, return to main first
+    game: GameState = st.session_state.get("game", {})
+    if game.get("active_fork_id") is not None:
+        handle_return_to_main(session_id)
+
+    try:
+        count = collapse_all_forks(session_id)
+        st.toast(f"All forks removed ({count} fork(s) deleted)")
+    except OSError as e:
+        st.error(f"Failed to collapse forks: {e}")
+
+
 def _truncate_entry(text: str, max_len: int = 150) -> str:
     """Truncate a log entry for overview display.
 
@@ -7319,15 +7390,73 @@ def render_fork_controls() -> None:
                         else:
                             st.caption("Cannot delete active fork")
 
-                        # Make Primary (placeholder for Story 12.4)
+                        # Make Primary (Story 12.4: Fork Resolution)
                         if st.button(
                             "Make Primary",
                             key=f"promote_fork_{fork.fork_id}",
+                            disabled=is_generating,
                         ):
-                            st.info(
-                                "Promote to main timeline"
-                                " (coming in Story 12.4)"
+                            st.session_state[
+                                f"confirm_promote_{fork.fork_id}"
+                            ] = True
+                        if st.session_state.get(
+                            f"confirm_promote_{fork.fork_id}"
+                        ):
+                            st.warning(
+                                f"Promote '{escape_html(fork.name)}'"
+                                " to main timeline?\n\n"
+                                "Main timeline content after turn "
+                                f"{fork.branch_turn} "
+                                "will be archived as a new fork."
                             )
+                            col_confirm, col_cancel = st.columns(2)
+                            with col_confirm:
+                                if st.button(
+                                    "Confirm",
+                                    key=f"confirm_promo_{fork.fork_id}",
+                                ):
+                                    handle_promote_fork(
+                                        session_id, fork.fork_id
+                                    )
+                                    st.session_state[
+                                        f"confirm_promote_{fork.fork_id}"
+                                    ] = False
+                                    st.rerun()
+                            with col_cancel:
+                                if st.button(
+                                    "Cancel",
+                                    key=f"cancel_promo_{fork.fork_id}",
+                                ):
+                                    st.session_state[
+                                        f"confirm_promote_{fork.fork_id}"
+                                    ] = False
+                                    st.rerun()
+
+            # Collapse all forks (Story 12.4)
+            if forks:
+                st.markdown("---")
+                if st.button(
+                    "Collapse to Single Timeline",
+                    key="collapse_forks_btn",
+                    type="secondary",
+                    disabled=is_generating,
+                ):
+                    st.session_state["confirm_collapse_forks"] = True
+                if st.session_state.get("confirm_collapse_forks"):
+                    st.warning(
+                        f"Delete ALL {len(forks)} fork(s) and keep only the "
+                        "main timeline? This cannot be undone."
+                    )
+                    col_confirm, col_cancel = st.columns(2)
+                    with col_confirm:
+                        if st.button("Confirm", key="confirm_collapse_btn"):
+                            handle_collapse_all_forks(session_id)
+                            st.session_state["confirm_collapse_forks"] = False
+                            st.rerun()
+                    with col_cancel:
+                        if st.button("Cancel", key="cancel_collapse_btn"):
+                            st.session_state["confirm_collapse_forks"] = False
+                            st.rerun()
 
 
 def render_game_controls() -> None:

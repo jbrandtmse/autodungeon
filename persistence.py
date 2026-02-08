@@ -90,6 +90,8 @@ __all__ = [
     "build_comparison_data",
     "extract_turns_from_logs",
     "extract_turns_from_single_log",
+    "promote_fork",
+    "collapse_all_forks",
 ]
 
 # Base directory for all campaigns
@@ -1612,6 +1614,197 @@ def delete_fork(
     save_fork_registry(session_id, registry)
 
     return True
+
+
+# =============================================================================
+# Fork Resolution (Story 12.4)
+# =============================================================================
+
+
+def promote_fork(session_id: str, fork_id: str) -> int:
+    """Promote a fork to become the main timeline.
+
+    Story 12.4: Fork Resolution.
+    FR84: User can merge or abandon forks.
+
+    The promoted fork's post-branch checkpoints replace the main timeline's
+    post-branch checkpoints. The old main's post-branch checkpoints are
+    archived into a new fork for reference.
+
+    Algorithm (copy-first for crash safety):
+    1. Load fork metadata to determine branch_turn
+    2. Copy main timeline's post-branch checkpoints into a new archive fork
+    3. Save registry (so archive is tracked even if crash occurs next)
+    4. Copy promoted fork's post-branch checkpoints to main directory
+    5. Delete excess main checkpoints not covered by the fork
+    6. Remove promoted fork from registry and delete its directory
+    7. Return latest turn number on new main timeline
+
+    Args:
+        session_id: Session ID string.
+        fork_id: Fork ID to promote.
+
+    Returns:
+        Latest turn number on the new main timeline after promotion.
+
+    Raises:
+        ValueError: If fork_id not found, fork has no post-branch content,
+                    or session_id is invalid.
+    """
+    import shutil
+
+    _validate_session_id(session_id)
+    _validate_fork_id(fork_id)
+
+    # Load fork registry
+    registry = load_fork_registry(session_id)
+    if registry is None:
+        raise ValueError(f"No fork registry found for session {session_id!r}")
+
+    fork_meta = registry.get_fork(fork_id)
+    if fork_meta is None:
+        raise ValueError(f"Fork {fork_id!r} not found in session {session_id!r}")
+
+    branch_turn = fork_meta.branch_turn
+    fork_name = fork_meta.name
+
+    # Get fork's post-branch checkpoints
+    fork_checkpoints = list_fork_checkpoints(session_id, fork_id)
+    post_branch_fork_turns = [t for t in fork_checkpoints if t > branch_turn]
+    if not post_branch_fork_turns:
+        raise ValueError(
+            f"Fork {fork_id!r} has no checkpoints beyond branch point "
+            f"(turn {branch_turn})"
+        )
+
+    # Get main timeline's post-branch checkpoints
+    main_checkpoints = list_checkpoints(session_id)
+    post_branch_main_turns = [t for t in main_checkpoints if t > branch_turn]
+
+    session_dir = get_session_dir(session_id)
+
+    # Step 1: Archive main's post-branch checkpoints into a new fork (if any).
+    # Uses copy-first approach: all copies complete before any deletions,
+    # so a crash mid-operation cannot lose data.
+    if post_branch_main_turns:
+        archive_id = registry.next_fork_id()
+        archive_dir = ensure_fork_dir(session_id, archive_id)
+
+        now = datetime.now(UTC).isoformat() + "Z"
+        archive_meta = ForkMetadata(
+            fork_id=archive_id,
+            name=f"Pre-{fork_name} main",
+            parent_session_id=session_id,
+            branch_turn=branch_turn,
+            created_at=now,
+            updated_at=now,
+            turn_count=len(post_branch_main_turns),
+        )
+
+        # Also copy the branch point checkpoint to the archive
+        # so it is self-contained
+        branch_src = session_dir / f"turn_{branch_turn:03d}.json"
+        if branch_src.exists():
+            branch_dst = archive_dir / f"turn_{branch_turn:03d}.json"
+            shutil.copy2(str(branch_src), str(branch_dst))
+
+        # Copy post-branch main checkpoints into archive fork (no deletion yet)
+        for turn in post_branch_main_turns:
+            src = session_dir / f"turn_{turn:03d}.json"
+            dst = archive_dir / f"turn_{turn:03d}.json"
+            if src.exists():
+                shutil.copy2(str(src), str(dst))
+
+        registry.add_fork(archive_meta)
+
+        # Save registry now so the archive is tracked even if we crash later.
+        # Worst case on crash: duplicate data in both locations (harmless).
+        save_fork_registry(session_id, registry)
+
+    # Step 2: Copy fork's post-branch checkpoints to main directory.
+    # This overwrites main checkpoints at overlapping turn numbers.
+    fork_dir = get_fork_dir(session_id, fork_id)
+    for turn in post_branch_fork_turns:
+        src = fork_dir / f"turn_{turn:03d}.json"
+        dst = session_dir / f"turn_{turn:03d}.json"
+        if src.exists():
+            shutil.copy2(str(src), str(dst))
+
+    # Step 3: Delete main's post-branch checkpoints that were NOT overwritten
+    # by the fork (i.e., turns that existed on main but not in the fork).
+    fork_turn_set = set(post_branch_fork_turns)
+    for turn in post_branch_main_turns:
+        if turn not in fork_turn_set:
+            excess = session_dir / f"turn_{turn:03d}.json"
+            if excess.exists():
+                excess.unlink()
+
+    # Step 4: Remove promoted fork from registry
+    registry.forks = [f for f in registry.forks if f.fork_id != fork_id]
+
+    # Step 5: Delete promoted fork's directory
+    if fork_dir.exists():
+        shutil.rmtree(fork_dir)
+
+    # Step 6: Save updated registry
+    save_fork_registry(session_id, registry)
+
+    # Return latest checkpoint on new main timeline
+    latest = get_latest_checkpoint(session_id)
+    return latest if latest is not None else branch_turn
+
+
+def collapse_all_forks(session_id: str) -> int:
+    """Remove all forks for a session, keeping only the main timeline.
+
+    Story 12.4: Fork Resolution.
+    FR84: User can merge or abandon forks.
+
+    Deletes all fork directories and the fork registry file.
+    Main timeline checkpoints are not modified.
+
+    Args:
+        session_id: Session ID string.
+
+    Returns:
+        Number of forks deleted.
+    """
+    import shutil
+
+    _validate_session_id(session_id)
+
+    registry = load_fork_registry(session_id)
+    if registry is None:
+        return 0
+
+    fork_count = len(registry.forks)
+    if fork_count == 0:
+        # Registry exists but has no forks -- clean up the stale file
+        registry_path = get_fork_registry_path(session_id)
+        if registry_path.exists():
+            registry_path.unlink()
+        return 0
+
+    # Delete each fork's directory
+    for fork in registry.forks:
+        fork_dir = get_fork_dir(session_id, fork.fork_id)
+        if fork_dir.exists():
+            shutil.rmtree(fork_dir, ignore_errors=True)
+
+    # Remove the forks/ parent directory if empty
+    forks_parent = get_session_dir(session_id) / "forks"
+    if forks_parent.exists():
+        try:
+            forks_parent.rmdir()  # Only removes if empty
+        except OSError:
+            pass  # Not empty (unexpected files), leave it
+
+    # Delete forks.yaml
+    registry_path = get_fork_registry_path(session_id)
+    if registry_path.exists():
+        registry_path.unlink()
+
+    return fork_count
 
 
 # =============================================================================

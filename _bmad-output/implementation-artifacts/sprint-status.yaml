@@ -150,6 +150,6 @@ development_status:
   epic-12: in-progress
   12-1-fork-creation: done
   12-2-fork-management-ui: done
-  12-3-fork-comparison-view: review
-  12-4-fork-resolution: backlog
+  12-3-fork-comparison-view: done
+  12-4-fork-resolution: review
   epic-12-retrospective: optional
