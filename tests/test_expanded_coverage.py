@@ -37,7 +37,8 @@ class TestValidateApiKeysExpanded:
             warnings = validate_api_keys(config)
             assert len(warnings) == 0
 
-    def test_validate_api_keys_only_google_missing(self) -> None:
+    @patch("config.load_user_settings", return_value={})
+    def test_validate_api_keys_only_google_missing(self, _mock: MagicMock) -> None:
         """Test warning only for Google when only that key is missing."""
         from config import AppConfig, validate_api_keys
 
@@ -52,7 +53,8 @@ class TestValidateApiKeysExpanded:
             assert "GOOGLE_API_KEY" in warnings[0]
             assert "ANTHROPIC" not in warnings[0]
 
-    def test_validate_api_keys_only_anthropic_missing(self) -> None:
+    @patch("config.load_user_settings", return_value={})
+    def test_validate_api_keys_only_anthropic_missing(self, _mock: MagicMock) -> None:
         """Test warning only for Anthropic when only that key is missing."""
         from config import AppConfig, validate_api_keys
 

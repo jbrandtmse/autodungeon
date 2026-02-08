@@ -3,7 +3,7 @@
 import os
 import tempfile
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 import yaml
@@ -41,7 +41,8 @@ class TestEnvironmentVariables:
             config = AppConfig()
             assert config.ollama_base_url == "http://localhost:11434"
 
-    def test_missing_api_keys_no_crash(self) -> None:
+    @patch("config.load_user_settings", return_value={})
+    def test_missing_api_keys_no_crash(self, _mock_settings: MagicMock) -> None:
         """Test that missing API keys produce warnings, not crashes."""
         from config import AppConfig, validate_api_keys
 

@@ -105,8 +105,11 @@ class TestLLMConfigurationError:
 class TestGetLLMGemini:
     """Tests for get_llm with Gemini provider."""
 
+    @patch("agents.load_user_settings", return_value={})
     @patch("agents.ChatGoogleGenerativeAI")
-    def test_get_llm_gemini_returns_correct_type(self, mock_class: MagicMock) -> None:
+    def test_get_llm_gemini_returns_correct_type(
+        self, mock_class: MagicMock, _mock_settings: MagicMock
+    ) -> None:
         """Test that get_llm returns ChatGoogleGenerativeAI for gemini."""
         mock_instance = MagicMock()
         mock_class.return_value = mock_instance
@@ -120,8 +123,9 @@ class TestGetLLMGemini:
         assert call_kwargs["model"] == "gemini-1.5-flash"
         assert call_kwargs["google_api_key"] == "test-key-12345"
 
+    @patch("agents.load_user_settings", return_value={})
     def test_get_llm_gemini_missing_api_key(
-        self, monkeypatch: pytest.MonkeyPatch
+        self, _mock_settings: MagicMock, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Test that missing GOOGLE_API_KEY raises LLMConfigurationError."""
         monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
