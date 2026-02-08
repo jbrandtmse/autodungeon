@@ -26,30 +26,35 @@ if TYPE_CHECKING:
 
 
 class TestSessionNameInput:
-    """Tests for session name text input in module selection view (Task 1)."""
+    """Tests for session name text input in party setup view (Task 1).
+
+    Story 13.2 moved the session name input from module selection to party setup.
+    """
 
     @patch("app.st")
-    @patch("app.render_module_selection_ui")
-    @patch("app.handle_new_session_click")
-    @patch("app.clear_module_discovery_state")
-    def test_text_input_rendered_in_module_selection_view(
+    @patch("config.load_character_configs")
+    @patch("app.list_library_characters")
+    def test_text_input_rendered_in_party_setup_view(
         self,
-        mock_clear: MagicMock,
-        mock_new_session: MagicMock,
-        mock_render_ui: MagicMock,
+        mock_lib: MagicMock,
+        mock_load: MagicMock,
         mock_st: MagicMock,
     ) -> None:
-        """Test that st.text_input is rendered in render_module_selection_view().
+        """Test that st.text_input is rendered in render_party_setup_view().
 
         Story 13.1: AC #1 - Text input for naming session.
+        Story 13.2: Moved to party setup view.
         """
-        from app import render_module_selection_view
+        from app import render_party_setup_view
 
+        mock_load.return_value = {}
+        mock_lib.return_value = []
         mock_st.session_state = {}
         mock_st.button.return_value = False
         mock_st.text_input.return_value = ""
+        mock_st.columns.return_value = [MagicMock(), MagicMock(), MagicMock()]
 
-        render_module_selection_view()
+        render_party_setup_view()
 
         # Verify text_input was called with correct parameters
         mock_st.text_input.assert_called_once()
@@ -60,27 +65,29 @@ class TestSessionNameInput:
         )
 
     @patch("app.st")
-    @patch("app.render_module_selection_ui")
-    @patch("app.handle_new_session_click")
-    @patch("app.clear_module_discovery_state")
+    @patch("config.load_character_configs")
+    @patch("app.list_library_characters")
     def test_text_input_has_placeholder(
         self,
-        mock_clear: MagicMock,
-        mock_new_session: MagicMock,
-        mock_render_ui: MagicMock,
+        mock_lib: MagicMock,
+        mock_load: MagicMock,
         mock_st: MagicMock,
     ) -> None:
         """Test that text input has the correct placeholder text.
 
         Story 13.1: AC #1 - Placeholder: "Name your adventure (optional)".
+        Story 13.2: Moved to party setup view.
         """
-        from app import render_module_selection_view
+        from app import render_party_setup_view
 
+        mock_load.return_value = {}
+        mock_lib.return_value = []
         mock_st.session_state = {}
         mock_st.button.return_value = False
         mock_st.text_input.return_value = ""
+        mock_st.columns.return_value = [MagicMock(), MagicMock(), MagicMock()]
 
-        render_module_selection_view()
+        render_party_setup_view()
 
         call_kwargs = mock_st.text_input.call_args
         # Check placeholder is set
@@ -88,27 +95,29 @@ class TestSessionNameInput:
         assert "Name your adventure" in placeholder
 
     @patch("app.st")
-    @patch("app.render_module_selection_ui")
-    @patch("app.handle_new_session_click")
-    @patch("app.clear_module_discovery_state")
+    @patch("config.load_character_configs")
+    @patch("app.list_library_characters")
     def test_text_input_has_max_chars(
         self,
-        mock_clear: MagicMock,
-        mock_new_session: MagicMock,
-        mock_render_ui: MagicMock,
+        mock_lib: MagicMock,
+        mock_load: MagicMock,
         mock_st: MagicMock,
     ) -> None:
         """Test that text input has max_chars to prevent overly long names.
 
         Story 13.1: Edge case - maximum length.
+        Story 13.2: Moved to party setup view.
         """
-        from app import render_module_selection_view
+        from app import render_party_setup_view
 
+        mock_load.return_value = {}
+        mock_lib.return_value = []
         mock_st.session_state = {}
         mock_st.button.return_value = False
         mock_st.text_input.return_value = ""
+        mock_st.columns.return_value = [MagicMock(), MagicMock(), MagicMock()]
 
-        render_module_selection_view()
+        render_party_setup_view()
 
         call_kwargs = mock_st.text_input.call_args
         max_chars = call_kwargs[1].get("max_chars")
@@ -116,53 +125,57 @@ class TestSessionNameInput:
         assert max_chars == 100
 
     @patch("app.st")
-    @patch("app.render_module_selection_ui")
-    @patch("app.handle_new_session_click")
-    @patch("app.clear_module_discovery_state")
+    @patch("config.load_character_configs")
+    @patch("app.list_library_characters")
     def test_session_name_stored_in_session_state(
         self,
-        mock_clear: MagicMock,
-        mock_new_session: MagicMock,
-        mock_render_ui: MagicMock,
+        mock_lib: MagicMock,
+        mock_load: MagicMock,
         mock_st: MagicMock,
     ) -> None:
         """Test that entered session name is stored in st.session_state.
 
         Story 13.1: AC #1 - Session name stored in session state.
+        Story 13.2: Moved to party setup view.
         """
-        from app import render_module_selection_view
+        from app import render_party_setup_view
 
+        mock_load.return_value = {}
+        mock_lib.return_value = []
         mock_st.session_state = {}
         mock_st.button.return_value = False
         mock_st.text_input.return_value = "My Custom Adventure"
+        mock_st.columns.return_value = [MagicMock(), MagicMock(), MagicMock()]
 
-        render_module_selection_view()
+        render_party_setup_view()
 
         # Session name should be stored in session state
         assert mock_st.session_state["new_session_name"] == "My Custom Adventure"
 
     @patch("app.st")
-    @patch("app.render_module_selection_ui")
-    @patch("app.handle_new_session_click")
-    @patch("app.clear_module_discovery_state")
+    @patch("config.load_character_configs")
+    @patch("app.list_library_characters")
     def test_text_input_uses_existing_session_state_value(
         self,
-        mock_clear: MagicMock,
-        mock_new_session: MagicMock,
-        mock_render_ui: MagicMock,
+        mock_lib: MagicMock,
+        mock_load: MagicMock,
         mock_st: MagicMock,
     ) -> None:
         """Test that text input pre-fills from existing session state value.
 
         Story 13.1: AC #1 - Persistence across reruns.
+        Story 13.2: Moved to party setup view.
         """
-        from app import render_module_selection_view
+        from app import render_party_setup_view
 
+        mock_load.return_value = {}
+        mock_lib.return_value = []
         mock_st.session_state = {"new_session_name": "Previously Entered"}
         mock_st.button.return_value = False
         mock_st.text_input.return_value = "Previously Entered"
+        mock_st.columns.return_value = [MagicMock(), MagicMock(), MagicMock()]
 
-        render_module_selection_view()
+        render_party_setup_view()
 
         call_kwargs = mock_st.text_input.call_args
         value = call_kwargs[1].get("value", "")

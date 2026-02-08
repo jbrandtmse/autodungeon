@@ -2007,6 +2007,7 @@ def create_initial_game_state() -> GameState:
 def populate_game_state(
     include_sample_messages: bool = True,
     selected_module: ModuleInfo | None = None,
+    characters_override: dict[str, CharacterConfig] | None = None,
 ) -> GameState:
     """Factory function to create a fully populated game state from config files.
 
@@ -2019,6 +2020,9 @@ def populate_game_state(
             to demonstrate message styling. Set to False for clean game starts.
         selected_module: Optional module for DM context injection (Story 7.3).
             None for freeform adventures without a specific module.
+        characters_override: Optional dict of CharacterConfig keyed by lowercase name.
+            When provided, uses these instead of loading from config/characters/.
+            Story 13.2: Party Composition UI passes selected characters.
 
     Returns:
         A GameState populated with characters, turn queue, and agent memories.
@@ -2028,7 +2032,11 @@ def populate_game_state(
 
     # Load configs from YAML files
     dm_config = load_dm_config()
-    characters = load_character_configs()
+    characters = (
+        characters_override
+        if characters_override is not None
+        else load_character_configs()
+    )
 
     # Build turn queue: DM first, then PCs (sorted for deterministic order)
     turn_queue = ["dm"] + sorted(characters.keys())

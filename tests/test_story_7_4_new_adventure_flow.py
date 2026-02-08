@@ -295,16 +295,17 @@ class TestRenderModuleSelectionView:
     @patch("app.render_module_selection_ui")
     @patch("app.handle_new_session_click")
     @patch("app.clear_module_discovery_state")
-    def test_confirmed_triggers_game_start(
+    def test_confirmed_triggers_party_setup(
         self,
         mock_clear: MagicMock,
         mock_new_session: MagicMock,
         mock_selection_ui: MagicMock,
         mock_st: MagicMock,
     ) -> None:
-        """Test module_selection_confirmed triggers game initialization.
+        """Test module_selection_confirmed routes to party setup.
 
         Story 7.4: Task 4.1, 4.2.
+        Story 13.2: Now routes to party_setup instead of directly starting game.
         """
         from app import render_module_selection_view
 
@@ -313,9 +314,12 @@ class TestRenderModuleSelectionView:
 
         render_module_selection_view()
 
-        # Should call handle_new_session_click and clear state
-        mock_new_session.assert_called_once()
-        mock_clear.assert_called_once()
+        # Should route to party_setup (Story 13.2)
+        assert mock_st.session_state["app_view"] == "party_setup"
+        # Should NOT call handle_new_session_click directly (deferred to party setup)
+        mock_new_session.assert_not_called()
+        # Module state should NOT be cleared (needed in party setup)
+        mock_clear.assert_not_called()
         mock_st.rerun.assert_called()
 
 

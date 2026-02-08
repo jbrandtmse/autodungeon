@@ -1688,15 +1688,22 @@ def initialize_session_state() -> None:
                     "token_limit_overrides"
                 ]
 
-    # App view routing (Story 4.3, 7.4)
+    # App view routing (Story 4.3, 7.4, 13.2)
     # View state machine:
-    #   session_browser -> module_selection -> game
+    #   session_browser -> module_selection -> party_setup -> game
+    #                          |                   |
+    #                          |                   +-> character_wizard -> party_setup
+    #                          |                   |
+    #                          |                   +-> module_selection (back)
     #                          |
     #                          +-> session_browser (cancel/back)
     #
     # Valid app_view values:
     #   - "session_browser": List of sessions, "New Adventure" button
     #   - "module_selection": Module discovery loading, grid selection UI (Story 7.4)
+    #   - "party_setup": Party composition selection (Story 13.2)
+    #   - "character_wizard": Character creation wizard (Story 9.1)
+    #   - "character_library": Character library browser (Story 9.4)
     #   - "game": Active game view with narrative, controls, etc.
     if "app_view" not in st.session_state:
         # Default to session browser if sessions exist, otherwise start new session
@@ -8264,9 +8271,10 @@ def render_module_selection_view() -> None:
     Wraps render_module_selection_ui() with:
     - Step header
     - Back button navigation
-    - Confirmation handling to proceed to game
+    - Confirmation handling to proceed to party setup
 
     Story 7.4: AC #1-5 - New adventure flow integration.
+    Story 13.2: Routes to party_setup instead of directly to game.
     """
     # Step header
     st.markdown(
@@ -8274,16 +8282,6 @@ def render_module_selection_view() -> None:
         unsafe_allow_html=True,
     )
     st.caption("Select a D&D module to guide the Dungeon Master's storytelling.")
-
-    # Session name input (Story 13.1)
-    session_name = st.text_input(
-        "Adventure Name",
-        value=st.session_state.get("new_session_name", ""),
-        placeholder="Name your adventure (optional)",
-        key="session_name_input",
-        max_chars=100,
-    )
-    st.session_state["new_session_name"] = session_name
 
     # Back button
     if st.button("Back to Adventures", key="module_selection_back_btn"):
@@ -8293,9 +8291,9 @@ def render_module_selection_view() -> None:
 
     # Check if user confirmed selection (from Story 7.2 buttons)
     if st.session_state.get("module_selection_confirmed"):
-        # Proceed to game initialization
-        handle_new_session_click()  # Already handles selected_module (Story 7.3)
-        clear_module_discovery_state()  # Cleanup
+        # Proceed to party setup (Story 13.2)
+        # Do NOT clear module discovery state here - module state must survive into party setup
+        st.session_state["app_view"] = "party_setup"
         st.rerun()
         return
 
@@ -8303,19 +8301,295 @@ def render_module_selection_view() -> None:
     render_module_selection_ui()
 
 
-def handle_new_session_click() -> None:
+def clear_party_setup_state() -> None:
+    """Clear all party setup session state.
+
+    Called when party setup is completed or cancelled.
+
+    Story 13.2: Party Composition UI.
+    """
+    keys_to_clear = [
+        "party_selection",
+        "party_setup_return",
+    ]
+    for key in keys_to_clear:
+        if key in st.session_state:
+            del st.session_state[key]
+
+
+def render_party_character_card(
+    name: str,
+    character_class: str,
+    color: str,
+    is_selected: bool,
+    card_key: str,
+    source_label: str,
+) -> bool:
+    """Render a character card with selection checkbox for party setup.
+
+    Story 13.2: Party Composition UI.
+
+    Args:
+        name: Character name.
+        character_class: Character D&D class.
+        color: Hex color for border.
+        is_selected: Whether the character is currently selected.
+        card_key: Unique key for the checkbox widget.
+        source_label: Label indicating source (e.g., "Preset" or "Library").
+
+    Returns:
+        Current checkbox state (True if selected).
+    """
+    opacity = "1.0" if is_selected else "0.5"
+    border_width = "3px" if is_selected else "1px"
+
+    st.markdown(
+        f'<div class="party-character-card" style="'
+        f"border: {border_width} solid {color};"
+        f"border-radius: 8px;"
+        f"padding: 12px;"
+        f"margin-bottom: 8px;"
+        f"opacity: {opacity};"
+        f"background: rgba(0,0,0,0.2);"
+        f'">'
+        f'<h4 style="margin: 0; color: {color};">'
+        f"{escape_html(name)}</h4>"
+        f'<p style="margin: 4px 0; color: #ccc;">'
+        f"{escape_html(character_class)}</p>"
+        f'<span style="font-size: 0.75em; color: #888;">'
+        f"{escape_html(source_label)}</span>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+    return st.checkbox(
+        f"Select {escape_html(name)}",
+        value=is_selected,
+        key=card_key,
+    )
+
+
+def render_party_setup_view() -> None:
+    """Render the party setup step of new adventure creation.
+
+    Shows preset and library characters for selection/deselection.
+    Preset characters default to selected, library characters to deselected.
+    Validates at least 1 character is selected before allowing game start.
+
+    Story 13.2: Party Composition UI.
+    """
+    from config import load_character_configs
+
+    # Step header
+    st.markdown(
+        '<h1 class="step-header">Step 2: Assemble Your Party</h1>',
+        unsafe_allow_html=True,
+    )
+    st.caption("Select which characters will join your adventure.")
+
+    # Session name input (moved from module selection, Story 13.1/13.2)
+    session_name = st.text_input(
+        "Adventure Name",
+        value=st.session_state.get("new_session_name", ""),
+        placeholder="Name your adventure (optional)",
+        key="session_name_input",
+        max_chars=100,
+    )
+    st.session_state["new_session_name"] = session_name
+
+    # Load preset characters
+    preset_characters = load_character_configs()
+
+    # Load library characters
+    library_characters = list_library_characters()
+
+    # Initialize party_selection with defaults if not yet set
+    if "party_selection" not in st.session_state:
+        party_selection: dict[str, bool] = {}
+        # Presets default to selected
+        for char_key in preset_characters:
+            party_selection[f"preset:{char_key}"] = True
+        # Library defaults to deselected
+        for lib_char in library_characters:
+            filename = lib_char.get("_filename", "")
+            party_selection[f"library:{filename}"] = False
+        st.session_state["party_selection"] = party_selection
+
+    party_selection = st.session_state["party_selection"]
+
+    # Render preset characters section
+    if preset_characters:
+        st.markdown("### Preset Characters")
+        cols = st.columns(min(len(preset_characters), 4))
+        for idx, (char_key, char_config) in enumerate(
+            sorted(preset_characters.items())
+        ):
+            selection_key = f"preset:{char_key}"
+            # Ensure key exists in party_selection
+            if selection_key not in party_selection:
+                party_selection[selection_key] = True
+            with cols[idx % len(cols)]:
+                new_state = render_party_character_card(
+                    name=char_config.name,
+                    character_class=char_config.character_class,
+                    color=char_config.color,
+                    is_selected=party_selection[selection_key],
+                    card_key=f"party_cb_{selection_key}",
+                    source_label="Preset",
+                )
+                party_selection[selection_key] = new_state
+
+    # Render library characters section
+    st.markdown("### Library Characters")
+    if library_characters:
+        cols = st.columns(min(len(library_characters), 4))
+        for idx, lib_char in enumerate(library_characters):
+            filename = lib_char.get("_filename", "")
+            selection_key = f"library:{filename}"
+            # Ensure key exists in party_selection
+            if selection_key not in party_selection:
+                party_selection[selection_key] = False
+            char_name = lib_char.get("name", "Unknown")
+            char_class = lib_char.get(
+                "class", lib_char.get("character_class", "Unknown")
+            )
+            char_color = lib_char.get("color", "#808080")
+            with cols[idx % len(cols)]:
+                new_state = render_party_character_card(
+                    name=char_name,
+                    character_class=char_class,
+                    color=char_color,
+                    is_selected=party_selection[selection_key],
+                    card_key=f"party_cb_{selection_key}",
+                    source_label="Library",
+                )
+                party_selection[selection_key] = new_state
+    else:
+        st.info("No characters in library yet. Create one using the character wizard.")
+
+    if not preset_characters and not library_characters:
+        st.info("No characters found. Create one using the character wizard.")
+
+    st.session_state["party_selection"] = party_selection
+
+    # Action buttons
+    st.markdown("---")
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        if st.button("Back to Module Selection", key="party_setup_back_btn"):
+            # Clear party setup state but preserve module state
+            clear_party_setup_state()
+            st.session_state["module_selection_confirmed"] = False
+            st.session_state["app_view"] = "module_selection"
+            st.rerun()
+
+    with col2:
+        if st.button("Create New Character", key="party_setup_wizard_btn"):
+            st.session_state["party_setup_return"] = True
+            st.session_state["wizard_active"] = True
+            st.session_state["wizard_step"] = 0
+            st.session_state["wizard_data"] = get_default_wizard_data()
+            st.session_state["app_view"] = "character_wizard"
+            st.rerun()
+
+    with col3:
+        # Count selected characters
+        selected_count = sum(1 for v in party_selection.values() if v)
+
+        if selected_count == 0:
+            st.warning("Select at least 1 character to begin.")
+
+        begin_disabled = selected_count == 0
+        if st.button(
+            "Begin Adventure",
+            key="party_setup_begin_btn",
+            type="primary",
+            disabled=begin_disabled,
+        ):
+            # Build selected characters dict
+            selected_characters = _build_selected_characters(
+                party_selection, preset_characters, library_characters
+            )
+            # Start game with selected characters
+            handle_new_session_click(selected_characters=selected_characters)
+            clear_module_discovery_state()
+            clear_party_setup_state()
+            st.rerun()
+
+
+def _build_selected_characters(
+    party_selection: dict[str, bool],
+    preset_characters: dict[str, CharacterConfig],
+    library_characters: list[dict[str, Any]],
+) -> dict[str, CharacterConfig]:
+    """Build the characters dict from selected preset + library characters.
+
+    Story 13.2: Party Composition UI.
+
+    Args:
+        party_selection: Dict mapping selection keys to bool (selected/not).
+        preset_characters: Preset character configs keyed by lowercase name.
+        library_characters: Library character data dicts.
+
+    Returns:
+        Dict of CharacterConfig keyed by lowercase name for selected characters.
+    """
+    selected: dict[str, CharacterConfig] = {}
+
+    # Add selected preset characters
+    for char_key, char_config in preset_characters.items():
+        selection_key = f"preset:{char_key}"
+        if party_selection.get(selection_key, False):
+            selected[char_key] = char_config
+
+    # Add selected library characters (convert dict -> CharacterConfig)
+    for lib_char in library_characters:
+        filename = lib_char.get("_filename", "")
+        selection_key = f"library:{filename}"
+        if party_selection.get(selection_key, False):
+            # Map library 'class' to CharacterConfig 'character_class'
+            char_class = lib_char.get(
+                "class", lib_char.get("character_class", "Adventurer")
+            )
+            char_name = lib_char.get("name", "Unknown")
+            config = CharacterConfig(
+                name=char_name,
+                character_class=char_class,
+                personality=lib_char.get("personality", "A mysterious adventurer."),
+                color=lib_char.get("color", "#808080"),
+                provider=lib_char.get("provider", "gemini"),
+                model=lib_char.get("model", "gemini-1.5-flash"),
+                token_limit=lib_char.get("token_limit", 4000),
+            )
+            selected[char_name.lower()] = config
+
+    return selected
+
+
+def handle_new_session_click(
+    selected_characters: dict[str, CharacterConfig] | None = None,
+) -> None:
     """Handle new session button click.
 
     Creates a new session and initializes fresh game state.
     Story 7.3: Passes selected_module from session_state to game initialization.
+    Story 13.2: Accepts optional selected_characters for party composition.
+
+    Args:
+        selected_characters: Optional dict of CharacterConfig keyed by lowercase name.
+            When provided, only these characters are included in the game.
+            Story 13.2: Party Composition UI passes selected characters.
     """
     # Get selected module from session state (Story 7.3)
     # Will be None for freeform adventures
     selected_module = st.session_state.get("selected_module")
 
-    # Create fresh game state with optional module context
+    # Create fresh game state with optional module context and character override
     game = populate_game_state(
-        include_sample_messages=False, selected_module=selected_module
+        include_sample_messages=False,
+        selected_module=selected_module,
+        characters_override=selected_characters,
     )
 
     # Get character names from game state
@@ -8533,8 +8807,8 @@ def main() -> None:
     # Wrap content in app-content div for responsive hiding
     st.markdown('<div class="app-content">', unsafe_allow_html=True)
 
-    # App view routing (Story 4.3, 7.4, 9.1, 9.4)
-    # Valid views: session_browser, module_selection, character_wizard, character_library, game
+    # App view routing (Story 4.3, 7.4, 9.1, 9.4, 13.2)
+    # Valid views: session_browser, module_selection, party_setup, character_wizard, character_library, game
     app_view = st.session_state.get("app_view", "session_browser")
 
     if app_view == "session_browser":
@@ -8552,8 +8826,15 @@ def main() -> None:
         render_character_creation_wizard()
         # Check if wizard was cancelled or completed
         if not st.session_state.get("wizard_active", False):
-            # Return to library if we were editing, otherwise session browser
-            if st.session_state.get("library_editing"):
+            # Return to party setup if we came from there (Story 13.2)
+            if st.session_state.get("party_setup_return"):
+                del st.session_state["party_setup_return"]
+                # Clear party_selection so it re-initializes with new library chars
+                if "party_selection" in st.session_state:
+                    del st.session_state["party_selection"]
+                st.session_state["app_view"] = "party_setup"
+            # Return to library if we were editing
+            elif st.session_state.get("library_editing"):
                 del st.session_state["library_editing"]
                 st.session_state["app_view"] = "character_library"
             else:
@@ -8567,6 +8848,10 @@ def main() -> None:
         if st.button("Back to Sessions"):
             st.session_state["app_view"] = "session_browser"
             st.rerun()
+    elif app_view == "party_setup":
+        # Party setup view (Story 13.2)
+        st.title("autodungeon")
+        render_party_setup_view()
     elif app_view == "module_selection":
         # Module selection view (Story 7.4)
         st.title("autodungeon")
