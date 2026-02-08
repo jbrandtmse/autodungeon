@@ -7730,6 +7730,7 @@ def start_module_discovery() -> None:
     Story 7.1: Module Discovery via LLM Query.
     """
     st.session_state["module_discovery_in_progress"] = True
+    st.session_state["module_discovery_started_at"] = time.time()
     st.session_state["module_discovery_error"] = None
     st.session_state["module_list"] = None
 
@@ -7798,6 +7799,7 @@ def clear_module_discovery_state() -> None:
         "module_list",
         "module_discovery_result",
         "module_discovery_in_progress",
+        "module_discovery_started_at",
         "module_discovery_error",
         "selected_module",
         "module_selection_confirmed",
@@ -7833,10 +7835,25 @@ def render_module_discovery_loading() -> None:
     """Render loading state during module discovery.
 
     Shows a campfire-themed loading indicator while the DM LLM
-    is being queried for known D&D modules.
+    is being queried for known D&D modules. Includes stale-state
+    detection (>150s) to auto-reset stuck discovery, and a cancel
+    button so users can escape if the LLM call hangs.
 
     Story 7.1: Module Discovery via LLM Query.
     """
+    # Detect stale discovery state (stuck longer than timeout + buffer)
+    started_at = st.session_state.get("module_discovery_started_at", 0)
+    if started_at and (time.time() - started_at) > 150:
+        logger.warning("Module discovery stale (>150s), resetting state")
+        st.session_state["module_discovery_in_progress"] = False
+        st.session_state["module_discovery_error"] = create_user_error(
+            error_type="module_discovery_failed",
+            provider="unknown",
+            agent="dm",
+        )
+        st.rerun()
+        return
+
     st.markdown(
         """
     <div class="module-discovery-loading">
@@ -7847,6 +7864,13 @@ def render_module_discovery_loading() -> None:
     """,
         unsafe_allow_html=True,
     )
+
+    # Cancel button so users can escape a hung discovery
+    if st.button("Cancel", key="module_discovery_cancel_btn"):
+        st.session_state["module_discovery_in_progress"] = False
+        st.session_state["app_view"] = "session_browser"
+        clear_module_discovery_state()
+        st.rerun()
 
     # Streamlit spinner as backup/accessibility
     with st.spinner(""):
