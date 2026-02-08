@@ -54,16 +54,22 @@ This project has completed comprehensive planning and architecture design. Imple
 | 5 | Memory & Narrative Continuity | ✅ Complete |
 | 6 | LLM Configuration UI | ✅ Complete |
 
-#### Enhancements (v1.1) - Planned
+#### Enhancements (v1.1) - Complete
 
 | Epic | Description | Status |
 |------|-------------|--------|
 | 7 | Module Selection & Campaign Setup | ✅ Complete |
 | 8 | Character Sheets | ✅ Complete |
-| 9 | Character Creation UI | 📋 Planned |
-| 10 | DM Whisper & Secrets System | 📋 Planned |
-| 11 | Callback Tracker | 📋 Planned |
-| 12 | Fork Gameplay | 📋 Planned |
+| 9 | Character Creation UI | ✅ Complete |
+| 10 | DM Whisper & Secrets System | ✅ Complete |
+| 11 | Callback Tracker | ✅ Complete |
+| 12 | Fork Gameplay | ✅ Complete |
+
+#### Integration Fix (v1.1)
+
+| Epic | Description | Status |
+|------|-------------|--------|
+| 13 | Adventure Setup & Party Management | ✅ Complete |
 
 See the [planning artifacts](_bmad-output/planning-artifacts/) for:
 
