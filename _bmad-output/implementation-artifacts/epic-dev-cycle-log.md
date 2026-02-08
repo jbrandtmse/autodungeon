@@ -1473,6 +1473,35 @@
 
 ---
 
+## Stories 12-2 through 12-4
+
+Completed in separate cycle sessions (not logged here).
+
+---
+
+# Epic 13 - Adventure Setup & Party Management
+
+**Project:** autodungeon
+**Epic:** 13 - Adventure Setup & Party Management
+**Started:** 2026-02-08
+
+**Goal:** Wire the new adventure flow into a complete experience connecting session naming, party composition, and character sheet initialization.
+
+**User Outcome:** "I click New Adventure, name my session, pick my party from presets and my character library, and start playing with fully populated character sheets from turn one."
+
+**FRs Addressed:** FR1 (configured party), FR9 (party size), FR10 (character traits), FR70 (library reuse)
+**Trigger:** Sprint Change Proposal 2026-02-08
+
+## Cycle Overview
+
+| Story | Status | Phase |
+|-------|--------|-------|
+| 13-1-session-naming | pending | - |
+| 13-2-party-composition-ui | pending | - |
+| 13-3-character-sheet-initialization | pending | - |
+
+---
+
 ## Story: 12-1-fork-creation
 
 **Status:** ✅ Completed

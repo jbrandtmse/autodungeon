@@ -4,7 +4,7 @@
 
 This document provides the epic and story breakdown for autodungeon v1.1 enhancements, building on the completed MVP (Epics 1-6).
 
-**Summary:** 6 New Epics, 24 Stories
+**Summary:** 7 New Epics, 27 Stories
 
 ## New Functional Requirements
 
@@ -65,7 +65,8 @@ This document provides the epic and story breakdown for autodungeon v1.1 enhance
 | 10 | DM Whisper & Secrets System | 5 | 5 |
 | 11 | Callback Tracker | 5 | 5 |
 | 12 | Fork Gameplay | 4 | 4 |
-| **Total** | | **27** | **29** |
+| 13 | Adventure Setup & Party Management | 3 | 4 |
+| **Total** | | **30** | **33** |
 
 ---
 
@@ -1161,6 +1162,124 @@ So that **I can choose my canonical timeline**.
 
 ---
 
+## Epic 13: Adventure Setup & Party Management
+
+**Goal:** Wire the new adventure flow into a complete, user-facing experience that connects session naming, party composition, and character sheet initialization — bridging Epics 7, 8, and 9.
+
+**User Outcome:** "I click New Adventure, name my session, pick my party from presets and my character library, and start playing with fully populated character sheets from turn one."
+
+**FRs Addressed:** FR1 (configured party), FR9 (party size), FR10 (character traits), FR70 (library reuse)
+
+**Trigger:** Sprint Change Proposal 2026-02-08 — playtesting discovered integration gaps between completed epics.
+
+---
+
+### Story 13.1: Session Naming
+
+As a **user starting a new adventure**,
+I want **to name my session during the adventure creation flow**,
+So that **I can identify it later in the session browser instead of seeing "Unnamed Adventure"**.
+
+**Acceptance Criteria:**
+
+**Given** the new adventure flow (after module selection)
+**When** I reach the Party Setup step
+**Then** I see a text input for naming my session
+
+**Given** I enter a session name (e.g., "Curse of Strahd - Attempt 2")
+**When** the session is created
+**Then** the name is passed to `create_new_session(name=...)` and persisted in SessionMetadata
+
+**Given** I leave the name blank
+**When** the session is created
+**Then** the session defaults to "Unnamed Adventure" (existing behavior preserved)
+
+**Given** a named session exists
+**When** I view the session browser
+**Then** the session card displays my chosen name instead of "Unnamed Adventure"
+
+---
+
+### Story 13.2: Party Composition UI
+
+As a **user**,
+I want **to choose which characters join my adventure from preset characters and my character library**,
+So that **I can customize my party for each session**.
+
+**Acceptance Criteria:**
+
+**Given** I complete module selection (or skip to freeform)
+**When** I proceed
+**Then** I see a Party Setup screen (new `app_view = "party_setup"`)
+
+**Given** the Party Setup screen
+**When** displayed
+**Then** I see:
+- Session name input (from Story 13.1)
+- Grid of preset characters (`config/characters/*.yaml`) with select/deselect toggles
+- Grid of library characters (`config/characters/library/*.yaml`) with select/deselect toggles
+- Each character card shows: name, class, and a visual indicator of selected state
+- "Create New Character" button that routes to the character creation wizard
+
+**Given** the party selection
+**When** I select characters
+**Then** I can select 1 to N characters for my party (FR9)
+**And** preset characters are selected by default
+
+**Given** I click "Create New Character"
+**When** the wizard completes
+**Then** I return to the Party Setup screen with the new character available and selected
+
+**Given** I have selected at least 1 character
+**When** I click "Begin Adventure"
+**Then** only the selected characters are passed to `populate_game_state()`
+**And** the game initializes with my chosen party
+
+**Given** I try to proceed with 0 characters selected
+**When** I click "Begin Adventure"
+**Then** a validation message prevents proceeding: "Select at least one character"
+
+---
+
+### Story 13.3: Character Sheet Initialization
+
+As a **developer**,
+I want **character sheets populated in GameState when a session starts**,
+So that **agents have mechanical data from turn one and all Epic 8 systems activate**.
+
+**Acceptance Criteria:**
+
+**Given** `populate_game_state()` is called with selected characters
+**When** the game initializes
+**Then** `character_sheets` dict contains a `CharacterSheet` for every selected character (not empty `{}`)
+
+**Given** a preset character (from `config/characters/`)
+**When** initializing their sheet
+**Then** a level-appropriate CharacterSheet is auto-generated based on their class (using logic similar to existing `create_sample_character_sheet()`)
+
+**Given** a library character created via the wizard
+**When** initializing their sheet
+**Then** their saved CharacterSheet data is loaded (preserving the user's exact ability scores, equipment, backstory choices)
+
+**Given** character sheets are populated at game start
+**When** the DM agent builds context
+**Then** `format_all_sheets_context()` returns all party sheets (context injection activates)
+
+**Given** character sheets are populated at game start
+**When** a PC agent builds context
+**Then** `format_character_sheet_context()` returns their own sheet (context injection activates)
+
+**Given** the character sheet viewer
+**When** a user clicks a character name in the party panel
+**Then** the viewer shows real sheet data from GameState (not sample fallbacks)
+
+**Given** the wizard saves a character to the library
+**When** the save completes
+**Then** the full CharacterSheet data is persisted alongside the CharacterConfig YAML
+**So that** it can be loaded in Story 13.3 initialization
+
+---
+
 ## Implementation Priority
 
 **Recommended Order:**
@@ -1171,6 +1290,7 @@ So that **I can choose my canonical timeline**.
 4. **Epic 9** (Character Creation) - Improved onboarding
 5. **Epic 11** (Callback Tracker) - Research value + narrative quality
 6. **Epic 12** (Fork Gameplay) - Advanced feature, builds on checkpoints
+7. **Epic 13** (Adventure Setup & Party Management) - Integration glue connecting Epics 7, 8, 9 into cohesive flow
 
 ---
 
@@ -1178,10 +1298,10 @@ So that **I can choose my canonical timeline**.
 
 | File | Changes |
 |------|---------|
-| `models.py` | CharacterSheet, Whisper, NarrativeElement, Fork models |
+| `models.py` | CharacterSheet, Whisper, NarrativeElement, Fork models, populate_game_state selected_characters param + sheet init |
 | `tools.py` | update_character_sheet(), whisper_to_agent() |
 | `agents.py` | Module context injection, character sheet context |
 | `memory.py` | Whisper context injection, callback suggestions |
 | `persistence.py` | Fork management, callback database |
-| `app.py` | Module selection UI, character sheet viewer, fork UI, whisper UI |
-| `config/` | Character library storage |
+| `app.py` | Module selection UI, character sheet viewer, fork UI, whisper UI, **party setup UI, session naming** |
+| `config/` | Character library storage (+ CharacterSheet data alongside CharacterConfig) |
