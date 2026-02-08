@@ -3012,15 +3012,17 @@ hr {
     font-weight: 500;
 }
 
-/* Clickable Character Name in Party Panel */
-.character-card-wrapper .stButton > button[data-testid*="view_sheet_"] {
+/* Clickable Character Name in Party Panel
+   Streamlit renders st.markdown HTML and st.button as siblings, not parent-child.
+   Target via the st-key-view_sheet_ class on the stElementContainer ancestor. */
+[data-testid="stSidebar"] .stElementContainer[class*="st-key-view_sheet_"] button {
     background: transparent !important;
     border: none !important;
-    color: inherit;
+    color: var(--text-primary, #E8DCC8) !important;
     font-family: var(--font-ui);
     font-size: var(--text-name);
     font-weight: 600;
-    padding: 0;
+    padding: 0 !important;
     margin: 0;
     text-align: left;
     cursor: pointer;
@@ -3028,33 +3030,17 @@ hr {
     width: auto !important;
     height: auto !important;
     min-height: 0 !important;
+    box-shadow: none !important;
 }
 
-.character-card-wrapper .stButton > button[data-testid*="view_sheet_"]:hover {
+[data-testid="stSidebar"] .stElementContainer[class*="st-key-view_sheet_"] button:hover {
     color: var(--accent-warm, #E8A849) !important;
     text-decoration: underline;
     background: transparent !important;
 }
 
-/* Character-specific name colors in character card buttons */
-.character-card-wrapper.fighter .stButton > button[data-testid*="view_sheet_"] {
-    color: var(--color-fighter, #C45C4A);
-}
-
-.character-card-wrapper.rogue .stButton > button[data-testid*="view_sheet_"] {
-    color: var(--color-rogue, #6B8E6B);
-}
-
-.character-card-wrapper.wizard .stButton > button[data-testid*="view_sheet_"] {
-    color: var(--color-wizard, #7B68B8);
-}
-
-.character-card-wrapper.cleric .stButton > button[data-testid*="view_sheet_"] {
-    color: var(--color-cleric, #4A90A4);
-}
-
 /* Focus-visible styles for keyboard navigation (Story 8.2 accessibility) */
-.character-card-wrapper .stButton > button[data-testid*="view_sheet_"]:focus-visible {
+[data-testid="stSidebar"] .stElementContainer[class*="st-key-view_sheet_"] button:focus-visible {
     outline: 2px solid var(--accent-warm, #E8A849);
     outline-offset: 2px;
     border-radius: 2px;
