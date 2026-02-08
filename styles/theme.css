@@ -1865,28 +1865,40 @@ hr {
   margin-bottom: var(--space-sm);
 }
 
-/* Config modal buttons - Save (primary) */
-[data-testid="stDialog"] .stButton > button[data-testid="config_save_btn"] {
-  background: var(--accent-warm);
-  border: none;
-  color: var(--bg-primary);
-  font-weight: 500;
+/* Config modal buttons - Save (primary)
+   Streamlit puts key on stElementContainer as st-key-*, not on the button.
+   Inner div/p elements inherit their own color, so override with * selector. */
+[data-testid="stDialog"] .stElementContainer[class*="st-key-config_save_btn"] button,
+[data-testid="stDialog"] .stElementContainer[class*="st-key-config_save_btn"] button * {
+  background: var(--accent-warm) !important;
+  border: none !important;
+  color: var(--bg-primary) !important;
+  font-weight: 600;
 }
 
-[data-testid="stDialog"] .stButton > button[data-testid="config_save_btn"]:hover {
-  background: #D49A3D;
+[data-testid="stDialog"] .stElementContainer[class*="st-key-config_save_btn"] button *  {
+  background: transparent !important;
+}
+
+[data-testid="stDialog"] .stElementContainer[class*="st-key-config_save_btn"] button:hover,
+[data-testid="stDialog"] .stElementContainer[class*="st-key-config_save_btn"] button:hover * {
+  background: #D49A3D !important;
+}
+
+[data-testid="stDialog"] .stElementContainer[class*="st-key-config_save_btn"] button:hover * {
+  background: transparent !important;
 }
 
 /* Config modal buttons - Cancel (secondary) */
-[data-testid="stDialog"] .stButton > button[data-testid="config_cancel_btn"] {
-  background: transparent;
-  border: 1px solid var(--text-secondary);
-  color: var(--text-primary);
+[data-testid="stDialog"] .stElementContainer[class*="st-key-config_cancel_btn"] button {
+  background: transparent !important;
+  border: 1px solid var(--text-secondary) !important;
+  color: var(--text-primary) !important;
 }
 
-[data-testid="stDialog"] .stButton > button[data-testid="config_cancel_btn"]:hover {
-  background: var(--bg-message);
-  border-color: var(--text-primary);
+[data-testid="stDialog"] .stElementContainer[class*="st-key-config_cancel_btn"] button:hover {
+  background: var(--bg-message) !important;
+  border-color: var(--text-primary) !important;
 }
 
 /* Configure button in sidebar - secondary outline style */
@@ -2050,21 +2062,23 @@ hr {
   border-bottom: none;
 }
 
-/* API key input field overrides within modal */
-[data-testid="stDialog"] .api-key-field .stTextInput > div > div > input {
-  background: var(--bg-message);
-  border: 1px solid var(--bg-message);
-  color: var(--text-primary);
+/* API key input field overrides within modal
+   Inputs are NOT children of .api-key-field in Streamlit DOM;
+   target via st-key-api_key_input_* on the container instead */
+[data-testid="stDialog"] .stElementContainer[class*="st-key-api_key_input_"] input {
+  background: var(--bg-message) !important;
+  border: 1px solid var(--bg-message) !important;
+  color: var(--text-primary) !important;
   font-family: var(--font-mono);
   font-size: 13px;
 }
 
-[data-testid="stDialog"] .api-key-field .stTextInput > div > div > input:focus {
-  border-color: var(--accent-warm);
+[data-testid="stDialog"] .stElementContainer[class*="st-key-api_key_input_"] input:focus {
+  border-color: var(--accent-warm) !important;
   box-shadow: 0 0 0 1px var(--accent-warm);
 }
 
-[data-testid="stDialog"] .api-key-field .stTextInput > div > div > input::placeholder {
+[data-testid="stDialog"] .stElementContainer[class*="st-key-api_key_input_"] input::placeholder {
   color: var(--text-secondary);
   font-family: var(--font-ui);
   font-style: italic;
@@ -2332,30 +2346,32 @@ hr {
   margin: var(--space-lg) 0;
 }
 
-/* Number input styling within token limit rows */
-[data-testid="stDialog"] .token-limit-row .stNumberInput > div > div > input {
-  background: var(--bg-message);
-  border: 1px solid var(--bg-message);
-  color: var(--text-primary);
+/* Number input styling for token limits
+   Inputs are NOT children of .token-limit-row in Streamlit DOM;
+   target via st-key-token_limit_* on the container instead */
+[data-testid="stDialog"] .stElementContainer[class*="st-key-token_limit_"] input[type="number"] {
+  background: var(--bg-message) !important;
+  border: 1px solid var(--bg-message) !important;
+  color: var(--text-primary) !important;
   font-family: var(--font-mono);
   font-size: 14px;
 }
 
-[data-testid="stDialog"] .token-limit-row .stNumberInput > div > div > input:focus {
-  border-color: var(--accent-warm);
+[data-testid="stDialog"] .stElementContainer[class*="st-key-token_limit_"] input[type="number"]:focus {
+  border-color: var(--accent-warm) !important;
   box-shadow: 0 0 0 1px var(--accent-warm);
 }
 
-/* Number input buttons styling */
-[data-testid="stDialog"] .token-limit-row .stNumberInput button {
-  background: var(--bg-message);
-  border: 1px solid var(--bg-secondary);
-  color: var(--text-secondary);
+/* Number input +/- buttons styling */
+[data-testid="stDialog"] .stElementContainer[class*="st-key-token_limit_"] button {
+  background: var(--bg-message) !important;
+  border: 1px solid var(--bg-secondary) !important;
+  color: var(--text-secondary) !important;
 }
 
-[data-testid="stDialog"] .token-limit-row .stNumberInput button:hover {
-  background: var(--bg-secondary);
-  color: var(--text-primary);
+[data-testid="stDialog"] .stElementContainer[class*="st-key-token_limit_"] button:hover {
+  background: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
 }
 
 /* ==========================================================================
