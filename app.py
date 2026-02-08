@@ -5934,6 +5934,7 @@ def render_character_library() -> None:
             st.session_state["wizard_active"] = True
             st.session_state["wizard_step"] = 0
             st.session_state["wizard_data"] = get_default_wizard_data()
+            st.session_state["app_view"] = "character_wizard"
             st.rerun()
         return
 
@@ -5944,6 +5945,7 @@ def render_character_library() -> None:
         st.session_state["wizard_active"] = True
         st.session_state["wizard_step"] = 0
         st.session_state["wizard_data"] = get_default_wizard_data()
+        st.session_state["app_view"] = "character_wizard"
         st.rerun()
 
     st.markdown("---")
@@ -7742,6 +7744,18 @@ def start_module_discovery() -> None:
 
             dm_config = load_dm_config()
 
+        # Apply user DM overrides from Settings UI (provider/model)
+        dm_overrides = st.session_state.get("agent_model_overrides", {}).get("dm")
+        if dm_overrides:
+            if "provider" in dm_overrides:
+                dm_config = dm_config.model_copy(
+                    update={"provider": dm_overrides["provider"]}
+                )
+            if "model" in dm_overrides:
+                dm_config = dm_config.model_copy(
+                    update={"model": dm_overrides["model"]}
+                )
+
         # Run discovery
         result = discover_modules(dm_config)
 
@@ -8346,9 +8360,9 @@ def render_session_browser() -> None:
             unsafe_allow_html=True,
         )
 
-    # Action buttons: New Adventure, Create Character, Character Library (Story 9.1, 9.4)
+    # Action buttons: New Adventure, Create Character, Character Library, Configure
     st.markdown('<div class="new-session-container">', unsafe_allow_html=True)
-    col_adventure, col_character, col_library = st.columns(3)
+    col_adventure, col_character, col_library, col_config = st.columns(4)
     with col_adventure:
         if st.button("+ New Adventure", key="new_session_btn"):
             handle_start_new_adventure()
@@ -8363,6 +8377,10 @@ def render_session_browser() -> None:
     with col_library:
         if st.button("Character Library", key="character_library_btn"):
             st.session_state["app_view"] = "character_library"
+            st.rerun()
+    with col_config:
+        if st.button("Configure", key="session_browser_config_btn"):
+            handle_config_modal_open()
             st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -8405,6 +8423,9 @@ def main() -> None:
         st.caption("Multi-agent D&D game engine")
         # Session browser view
         render_session_browser()
+        # Show config modal if opened from session browser
+        if st.session_state.get("config_modal_open"):
+            render_config_modal()
     elif app_view == "character_wizard":
         # Character creation wizard view (Story 9.1)
         st.title("autodungeon")
