@@ -934,7 +934,9 @@ def render_story_threads_summary_html(
         HTML string for summary line.
     """
     if active_count == 0 and dormant_count == 0:
-        return '<div class="story-threads-summary">No narrative elements tracked yet</div>'
+        return (
+            '<div class="story-threads-summary">No narrative elements tracked yet</div>'
+        )
 
     parts: list[str] = []
     if active_count > 0:
@@ -990,9 +992,7 @@ def render_story_element_card_html(
             '<span class="story-element-badge story-moment">story moment</span>'
         )
     if element.dormant:
-        badges_html += (
-            '<span class="story-element-badge dormant-badge">dormant</span>'
-        )
+        badges_html += '<span class="story-element-badge dormant-badge">dormant</span>'
 
     return (
         f'<div class="{" ".join(css_classes)}">'
@@ -1108,9 +1108,7 @@ def render_callback_timeline_html(
             truncated = entry.match_context[:80]
             if len(entry.match_context) > 80:
                 truncated += "..."
-            context_snippet = (
-                f' <span class="callback-context-snippet">- {escape_html(truncated)}</span>'
-            )
+            context_snippet = f' <span class="callback-context-snippet">- {escape_html(truncated)}</span>'
 
         moment_label = ""
         if entry.is_story_moment:
@@ -1216,9 +1214,7 @@ def render_story_threads() -> None:
                     expanded=False,
                 ):
                     st.markdown(
-                        render_story_element_detail_html(
-                            element, element_callbacks
-                        ),
+                        render_story_element_detail_html(element, element_callbacks),
                         unsafe_allow_html=True,
                     )
 
@@ -1292,8 +1288,7 @@ def render_sheet_message_html(content: str, is_current: bool = False) -> str:
     escaped_content = escape_html(content)
     current_class = " current-turn" if is_current else ""
     return (
-        f'<div class="sheet-notification{current_class}">'
-        f"<p>{escaped_content}</p></div>"
+        f'<div class="sheet-notification{current_class}"><p>{escaped_content}</p></div>'
     )
 
 
@@ -1306,9 +1301,7 @@ def render_sheet_message(content: str, is_current: bool = False) -> None:
         content: The sheet update notification text.
         is_current: If True, adds current-turn class for highlight animation.
     """
-    st.markdown(
-        render_sheet_message_html(content, is_current), unsafe_allow_html=True
-    )
+    st.markdown(render_sheet_message_html(content, is_current), unsafe_allow_html=True)
 
 
 def render_secret_revealed_notification_html(
@@ -1398,7 +1391,9 @@ def render_whisper_history_html(
                 display_name = char_config.name
 
         html_parts.append('<div class="whisper-agent-group">')
-        html_parts.append(f'<h4 class="whisper-agent-name">{escape_html(display_name)}</h4>')
+        html_parts.append(
+            f'<h4 class="whisper-agent-name">{escape_html(display_name)}</h4>'
+        )
 
         for whisper in whispers:
             whisper_class = "whisper-revealed" if whisper.revealed else "whisper-active"
@@ -1413,7 +1408,9 @@ def render_whisper_history_html(
             )
 
             html_parts.append(f'<div class="whisper-item {whisper_class}">')
-            html_parts.append(f'<div class="whisper-header">{status_badge} <span class="whisper-turn">{escape_html(turn_info)}</span></div>')
+            html_parts.append(
+                f'<div class="whisper-header">{status_badge} <span class="whisper-turn">{escape_html(turn_info)}</span></div>'
+            )
             html_parts.append(f'<p class="whisper-content">{content}</p>')
             html_parts.append("</div>")
 
@@ -3630,7 +3627,9 @@ def handle_human_whisper_submit(whisper_text: str) -> None:
             dm_secrets = agent_secrets.get("dm", AgentSecrets())
             new_whispers = dm_secrets.whispers.copy()
             new_whispers.append(whisper)
-            agent_secrets["dm"] = dm_secrets.model_copy(update={"whispers": new_whispers})
+            agent_secrets["dm"] = dm_secrets.model_copy(
+                update={"whispers": new_whispers}
+            )
             game["agent_secrets"] = agent_secrets
 
 
@@ -5270,7 +5269,9 @@ def validate_wizard_step_basics(wizard_data: dict[str, Any]) -> list[str]:
             skill_choices = char_class.get("skill_choices", 0)
             selected_skills = wizard_data.get("class_skill_proficiencies", [])
             if len(selected_skills) < skill_choices:
-                errors.append(f"Select {skill_choices - len(selected_skills)} more class skill(s)")
+                errors.append(
+                    f"Select {skill_choices - len(selected_skills)} more class skill(s)"
+                )
 
     return errors
 
@@ -5311,7 +5312,9 @@ def validate_wizard_step_abilities(wizard_data: dict[str, Any]) -> list[str]:
         assignment = wizard_data.get("standard_array_assignment", {})
 
         if len(assignment) < 6:
-            errors.append(f"Assign all 6 ability scores ({6 - len(assignment)} remaining)")
+            errors.append(
+                f"Assign all 6 ability scores ({6 - len(assignment)} remaining)"
+            )
 
         # Check for duplicate values
         used_values = list(assignment.values())
@@ -5382,13 +5385,14 @@ def validate_wizard_step_equipment(wizard_data: dict[str, Any]) -> list[str]:
     # Count required equipment choices
     starting_equipment = char_class.get("starting_equipment", [])
     required_choices = sum(
-        1 for item in starting_equipment
-        if isinstance(item, dict) and "choice" in item
+        1 for item in starting_equipment if isinstance(item, dict) and "choice" in item
     )
 
     equipment_choices = wizard_data.get("equipment_choices", {})
     if len(equipment_choices) < required_choices:
-        errors.append(f"Make {required_choices - len(equipment_choices)} more equipment choice(s)")
+        errors.append(
+            f"Make {required_choices - len(equipment_choices)} more equipment choice(s)"
+        )
 
     return errors
 
@@ -5436,7 +5440,9 @@ def validate_wizard_step(step: int, wizard_data: dict[str, Any]) -> list[str]:
     return []
 
 
-def validate_wizard_complete(wizard_data: dict[str, Any]) -> tuple[list[str], list[str]]:
+def validate_wizard_complete(
+    wizard_data: dict[str, Any],
+) -> tuple[list[str], list[str]]:
     """Validate the complete character for final creation.
 
     Story 9-3: Character Validation.
@@ -5494,7 +5500,9 @@ def save_character_to_library(wizard_data: dict[str, Any]) -> str:
 
     race = next((r for r in races if r["id"] == wizard_data["race_id"]), None)
     char_class = next((c for c in classes if c["id"] == wizard_data["class_id"]), None)
-    background = next((b for b in backgrounds if b["id"] == wizard_data["background_id"]), None)
+    background = next(
+        (b for b in backgrounds if b["id"] == wizard_data["background_id"]), None
+    )
 
     # Calculate final ability scores with racial bonuses
     abilities = wizard_data.get("abilities", {}).copy()
@@ -5502,7 +5510,9 @@ def save_character_to_library(wizard_data: dict[str, Any]) -> str:
         # Convert standard array assignment to abilities dict
         abilities = {
             ability: score
-            for ability, score in wizard_data.get("standard_array_assignment", {}).items()
+            for ability, score in wizard_data.get(
+                "standard_array_assignment", {}
+            ).items()
         }
 
     if race:
@@ -5524,7 +5534,9 @@ def save_character_to_library(wizard_data: dict[str, Any]) -> str:
     if wizard_data.get("backstory"):
         personality_parts.append(f"Backstory: {wizard_data['backstory']}")
 
-    personality = " ".join(personality_parts) if personality_parts else "A mysterious adventurer."
+    personality = (
+        " ".join(personality_parts) if personality_parts else "A mysterious adventurer."
+    )
 
     # Character colors by class (use default if not found)
     class_colors = {
@@ -5555,10 +5567,12 @@ def save_character_to_library(wizard_data: dict[str, Any]) -> str:
         "model": "claude-3-haiku-20240307",  # Default model
         "token_limit": 4000,
         "abilities": abilities,
-        "skills": list(set(
-            wizard_data.get("skill_proficiencies", []) +
-            wizard_data.get("class_skill_proficiencies", [])
-        )),
+        "skills": list(
+            set(
+                wizard_data.get("skill_proficiencies", [])
+                + wizard_data.get("class_skill_proficiencies", [])
+            )
+        ),
         "equipment": list(wizard_data.get("equipment_choices", {}).values()),
     }
 
@@ -5580,7 +5594,13 @@ def save_character_to_library(wizard_data: dict[str, Any]) -> str:
 
     # Write YAML file
     with open(filepath, "w", encoding="utf-8") as f:
-        yaml.dump(character_config, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+        yaml.dump(
+            character_config,
+            f,
+            default_flow_style=False,
+            allow_unicode=True,
+            sort_keys=False,
+        )
 
     return filepath
 
@@ -5713,7 +5733,13 @@ def duplicate_library_character(filename: str, new_name: str) -> str | None:
     # Write new file
     try:
         with open(new_filepath, "w", encoding="utf-8") as f:
-            yaml.dump(char_data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+            yaml.dump(
+                char_data,
+                f,
+                default_flow_style=False,
+                allow_unicode=True,
+                sort_keys=False,
+            )
         return new_filepath
     except OSError:
         return None
@@ -5761,7 +5787,9 @@ def render_character_library_card(char_data: dict[str, Any]) -> None:
             st.session_state["wizard_active"] = True
             st.session_state["wizard_step"] = 0
             # Convert library character to wizard data format
-            st.session_state["wizard_data"] = convert_character_to_wizard_data(char_data)
+            st.session_state["wizard_data"] = convert_character_to_wizard_data(
+                char_data
+            )
             st.rerun()
 
     with col3:
@@ -5850,10 +5878,17 @@ def convert_character_to_wizard_data(char_data: dict[str, Any]) -> dict[str, Any
         "class_id": class_id,
         "background_id": background_id,
         "ability_method": "point_buy",  # Default
-        "abilities": char_data.get("abilities", {
-            "strength": 10, "dexterity": 10, "constitution": 10,
-            "intelligence": 10, "wisdom": 10, "charisma": 10
-        }),
+        "abilities": char_data.get(
+            "abilities",
+            {
+                "strength": 10,
+                "dexterity": 10,
+                "constitution": 10,
+                "intelligence": 10,
+                "wisdom": 10,
+                "charisma": 10,
+            },
+        ),
         "standard_array_assignment": {},
         "skill_proficiencies": [],  # Background skills
         "class_skill_proficiencies": char_data.get("skills", []),
@@ -5898,7 +5933,9 @@ def render_character_library() -> None:
         char_data = load_library_character(filename)
         if char_data:
             st.markdown(f"Duplicating: **{char_data.get('name', 'Unknown')}**")
-            new_name = st.text_input("New character name:", value=f"{char_data.get('name', 'Copy')} Copy")
+            new_name = st.text_input(
+                "New character name:", value=f"{char_data.get('name', 'Copy')} Copy"
+            )
             col1, col2 = st.columns(2)
             with col1:
                 if st.button("Create Copy", type="primary"):
@@ -6023,7 +6060,10 @@ def render_wizard_progress() -> None:
             elif i == current_step:
                 st.markdown(f"**{step['name']}**")
             else:
-                st.markdown(f"<span style='color: gray;'>{step['name']}</span>", unsafe_allow_html=True)
+                st.markdown(
+                    f"<span style='color: gray;'>{step['name']}</span>",
+                    unsafe_allow_html=True,
+                )
 
 
 def render_wizard_step_basics() -> None:
@@ -6103,14 +6143,20 @@ def render_wizard_step_basics() -> None:
 
     # Show class details if selected
     if wizard_data["class_id"]:
-        char_class = next((c for c in classes if c["id"] == wizard_data["class_id"]), None)
+        char_class = next(
+            (c for c in classes if c["id"] == wizard_data["class_id"]), None
+        )
         if char_class:
             with st.expander("Class Details", expanded=False):
                 st.markdown(f"**Hit Die:** {char_class.get('hit_die', 'd8')}")
-                st.markdown(f"**Primary Ability:** {char_class.get('primary_ability', '').title()}")
+                st.markdown(
+                    f"**Primary Ability:** {char_class.get('primary_ability', '').title()}"
+                )
                 saves = char_class.get("saving_throws", [])
                 if saves:
-                    st.markdown(f"**Saving Throws:** {', '.join(s.title() for s in saves)}")
+                    st.markdown(
+                        f"**Saving Throws:** {', '.join(s.title() for s in saves)}"
+                    )
                 armor = char_class.get("armor_proficiencies", [])
                 if armor:
                     st.markdown(f"**Armor:** {', '.join(armor)}")
@@ -6146,7 +6192,9 @@ def render_wizard_step_basics() -> None:
                 wizard_data["class_skill_proficiencies"] = selected_skills
 
                 if len(selected_skills) < skill_choices:
-                    st.info(f"Select {skill_choices - len(selected_skills)} more skill(s)")
+                    st.info(
+                        f"Select {skill_choices - len(selected_skills)} more skill(s)"
+                    )
 
     st.session_state["wizard_data"] = wizard_data
 
@@ -6166,14 +6214,23 @@ def render_wizard_step_abilities() -> None:
     method = st.radio(
         "Assignment Method",
         ["point_buy", "standard_array"],
-        format_func=lambda x: "Point Buy (27 points)" if x == "point_buy" else "Standard Array (15, 14, 13, 12, 10, 8)",
+        format_func=lambda x: "Point Buy (27 points)"
+        if x == "point_buy"
+        else "Standard Array (15, 14, 13, 12, 10, 8)",
         index=0 if wizard_data.get("ability_method") == "point_buy" else 1,
         key="wizard_ability_method",
         horizontal=True,
     )
     wizard_data["ability_method"] = method
 
-    abilities = ["strength", "dexterity", "constitution", "intelligence", "wisdom", "charisma"]
+    abilities = [
+        "strength",
+        "dexterity",
+        "constitution",
+        "intelligence",
+        "wisdom",
+        "charisma",
+    ]
 
     if method == "point_buy":
         # Point buy mode
@@ -6185,7 +6242,9 @@ def render_wizard_step_abilities() -> None:
 
         # Show cost table
         with st.expander("Point Costs", expanded=False):
-            cost_table = " | ".join([f"**{score}**: {cost}" for score, cost in sorted(costs.items())])
+            cost_table = " | ".join(
+                [f"**{score}**: {cost}" for score, cost in sorted(costs.items())]
+            )
             st.markdown(cost_table)
 
         # Ability sliders
@@ -6214,18 +6273,27 @@ def render_wizard_step_abilities() -> None:
     else:
         # Standard array mode
         standard_array = get_standard_array()
-        st.markdown(f"Assign these scores to abilities: **{', '.join(map(str, standard_array))}**")
+        st.markdown(
+            f"Assign these scores to abilities: **{', '.join(map(str, standard_array))}**"
+        )
 
         assignment = wizard_data.get("standard_array_assignment", {})
         used_scores: list[int] = list(assignment.values())
-        available = [s for s in standard_array if s not in used_scores or used_scores.count(s) < standard_array.count(s)]
+        available = [
+            s
+            for s in standard_array
+            if s not in used_scores or used_scores.count(s) < standard_array.count(s)
+        ]
 
         # Create assignment dropdowns
         cols = st.columns(2)
         for i, ability in enumerate(abilities):
             with cols[i % 2]:
                 current_score = assignment.get(ability)
-                options = ["--"] + sorted(set(available + ([current_score] if current_score else [])), reverse=True)
+                options = ["--"] + sorted(
+                    set(available + ([current_score] if current_score else [])),
+                    reverse=True,
+                )
 
                 current_idx = 0
                 if current_score in options:
@@ -6289,7 +6357,9 @@ def render_wizard_step_background() -> None:
 
     # Show background details if selected
     if wizard_data["background_id"]:
-        bg = next((b for b in backgrounds if b["id"] == wizard_data["background_id"]), None)
+        bg = next(
+            (b for b in backgrounds if b["id"] == wizard_data["background_id"]), None
+        )
         if bg:
             st.markdown("#### Background Benefits")
             skills = bg.get("skill_proficiencies", [])
@@ -6354,7 +6424,10 @@ def render_wizard_step_equipment() -> None:
             choice_key = f"equipment_choice_{choice_num}"
 
             current_idx = 0
-            if choice_key in equipment_choices and equipment_choices[choice_key] in options:
+            if (
+                choice_key in equipment_choices
+                and equipment_choices[choice_key] in options
+            ):
                 current_idx = options.index(equipment_choices[choice_key])
 
             selected = st.selectbox(
@@ -6392,8 +6465,12 @@ def generate_backstory_prompt(wizard_data: dict[str, Any]) -> str:
     backgrounds = get_dnd5e_backgrounds()
 
     race = next((r for r in races if r["id"] == wizard_data.get("race_id")), None)
-    char_class = next((c for c in classes if c["id"] == wizard_data.get("class_id")), None)
-    background = next((b for b in backgrounds if b["id"] == wizard_data.get("background_id")), None)
+    char_class = next(
+        (c for c in classes if c["id"] == wizard_data.get("class_id")), None
+    )
+    background = next(
+        (b for b in backgrounds if b["id"] == wizard_data.get("background_id")), None
+    )
 
     race_name = race["name"] if race else "Unknown"
     race_traits = ", ".join(race.get("traits", [])) if race else "none"
@@ -6520,7 +6597,9 @@ def generate_backstory(wizard_data: dict[str, Any]) -> dict[str, str] | str:
         # LLM clients have their own timeouts (120s for Gemini, 60s for Claude)
         # but we add a try/except for timeout errors
         response = llm.invoke(prompt)
-        response_text = response.content if hasattr(response, "content") else str(response)
+        response_text = (
+            response.content if hasattr(response, "content") else str(response)
+        )
 
         # Parse response
         return parse_backstory_response(str(response_text))
@@ -6567,7 +6646,11 @@ def render_wizard_step_personality() -> None:
     # Handle generation
     if generate_clicked or regenerate_clicked:
         # Check if required fields are set
-        if not wizard_data.get("race_id") or not wizard_data.get("class_id") or not wizard_data.get("background_id"):
+        if (
+            not wizard_data.get("race_id")
+            or not wizard_data.get("class_id")
+            or not wizard_data.get("background_id")
+        ):
             st.error("Please select race, class, and background first (Steps 1 and 3).")
         else:
             with st.spinner("Generating backstory with AI..."):
@@ -6670,11 +6753,15 @@ def render_wizard_step_review() -> None:
 
     race = next((r for r in races if r["id"] == wizard_data["race_id"]), None)
     char_class = next((c for c in classes if c["id"] == wizard_data["class_id"]), None)
-    background = next((b for b in backgrounds if b["id"] == wizard_data["background_id"]), None)
+    background = next(
+        (b for b in backgrounds if b["id"] == wizard_data["background_id"]), None
+    )
 
     # Character summary
     st.markdown(f"## {wizard_data['name']}")
-    st.markdown(f"**{race['name'] if race else 'Unknown'} {char_class['name'] if char_class else 'Unknown'}**")
+    st.markdown(
+        f"**{race['name'] if race else 'Unknown'} {char_class['name'] if char_class else 'Unknown'}**"
+    )
     st.markdown(f"*Background: {background['name'] if background else 'Unknown'}*")
 
     # Ability scores with racial bonuses
@@ -6801,7 +6888,12 @@ def render_character_creation_wizard() -> None:
             validation_errors = st.session_state.get("wizard_validation_errors", [])
             create_disabled = len(validation_errors) > 0
 
-            if st.button("Create Character", type="primary", key="wizard_create", disabled=create_disabled):
+            if st.button(
+                "Create Character",
+                type="primary",
+                key="wizard_create",
+                disabled=create_disabled,
+            ):
                 # Save character to library (Story 9-3)
                 filepath = save_character_to_library(wizard_data)
                 st.success(f"Character '{wizard_data['name']}' saved to {filepath}!")
@@ -7213,8 +7305,7 @@ def _render_comparison_turn(
         return
     else:
         st.markdown(
-            f'<span class="comparison-turn-number">'
-            f"Turn {turn.turn_number}</span>",
+            f'<span class="comparison-turn-number">Turn {turn.turn_number}</span>',
             unsafe_allow_html=True,
         )
 
@@ -7281,8 +7372,7 @@ def render_fork_controls() -> None:
                     )
                     safe_name = escape_html(fork_meta.name)
                     st.success(
-                        f"Fork '{safe_name}' created"
-                        f" at turn {fork_meta.branch_turn}"
+                        f"Fork '{safe_name}' created at turn {fork_meta.branch_turn}"
                     )
                 except ValueError as e:
                     st.error(str(e))
@@ -7348,9 +7438,7 @@ def render_fork_controls() -> None:
                         if st.button("Save", key=f"save_rename_{fork.fork_id}"):
                             try:
                                 rename_fork(session_id, fork.fork_id, new_name)
-                                st.toast(
-                                    f"Fork renamed to '{escape_html(new_name)}'"
-                                )
+                                st.toast(f"Fork renamed to '{escape_html(new_name)}'")
                                 st.rerun()
                             except ValueError as e:
                                 st.error(str(e))
@@ -7362,12 +7450,10 @@ def render_fork_controls() -> None:
                                 key=f"delete_fork_{fork.fork_id}",
                                 type="secondary",
                             ):
-                                st.session_state[
-                                    f"confirm_delete_{fork.fork_id}"
-                                ] = True
-                            if st.session_state.get(
-                                f"confirm_delete_{fork.fork_id}"
-                            ):
+                                st.session_state[f"confirm_delete_{fork.fork_id}"] = (
+                                    True
+                                )
+                            if st.session_state.get(f"confirm_delete_{fork.fork_id}"):
                                 st.warning(
                                     f"Delete '{escape_html(fork.name)}'?"
                                     " Cannot be undone."
@@ -7383,8 +7469,7 @@ def render_fork_controls() -> None:
                                             active_fork_id,
                                         )
                                         st.toast(
-                                            f"Fork '{escape_html(fork.name)}'"
-                                            " deleted"
+                                            f"Fork '{escape_html(fork.name)}' deleted"
                                         )
                                         st.rerun()
                                     except (ValueError, OSError) as e:
@@ -7398,12 +7483,8 @@ def render_fork_controls() -> None:
                             key=f"promote_fork_{fork.fork_id}",
                             disabled=is_generating,
                         ):
-                            st.session_state[
-                                f"confirm_promote_{fork.fork_id}"
-                            ] = True
-                        if st.session_state.get(
-                            f"confirm_promote_{fork.fork_id}"
-                        ):
+                            st.session_state[f"confirm_promote_{fork.fork_id}"] = True
+                        if st.session_state.get(f"confirm_promote_{fork.fork_id}"):
                             st.warning(
                                 f"Promote '{escape_html(fork.name)}'"
                                 " to main timeline?\n\n"
@@ -7417,9 +7498,7 @@ def render_fork_controls() -> None:
                                     "Confirm",
                                     key=f"confirm_promo_{fork.fork_id}",
                                 ):
-                                    handle_promote_fork(
-                                        session_id, fork.fork_id
-                                    )
+                                    handle_promote_fork(session_id, fork.fork_id)
                                     st.session_state[
                                         f"confirm_promote_{fork.fork_id}"
                                     ] = False
@@ -7804,6 +7883,7 @@ def clear_module_discovery_state() -> None:
         "selected_module",
         "module_selection_confirmed",
         "module_search_query",
+        "new_session_name",  # Story 13.1: Clear session name on navigation
     ]
     for key in keys_to_clear:
         if key in st.session_state:
@@ -8195,6 +8275,16 @@ def render_module_selection_view() -> None:
     )
     st.caption("Select a D&D module to guide the Dungeon Master's storytelling.")
 
+    # Session name input (Story 13.1)
+    session_name = st.text_input(
+        "Adventure Name",
+        value=st.session_state.get("new_session_name", ""),
+        placeholder="Name your adventure (optional)",
+        key="session_name_input",
+        max_chars=100,
+    )
+    st.session_state["new_session_name"] = session_name
+
     # Back button
     if st.button("Back to Adventures", key="module_selection_back_btn"):
         st.session_state["app_view"] = "session_browser"
@@ -8232,8 +8322,14 @@ def handle_new_session_click() -> None:
     characters = game.get("characters", {})
     character_names = [config.name for key, config in characters.items() if key != "dm"]
 
+    # Get session name from state (Story 13.1)
+    session_name = st.session_state.get("new_session_name", "").strip()
+
     # Create new session
-    session_id = create_new_session(character_names=character_names)
+    session_id = create_new_session(name=session_name, character_names=character_names)
+
+    # Clear the session name from state after use (Story 13.1)
+    st.session_state.pop("new_session_name", None)
 
     # Update game state with session info
     try:
