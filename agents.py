@@ -175,6 +175,11 @@ Example - Player wants to pick a lock:
 After receiving dice results, integrate them meaningfully into your narration. A natural 20 should feel \
 heroic; a natural 1 should be dramatically unfortunate but not humiliating.
 
+**PC dice fallback**: Some player characters (especially those using local LLMs) may include dice \
+notation in their text (e.g., "1d20+5") instead of an actual rolled result. If you see unresolved dice \
+notation in a PC's response rather than a concrete number, use your dm_roll_dice tool to roll for them \
+and adjudicate the outcome in your narration.
+
 ## Private Whispers
 
 Use the dm_whisper_to_agent tool to send private information to individual characters:
@@ -2035,6 +2040,12 @@ def pc_turn(state: GameState, agent_name: str) -> GameState:
                 max_retries,
                 response_content,
             )
+
+        # Auto-resolve any inline dice notation that the LLM wrote as text
+        # instead of calling the pc_roll_dice tool (common with local LLMs).
+        from tools import resolve_inline_dice_notation
+
+        response_content = resolve_inline_dice_notation(response_content)
 
     except LLMConfigurationError as e:
         # Re-raise config errors as LLMError for consistent handling

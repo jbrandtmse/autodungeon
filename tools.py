@@ -22,6 +22,7 @@ __all__ = [
     "dm_update_character_sheet",
     "dm_whisper_to_agent",
     "pc_roll_dice",
+    "resolve_inline_dice_notation",
     "roll_dice",
     "MAX_DICE_COUNT",
     "MAX_DICE_SIDES",
@@ -38,6 +39,17 @@ DICE_PATTERN = re.compile(r"(\d*)d(\d+)", re.IGNORECASE)
 
 # Pattern to validate the entire notation
 NOTATION_PATTERN = re.compile(r"^(\d*d\d+)([+-](\d*d\d+|\d+))*$", re.IGNORECASE)
+
+# Pattern to find unresolved dice notation inline in text.
+# Matches patterns like "1d20+5", "2d6", "d20" but NOT when:
+# - Followed by more dice arithmetic (prevents partial matches via backtracking)
+# - Followed by ": [" which indicates an already-formatted DiceResult string
+INLINE_DICE_PATTERN = re.compile(
+    r"\b(\d*d\d+(?:[+-](?:\d*d\d+|\d+))*)"
+    r"(?![+-]?\d)"  # Not followed by more modifier digits
+    r"(?!\s*:\s*\[)",  # Not already a formatted result
+    re.IGNORECASE,
+)
 
 
 class DiceResult(BaseModel):
@@ -200,6 +212,41 @@ def roll_dice(notation: str | None = None) -> DiceResult:
         modifier=modifier,
         total=total,
     )
+
+
+def resolve_inline_dice_notation(text: str) -> str:
+    """Replace unresolved dice notation in text with actual roll results.
+
+    When LLMs (especially local ones via Ollama) can't use tool calling,
+    they often write dice notation as plain text (e.g., "I attack (1d20+5)")
+    instead of calling the pc_roll_dice tool. This function finds such
+    notation and rolls the dice, replacing the notation with the result.
+
+    Skips notation that's already part of a formatted DiceResult string
+    (identified by the ": [" suffix pattern).
+
+    Args:
+        text: The response text to process.
+
+    Returns:
+        Text with dice notation replaced by roll results.
+        Unmodified if no notation found or on parse errors.
+    """
+    if not text:
+        return text
+
+    def _replace_match(match: re.Match[str]) -> str:
+        notation = match.group(1)
+        try:
+            result = roll_dice(notation)
+            return f"{result.total} (rolled {result.notation})"
+        except (ValueError, Exception):
+            return match.group(0)  # Leave unchanged if can't parse
+
+    resolved = INLINE_DICE_PATTERN.sub(_replace_match, text)
+    if resolved != text:
+        logger.info("Auto-resolved inline dice notation in PC response")
+    return resolved
 
 
 @tool

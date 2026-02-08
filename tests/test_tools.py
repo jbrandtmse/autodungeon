@@ -671,3 +671,110 @@ class TestPCRollDice:
         # PC tool should have guidance about when to roll
         description = pc_roll_dice.description.lower()
         assert "skill check" in description or "risky" in description
+
+
+class TestResolveInlineDiceNotation:
+    """Tests for resolve_inline_dice_notation (auto-roll for local LLMs)."""
+
+    def test_resolves_simple_notation(self) -> None:
+        """Test basic dice notation is replaced with a rolled result."""
+        from tools import resolve_inline_dice_notation
+
+        with patch("tools.roll_dice") as mock_roll:
+            from tools import DiceResult
+
+            mock_roll.return_value = DiceResult(
+                notation="1d20", rolls={"1d20": [15]}, modifier=0, total=15
+            )
+            result = resolve_inline_dice_notation("I attack with 1d20")
+            assert "15" in result
+            assert "rolled 1d20" in result
+            assert "1d20" not in result.replace("rolled 1d20", "")
+
+    def test_resolves_notation_with_modifier(self) -> None:
+        """Test dice notation with modifier is resolved."""
+        from tools import resolve_inline_dice_notation
+
+        with patch("tools.roll_dice") as mock_roll:
+            from tools import DiceResult
+
+            mock_roll.return_value = DiceResult(
+                notation="1d20+5", rolls={"1d20": [12]}, modifier=5, total=17
+            )
+            result = resolve_inline_dice_notation("I roll 1d20+5 for stealth")
+            assert "17" in result
+            assert "rolled 1d20+5" in result
+
+    def test_resolves_multiple_notations(self) -> None:
+        """Test multiple dice notations in same text are all resolved."""
+        from tools import resolve_inline_dice_notation
+
+        with patch("tools.roll_dice") as mock_roll:
+            from tools import DiceResult
+
+            mock_roll.side_effect = [
+                DiceResult(
+                    notation="1d20+5", rolls={"1d20": [18]}, modifier=5, total=23
+                ),
+                DiceResult(
+                    notation="2d6+3", rolls={"2d6": [4, 5]}, modifier=3, total=12
+                ),
+            ]
+            result = resolve_inline_dice_notation(
+                "I attack 1d20+5 and deal 2d6+3 damage"
+            )
+            assert "23" in result
+            assert "12" in result
+
+    def test_skips_already_formatted_results(self) -> None:
+        """Test that already-formatted DiceResult strings are not re-rolled."""
+        from tools import resolve_inline_dice_notation
+
+        # DiceResult.__str__ format includes ": [" after notation
+        text = "1d20+5: [1d20: [15]] + 5 = 20"
+        result = resolve_inline_dice_notation(text)
+        # Should be unchanged - the notation is already part of a result
+        assert result == text
+
+    def test_empty_string(self) -> None:
+        """Test empty string returns empty."""
+        from tools import resolve_inline_dice_notation
+
+        assert resolve_inline_dice_notation("") == ""
+
+    def test_no_dice_notation(self) -> None:
+        """Test text without dice notation is unchanged."""
+        from tools import resolve_inline_dice_notation
+
+        text = "I carefully open the door and peer inside."
+        assert resolve_inline_dice_notation(text) == text
+
+    def test_invalid_notation_left_unchanged(self) -> None:
+        """Test invalid notation that can't be parsed is left as-is."""
+        from tools import resolve_inline_dice_notation
+
+        with patch("tools.roll_dice", side_effect=ValueError("bad")):
+            text = "I roll 999d0 for something weird"
+            result = resolve_inline_dice_notation(text)
+            # Should contain the original text unchanged
+            assert "999d0" in result
+
+    def test_parenthesized_notation(self) -> None:
+        """Test dice notation in parentheses is resolved."""
+        from tools import resolve_inline_dice_notation
+
+        with patch("tools.roll_dice") as mock_roll:
+            from tools import DiceResult
+
+            mock_roll.return_value = DiceResult(
+                notation="1d20+5", rolls={"1d20": [14]}, modifier=5, total=19
+            )
+            result = resolve_inline_dice_notation("I swing my sword (1d20+5)")
+            assert "19" in result
+            assert "rolled 1d20+5" in result
+
+    def test_in_tools_all_exports(self) -> None:
+        """Test resolve_inline_dice_notation is in __all__."""
+        from tools import __all__
+
+        assert "resolve_inline_dice_notation" in __all__
