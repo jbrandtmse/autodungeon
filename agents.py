@@ -644,6 +644,7 @@ def get_llm(provider: str, model: str) -> BaseChatModel:
                 model=model,
                 google_api_key=api_key,
                 timeout=120,  # 2 minutes for Gemini 3 models
+                max_retries=1,  # Disable SDK infinite retry on 429s
             )
         case "claude":
             api_key = _get_effective_api_key("anthropic")
