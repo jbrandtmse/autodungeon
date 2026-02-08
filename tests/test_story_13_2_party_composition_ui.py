@@ -405,7 +405,7 @@ class TestPartySelection:
             "preset:lyra": False,
         }
 
-        result = _build_selected_characters(party_selection, presets, [])
+        result, _ = _build_selected_characters(party_selection, presets, [])
 
         assert "thorin" in result
         assert "lyra" not in result
@@ -423,7 +423,7 @@ class TestPartySelection:
             "library:eden.yaml": True,
         }
 
-        result = _build_selected_characters(party_selection, {}, lib_chars)
+        result, _ = _build_selected_characters(party_selection, {}, lib_chars)
 
         assert "eden" in result
         assert isinstance(result["eden"], CharacterConfig)
@@ -444,7 +444,7 @@ class TestPartySelection:
             "library:eden.yaml": True,
         }
 
-        result = _build_selected_characters(party_selection, presets, lib_chars)
+        result, _ = _build_selected_characters(party_selection, presets, lib_chars)
 
         assert "thorin" in result
         assert "eden" in result
@@ -460,7 +460,7 @@ class TestPartySelection:
         presets = {"thorin": _make_char_config(name="Thorin")}
         party_selection = {"preset:thorin": False}
 
-        result = _build_selected_characters(party_selection, presets, [])
+        result, _ = _build_selected_characters(party_selection, presets, [])
 
         assert len(result) == 0
 
@@ -483,7 +483,7 @@ class TestPartySelection:
         ]
         party_selection = {"library:testchar.yaml": True}
 
-        result = _build_selected_characters(party_selection, {}, lib_chars)
+        result, _ = _build_selected_characters(party_selection, {}, lib_chars)
 
         assert result["testchar"].character_class == "Paladin"
 
@@ -506,7 +506,7 @@ class TestPartySelection:
         ]
         party_selection = {"library:testchar.yaml": True}
 
-        result = _build_selected_characters(party_selection, {}, lib_chars)
+        result, _ = _build_selected_characters(party_selection, {}, lib_chars)
 
         assert result["testchar"].character_class == "Ranger"
 
@@ -730,7 +730,7 @@ class TestLibraryToCharacterConfigConversion:
         lib_chars = [_make_library_char(name="Eden", char_class="Warlock")]
         party_selection = {"library:libchar.yaml": True}
 
-        result = _build_selected_characters(party_selection, {}, lib_chars)
+        result, _ = _build_selected_characters(party_selection, {}, lib_chars)
 
         assert isinstance(result["eden"], CharacterConfig)
         assert result["eden"].character_class == "Warlock"
@@ -753,7 +753,7 @@ class TestLibraryToCharacterConfigConversion:
         ]
         party_selection = {"library:minimal.yaml": True}
 
-        result = _build_selected_characters(party_selection, {}, lib_chars)
+        result, _ = _build_selected_characters(party_selection, {}, lib_chars)
 
         assert "minimal" in result
         assert result["minimal"].character_class == "Adventurer"
@@ -905,7 +905,7 @@ class TestPartySetupXSSResilience:
         ]
         party_selection = {"library:evil.yaml": True}
 
-        result = _build_selected_characters(party_selection, {}, lib_chars)
+        result, _ = _build_selected_characters(party_selection, {}, lib_chars)
 
         # The CharacterConfig stores the raw name; escaping happens at render time
         assert len(result) == 1
@@ -1293,6 +1293,8 @@ class TestNoCharactersAvailable:
 
         # Should have called st.info for library section
         info_calls = [
-            call for call in mock_st.info.call_args_list if "library" in str(call).lower()
+            call
+            for call in mock_st.info.call_args_list
+            if "library" in str(call).lower()
         ]
         assert len(info_calls) > 0, "Should show library empty message"

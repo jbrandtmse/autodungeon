@@ -15,7 +15,7 @@ for validation and serialization benefits.
 import re
 import uuid
 from datetime import UTC, datetime
-from typing import ClassVar, Literal, TypedDict
+from typing import Any, ClassVar, Literal, TypedDict
 
 from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 
@@ -61,6 +61,8 @@ __all__ = [
     "create_narrative_element",
     "create_user_error",
     "create_whisper",
+    "generate_character_sheet_from_config",
+    "load_character_sheet_from_library",
     "populate_game_state",
     "parse_log_entry",
     "parse_message_content",
@@ -1970,6 +1972,500 @@ def create_character_facts_from_config(config: "CharacterConfig") -> CharacterFa
     )
 
 
+def generate_character_sheet_from_config(config: CharacterConfig) -> CharacterSheet:
+    """Generate a level-1 CharacterSheet from a CharacterConfig.
+
+    Creates a complete, valid character sheet with class-specific defaults
+    for ability scores, weapons, armor, spells, features, and proficiencies.
+    All characters start at level 1 with full hit points.
+
+    Story 13.3: Character Sheet Initialization.
+
+    Supported classes: Fighter, Rogue, Wizard, Cleric, Warlock.
+    Unknown classes fall back to Fighter-like defaults.
+
+    Args:
+        config: The CharacterConfig providing name, class, and personality.
+
+    Returns:
+        A fully populated level-1 CharacterSheet.
+    """
+    char_class = config.character_class
+
+    # Class-specific ability scores (standard array distribution)
+    class_stats: dict[str, dict[str, int]] = {
+        "Fighter": {
+            "strength": 16,
+            "dexterity": 14,
+            "constitution": 15,
+            "intelligence": 10,
+            "wisdom": 12,
+            "charisma": 8,
+        },
+        "Rogue": {
+            "strength": 10,
+            "dexterity": 16,
+            "constitution": 12,
+            "intelligence": 14,
+            "wisdom": 12,
+            "charisma": 14,
+        },
+        "Wizard": {
+            "strength": 8,
+            "dexterity": 14,
+            "constitution": 12,
+            "intelligence": 16,
+            "wisdom": 14,
+            "charisma": 10,
+        },
+        "Cleric": {
+            "strength": 14,
+            "dexterity": 10,
+            "constitution": 14,
+            "intelligence": 10,
+            "wisdom": 16,
+            "charisma": 12,
+        },
+        "Warlock": {
+            "strength": 8,
+            "dexterity": 14,
+            "constitution": 14,
+            "intelligence": 12,
+            "wisdom": 10,
+            "charisma": 16,
+        },
+    }
+
+    # Class-specific configuration data
+    class_config: dict[str, dict[str, Any]] = {
+        "Fighter": {
+            "hit_die": 10,
+            "saving_throw_proficiencies": ["strength", "constitution"],
+            "skill_proficiencies": ["Athletics", "Intimidation"],
+            "class_features": ["Second Wind", "Fighting Style"],
+            "armor_proficiencies": ["light", "medium", "heavy", "shield"],
+            "weapon_proficiencies": ["simple", "martial"],
+            "weapons": [
+                Weapon(
+                    name="Longsword",
+                    damage_dice="1d8",
+                    damage_type="slashing",
+                    properties=["versatile"],
+                    is_equipped=True,
+                ),
+                Weapon(
+                    name="Javelin",
+                    damage_dice="1d6",
+                    damage_type="piercing",
+                    properties=["thrown", "range"],
+                    is_equipped=False,
+                ),
+            ],
+            "armor": Armor(
+                name="Chain Mail",
+                armor_class=16,
+                armor_type="heavy",
+                stealth_disadvantage=True,
+                is_equipped=True,
+            ),
+        },
+        "Rogue": {
+            "hit_die": 8,
+            "saving_throw_proficiencies": ["dexterity", "intelligence"],
+            "skill_proficiencies": [
+                "Stealth",
+                "Sleight of Hand",
+                "Acrobatics",
+                "Perception",
+            ],
+            "skill_expertise": ["Stealth", "Sleight of Hand"],
+            "class_features": ["Sneak Attack", "Thieves' Cant", "Expertise"],
+            "armor_proficiencies": ["light"],
+            "weapon_proficiencies": [
+                "simple",
+                "hand crossbow",
+                "longsword",
+                "rapier",
+                "shortsword",
+            ],
+            "weapons": [
+                Weapon(
+                    name="Rapier",
+                    damage_dice="1d8",
+                    damage_type="piercing",
+                    properties=["finesse"],
+                    is_equipped=True,
+                ),
+                Weapon(
+                    name="Shortbow",
+                    damage_dice="1d6",
+                    damage_type="piercing",
+                    properties=["ammunition", "range"],
+                    is_equipped=False,
+                ),
+            ],
+            "armor": Armor(
+                name="Leather Armor",
+                armor_class=11,
+                armor_type="light",
+                is_equipped=True,
+            ),
+        },
+        "Wizard": {
+            "hit_die": 6,
+            "saving_throw_proficiencies": ["intelligence", "wisdom"],
+            "skill_proficiencies": ["Arcana", "History"],
+            "class_features": ["Arcane Recovery"],
+            "armor_proficiencies": [],
+            "weapon_proficiencies": [
+                "dagger",
+                "dart",
+                "sling",
+                "quarterstaff",
+                "light crossbow",
+            ],
+            "spellcasting_ability": "intelligence",
+            "cantrips": ["Fire Bolt", "Light", "Mage Hand"],
+            "spells_known": [
+                Spell(name="Magic Missile", level=1, school="evocation"),
+                Spell(name="Shield", level=1, school="abjuration"),
+                Spell(name="Detect Magic", level=1, school="divination"),
+            ],
+            "spell_slots": {1: SpellSlots(max=2, current=2)},
+            "weapons": [
+                Weapon(
+                    name="Quarterstaff",
+                    damage_dice="1d6",
+                    damage_type="bludgeoning",
+                    properties=["versatile"],
+                    is_equipped=True,
+                ),
+            ],
+            "armor": None,
+        },
+        "Cleric": {
+            "hit_die": 8,
+            "saving_throw_proficiencies": ["wisdom", "charisma"],
+            "skill_proficiencies": ["Medicine", "Religion"],
+            "class_features": ["Divine Domain", "Spellcasting"],
+            "armor_proficiencies": ["light", "medium", "shield"],
+            "weapon_proficiencies": ["simple"],
+            "spellcasting_ability": "wisdom",
+            "cantrips": ["Sacred Flame", "Guidance", "Spare the Dying"],
+            "spells_known": [
+                Spell(name="Cure Wounds", level=1, school="evocation"),
+                Spell(name="Bless", level=1, school="enchantment"),
+                Spell(name="Shield of Faith", level=1, school="abjuration"),
+            ],
+            "spell_slots": {1: SpellSlots(max=2, current=2)},
+            "weapons": [
+                Weapon(
+                    name="Mace",
+                    damage_dice="1d6",
+                    damage_type="bludgeoning",
+                    is_equipped=True,
+                ),
+            ],
+            "armor": Armor(
+                name="Scale Mail",
+                armor_class=14,
+                armor_type="medium",
+                stealth_disadvantage=True,
+                is_equipped=True,
+            ),
+        },
+        "Warlock": {
+            "hit_die": 8,
+            "saving_throw_proficiencies": ["wisdom", "charisma"],
+            "skill_proficiencies": ["Arcana", "Deception"],
+            "class_features": [
+                "Otherworldly Patron",
+                "Pact Magic",
+                "Eldritch Invocations",
+            ],
+            "armor_proficiencies": ["light"],
+            "weapon_proficiencies": ["simple"],
+            "spellcasting_ability": "charisma",
+            "cantrips": ["Eldritch Blast", "Minor Illusion"],
+            "spells_known": [
+                Spell(name="Hex", level=1, school="enchantment"),
+                Spell(name="Charm Person", level=1, school="enchantment"),
+            ],
+            "spell_slots": {1: SpellSlots(max=1, current=1)},
+            "weapons": [
+                Weapon(
+                    name="Light Crossbow",
+                    damage_dice="1d8",
+                    damage_type="piercing",
+                    properties=["ammunition", "range", "loading"],
+                    is_equipped=True,
+                ),
+            ],
+            "armor": Armor(
+                name="Leather Armor",
+                armor_class=11,
+                armor_type="light",
+                is_equipped=True,
+            ),
+        },
+    }
+
+    # Get stats and config for this class (default to Fighter)
+    stats = class_stats.get(char_class, class_stats["Fighter"])
+    cfg = class_config.get(char_class, class_config["Fighter"])
+
+    # Calculate HP: hit_die_max + CON modifier
+    con_modifier = (stats["constitution"] - 10) // 2
+    hit_die = cfg.get("hit_die", 8)
+    hp_max = hit_die + con_modifier
+    # Ensure at least 1 HP
+    if hp_max < 1:
+        hp_max = 1
+
+    # Calculate AC from armor + DEX modifier
+    dex_modifier = (stats["dexterity"] - 10) // 2
+    armor_obj: Armor | None = cfg.get("armor")
+    if armor_obj is not None:
+        base_ac = armor_obj.armor_class
+        if armor_obj.armor_type == "light":
+            armor_class = base_ac + dex_modifier
+        elif armor_obj.armor_type == "medium":
+            armor_class = base_ac + min(dex_modifier, 2)
+        else:
+            # Heavy armor: no DEX bonus
+            armor_class = base_ac
+    else:
+        # Unarmored: 10 + DEX
+        armor_class = 10 + dex_modifier
+
+    # Calculate spell DC and attack bonus for casters
+    spellcasting_ability: str | None = cfg.get("spellcasting_ability")
+    spell_save_dc: int | None = None
+    spell_attack_bonus: int | None = None
+    if spellcasting_ability:
+        ability_mod = (stats.get(spellcasting_ability, 10) - 10) // 2
+        proficiency = 2  # Level 1 proficiency bonus
+        spell_save_dc = 8 + proficiency + ability_mod
+        spell_attack_bonus = proficiency + ability_mod
+
+    # Common equipment for all characters
+    equipment = [
+        EquipmentItem(name="Backpack", quantity=1),
+        EquipmentItem(name="Bedroll", quantity=1),
+        EquipmentItem(name="Rations", quantity=10, description="Days of food"),
+        EquipmentItem(name="Waterskin", quantity=1),
+        EquipmentItem(name="Rope (50 ft)", quantity=1),
+    ]
+
+    return CharacterSheet(
+        name=config.name,
+        race="Human",
+        character_class=char_class,
+        level=1,
+        background="Adventurer",
+        alignment="Neutral Good",
+        experience_points=0,
+        strength=stats["strength"],
+        dexterity=stats["dexterity"],
+        constitution=stats["constitution"],
+        intelligence=stats["intelligence"],
+        wisdom=stats["wisdom"],
+        charisma=stats["charisma"],
+        armor_class=armor_class,
+        initiative=dex_modifier,
+        speed=30,
+        hit_points_max=hp_max,
+        hit_points_current=hp_max,
+        hit_points_temp=0,
+        hit_dice="1d" + str(hit_die),
+        hit_dice_remaining=1,
+        saving_throw_proficiencies=list(cfg.get("saving_throw_proficiencies", [])),
+        skill_proficiencies=list(cfg.get("skill_proficiencies", [])),
+        skill_expertise=list(cfg.get("skill_expertise", [])),
+        armor_proficiencies=list(cfg.get("armor_proficiencies", [])),
+        weapon_proficiencies=list(cfg.get("weapon_proficiencies", [])),
+        tool_proficiencies=[],
+        languages=["Common"],
+        class_features=list(cfg.get("class_features", [])),
+        racial_traits=["Bonus Feat", "Bonus Skill"],
+        feats=[],
+        weapons=list(cfg.get("weapons", [])),
+        armor=armor_obj,
+        equipment=equipment,
+        gold=15,
+        silver=0,
+        copper=0,
+        spellcasting_ability=spellcasting_ability,
+        spell_save_dc=spell_save_dc,
+        spell_attack_bonus=spell_attack_bonus,
+        cantrips=list(cfg.get("cantrips", [])),
+        spells_known=list(cfg.get("spells_known", [])),
+        spell_slots=dict(cfg.get("spell_slots", {})),
+        personality_traits=config.personality,
+        ideals="",
+        bonds="",
+        flaws="",
+        backstory="",
+        conditions=[],
+    )
+
+
+def load_character_sheet_from_library(
+    config: CharacterConfig,
+    lib_data: dict[str, Any],
+) -> CharacterSheet:
+    """Build a CharacterSheet from library YAML data.
+
+    If lib_data contains a "character_sheet" key with full sheet data,
+    deserializes it directly. Otherwise, generates a sheet from config and
+    overlays library data (abilities, skills, equipment, race, background).
+
+    Story 13.3: Character Sheet Initialization.
+
+    Args:
+        config: The CharacterConfig for this character.
+        lib_data: Raw library YAML data dict for the character.
+
+    Returns:
+        A CharacterSheet populated from library data.
+    """
+    # If full character sheet data is provided, try to deserialize it directly
+    if "character_sheet" in lib_data and isinstance(lib_data["character_sheet"], dict):
+        try:
+            return CharacterSheet(**lib_data["character_sheet"])
+        except Exception:
+            # Fall through to generation + overlay if deserialization fails
+            pass
+
+    # Generate base sheet from config
+    try:
+        sheet = generate_character_sheet_from_config(config)
+    except Exception:
+        # If generation fails, create a minimal viable sheet
+        sheet = generate_character_sheet_from_config(
+            CharacterConfig(
+                name=config.name,
+                character_class="Fighter",
+                personality=config.personality,
+                color=config.color,
+            )
+        )
+
+    # Overlay library data onto the generated sheet
+    overrides: dict[str, Any] = {}
+
+    # Race and background
+    if "race" in lib_data:
+        overrides["race"] = str(lib_data["race"])
+    if "background" in lib_data:
+        overrides["background"] = str(lib_data["background"])
+
+    # Ability scores overlay
+    if "abilities" in lib_data and isinstance(lib_data["abilities"], dict):
+        abilities = lib_data["abilities"]
+        for ability in (
+            "strength",
+            "dexterity",
+            "constitution",
+            "intelligence",
+            "wisdom",
+            "charisma",
+        ):
+            if ability in abilities:
+                try:
+                    overrides[ability] = int(abilities[ability])
+                except (ValueError, TypeError):
+                    pass
+
+    # Skills overlay
+    if "skills" in lib_data and isinstance(lib_data["skills"], list):
+        overrides["skill_proficiencies"] = [str(s) for s in lib_data["skills"]]
+
+    # Equipment overlay (convert strings to EquipmentItem)
+    if "equipment" in lib_data and isinstance(lib_data["equipment"], list):
+        equipment_items: list[EquipmentItem] = []
+        for item in lib_data["equipment"]:
+            if isinstance(item, str) and len(item.strip()) > 0:
+                equipment_items.append(EquipmentItem(name=item))
+            elif isinstance(item, dict) and "name" in item:
+                try:
+                    equipment_items.append(EquipmentItem(**item))
+                except Exception:
+                    item_name = str(item.get("name", "")).strip()
+                    if item_name:
+                        equipment_items.append(EquipmentItem(name=item_name))
+        if equipment_items:
+            overrides["equipment"] = equipment_items
+
+    # If we have overrides, rebuild the sheet with them applied
+    if overrides:
+        sheet_data = sheet.model_dump()
+        sheet_data.update(overrides)
+
+        # Recalculate derived stats if abilities changed
+        if any(
+            a in overrides
+            for a in (
+                "strength",
+                "dexterity",
+                "constitution",
+                "intelligence",
+                "wisdom",
+                "charisma",
+            )
+        ):
+            dex = sheet_data.get("dexterity", 10)
+            con = sheet_data.get("constitution", 10)
+            dex_mod = (dex - 10) // 2
+            con_mod = (con - 10) // 2
+
+            # Recalculate HP
+            hit_die_str = sheet_data.get("hit_dice", "1d8")
+            hit_die_val = int(hit_die_str.split("d")[1]) if "d" in hit_die_str else 8
+            hp_max = hit_die_val + con_mod
+            if hp_max < 1:
+                hp_max = 1
+            sheet_data["hit_points_max"] = hp_max
+            sheet_data["hit_points_current"] = hp_max
+
+            # Recalculate AC
+            armor_data = sheet_data.get("armor")
+            if armor_data is not None:
+                if isinstance(armor_data, dict):
+                    armor_type = armor_data.get("armor_type", "light")
+                    base_ac = armor_data.get("armor_class", 10)
+                else:
+                    armor_type = armor_data.armor_type
+                    base_ac = armor_data.armor_class
+                if armor_type == "light":
+                    sheet_data["armor_class"] = base_ac + dex_mod
+                elif armor_type == "medium":
+                    sheet_data["armor_class"] = base_ac + min(dex_mod, 2)
+                else:
+                    sheet_data["armor_class"] = base_ac
+            else:
+                sheet_data["armor_class"] = 10 + dex_mod
+
+            # Recalculate initiative
+            sheet_data["initiative"] = dex_mod
+
+            # Recalculate spell DC/attack bonus if caster
+            sc_ability = sheet_data.get("spellcasting_ability")
+            if sc_ability:
+                ability_mod = (sheet_data.get(sc_ability, 10) - 10) // 2
+                prof = 2  # Level 1
+                sheet_data["spell_save_dc"] = 8 + prof + ability_mod
+                sheet_data["spell_attack_bonus"] = prof + ability_mod
+
+        try:
+            sheet = CharacterSheet(**sheet_data)
+        except Exception:
+            # If rebuild fails, return the original generated sheet
+            pass
+
+    return sheet
+
+
 def create_initial_game_state() -> GameState:
     """Factory function to create an empty initial game state.
 
@@ -2008,12 +2504,14 @@ def populate_game_state(
     include_sample_messages: bool = True,
     selected_module: ModuleInfo | None = None,
     characters_override: dict[str, CharacterConfig] | None = None,
+    library_data: dict[str, dict[str, Any]] | None = None,
 ) -> GameState:
     """Factory function to create a fully populated game state from config files.
 
     Loads character configs from YAML files in config/characters/, builds the
     turn queue with DM first followed by PC agents, and initializes agent
-    memories with appropriate token limits.
+    memories with appropriate token limits. Also generates character sheets
+    for all PCs so Epic 8 systems activate from turn 1.
 
     Args:
         include_sample_messages: If True, includes sample messages in ground_truth_log
@@ -2023,9 +2521,13 @@ def populate_game_state(
         characters_override: Optional dict of CharacterConfig keyed by lowercase name.
             When provided, uses these instead of loading from config/characters/.
             Story 13.2: Party Composition UI passes selected characters.
+        library_data: Optional dict mapping lowercase character name to raw library
+            YAML data. Used by Story 13.3 to build character sheets from library data.
+            When None, sheets are generated from CharacterConfig defaults.
 
     Returns:
-        A GameState populated with characters, turn queue, and agent memories.
+        A GameState populated with characters, turn queue, agent memories,
+        and character sheets.
     """
     # Import here to avoid circular import
     from config import load_character_configs, load_dm_config
@@ -2056,6 +2558,26 @@ def populate_game_state(
     for agent_name in turn_queue:
         agent_secrets[agent_name] = AgentSecrets()
 
+    # Build character sheets for all PCs (Story 13.3)
+    # Sheets are keyed by character NAME (e.g., "Thorin"), matching agents.py conventions
+    character_sheets: dict[str, CharacterSheet] = {}
+    lib_data = library_data or {}
+    for _char_key, char_config in characters.items():
+        char_name = char_config.name
+        char_name_lower = char_name.lower()
+        try:
+            if char_name_lower in lib_data:
+                sheet = load_character_sheet_from_library(
+                    char_config, lib_data[char_name_lower]
+                )
+            else:
+                sheet = generate_character_sheet_from_config(char_config)
+            character_sheets[char_name] = sheet
+        except Exception:
+            # If sheet generation fails, skip this character's sheet
+            # rather than blocking game start
+            pass
+
     # Sample messages demonstrating different message types and styling
     sample_messages: list[str] = []
     if include_sample_messages:
@@ -2080,7 +2602,7 @@ def populate_game_state(
         session_id=session_id,
         summarization_in_progress=False,
         selected_module=selected_module,
-        character_sheets={},
+        character_sheets=character_sheets,
         agent_secrets=agent_secrets,
         narrative_elements={session_id: NarrativeElementStore()},
         callback_database=NarrativeElementStore(),

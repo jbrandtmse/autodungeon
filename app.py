@@ -4738,9 +4738,10 @@ def render_personality_section_html(sheet: CharacterSheet) -> str:
 
 
 def get_character_sheet(character_name: str) -> CharacterSheet | None:
-    """Get character sheet from session state or create sample.
+    """Get character sheet from game state, session state, or create sample fallback.
 
-    For MVP, creates sample sheets until Story 8.3 integrates with GameState.
+    Checks game state character_sheets first (populated by Story 13.3),
+    then falls back to session state cache, then creates a sample sheet.
 
     Args:
         character_name: Character name or agent key.
@@ -4748,13 +4749,24 @@ def get_character_sheet(character_name: str) -> CharacterSheet | None:
     Returns:
         CharacterSheet instance or None if not found.
     """
-    # First check if we have a stored sheet in session state
-    sheets = st.session_state.get("character_sheets", {})
-    if character_name in sheets:
-        return sheets[character_name]
-
-    # Get game state to look up character config
+    # First check game state character_sheets (Story 13.3 - populated at game start)
     game = st.session_state.get("game", {})
+    game_sheets: dict[str, CharacterSheet] = game.get("character_sheets", {})
+
+    # Try direct lookup by name
+    if character_name in game_sheets:
+        return game_sheets[character_name]
+    # Try case-insensitive lookup
+    for sheet_name, sheet in game_sheets.items():
+        if sheet_name.lower() == character_name.lower():
+            return sheet
+
+    # Then check session state cache (backward compat)
+    session_sheets = st.session_state.get("character_sheets", {})
+    if character_name in session_sheets:
+        return session_sheets[character_name]
+
+    # Get characters to look up config for sample fallback
     characters = game.get("characters", {})
 
     # Try to find character config
@@ -4770,7 +4782,7 @@ def get_character_sheet(character_name: str) -> CharacterSheet | None:
                 break
 
     if char_config:
-        # Create sample sheet based on character config
+        # Create sample sheet based on character config (fallback)
         sheet = create_sample_character_sheet(
             char_config.character_class, char_config.name
         )
@@ -8507,12 +8519,15 @@ def render_party_setup_view() -> None:
             type="primary",
             disabled=begin_disabled,
         ):
-            # Build selected characters dict
-            selected_characters = _build_selected_characters(
+            # Build selected characters dict and library data
+            selected_characters, library_data = _build_selected_characters(
                 party_selection, preset_characters, library_characters
             )
-            # Start game with selected characters
-            handle_new_session_click(selected_characters=selected_characters)
+            # Start game with selected characters and library data (Story 13.3)
+            handle_new_session_click(
+                selected_characters=selected_characters,
+                library_data=library_data,
+            )
             clear_module_discovery_state()
             clear_party_setup_state()
             st.rerun()
@@ -8522,10 +8537,11 @@ def _build_selected_characters(
     party_selection: dict[str, bool],
     preset_characters: dict[str, CharacterConfig],
     library_characters: list[dict[str, Any]],
-) -> dict[str, CharacterConfig]:
-    """Build the characters dict from selected preset + library characters.
+) -> tuple[dict[str, CharacterConfig], dict[str, dict[str, Any]]]:
+    """Build the characters dict and library data from selected preset + library characters.
 
     Story 13.2: Party Composition UI.
+    Story 13.3: Also returns raw library data for character sheet initialization.
 
     Args:
         party_selection: Dict mapping selection keys to bool (selected/not).
@@ -8533,9 +8549,13 @@ def _build_selected_characters(
         library_characters: Library character data dicts.
 
     Returns:
-        Dict of CharacterConfig keyed by lowercase name for selected characters.
+        Tuple of:
+        - Dict of CharacterConfig keyed by lowercase name for selected characters.
+        - Dict mapping lowercase character name to raw library YAML data for
+          selected library characters (used for sheet initialization).
     """
     selected: dict[str, CharacterConfig] = {}
+    library_data: dict[str, dict[str, Any]] = {}
 
     # Add selected preset characters
     for char_key, char_config in preset_characters.items():
@@ -8563,33 +8583,41 @@ def _build_selected_characters(
                 token_limit=lib_char.get("token_limit", 4000),
             )
             selected[char_name.lower()] = config
+            # Store raw library data for character sheet initialization (Story 13.3)
+            library_data[char_name.lower()] = lib_char
 
-    return selected
+    return selected, library_data
 
 
 def handle_new_session_click(
     selected_characters: dict[str, CharacterConfig] | None = None,
+    library_data: dict[str, dict[str, Any]] | None = None,
 ) -> None:
     """Handle new session button click.
 
     Creates a new session and initializes fresh game state.
     Story 7.3: Passes selected_module from session_state to game initialization.
     Story 13.2: Accepts optional selected_characters for party composition.
+    Story 13.3: Accepts optional library_data for character sheet initialization.
 
     Args:
         selected_characters: Optional dict of CharacterConfig keyed by lowercase name.
             When provided, only these characters are included in the game.
             Story 13.2: Party Composition UI passes selected characters.
+        library_data: Optional dict mapping lowercase character name to raw library
+            YAML data. Used by Story 13.3 to build character sheets from library data.
     """
     # Get selected module from session state (Story 7.3)
     # Will be None for freeform adventures
     selected_module = st.session_state.get("selected_module")
 
-    # Create fresh game state with optional module context and character override
+    # Create fresh game state with optional module context, character override,
+    # and library data for character sheet initialization (Story 13.3)
     game = populate_game_state(
         include_sample_messages=False,
         selected_module=selected_module,
         characters_override=selected_characters,
+        library_data=library_data,
     )
 
     # Get character names from game state
