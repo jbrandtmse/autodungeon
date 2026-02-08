@@ -159,8 +159,8 @@ development_status:
   # ===========================================
 
   # Epic 13: Adventure Setup & Party Management (3 stories)
-  epic-13: in-progress
+  epic-13: done
   13-1-session-naming: done
   13-2-party-composition-ui: done
-  13-3-character-sheet-initialization: review
+  13-3-character-sheet-initialization: done
   epic-13-retrospective: optional
