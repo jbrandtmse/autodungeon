@@ -1194,15 +1194,21 @@ class TestBuildPCContextWithSheetsAdditional:
         )
         sample_game_state_with_sheets["agent_memories"]["fighter"] = updated_memory
 
+        # Add shared events to ground_truth_log so PC can see the scene
+        sample_game_state_with_sheets["ground_truth_log"] = [
+            "[DM]: A dragon appears!"
+        ]
+
         result = _build_pc_context(sample_game_state_with_sheets, "fighter")
+        # Should have shared scene from ground_truth_log
+        assert "## Current Scene" in result
+        assert "dragon appears" in result
         # Should have character identity section
         assert "## Character Identity" in result
         assert "Brave" in result
         # Should have memory sections
         assert "## What You Remember" in result
         assert "We entered the dungeon" in result
-        assert "## Recent Events" in result
-        assert "dragon appears" in result
         # Should have own character sheet
         assert "## Your Character Sheet: Thorin" in result
 
@@ -1213,13 +1219,16 @@ class TestBuildPCContextWithSheetsAdditional:
         # Add a memory for an agent that isn't in characters dict
         sample_game_state_with_sheets["agent_memories"]["ranger"] = AgentMemory(
             token_limit=4000,
-            short_term_buffer=["[DM]: The forest is dense."],
         )
+        # Add the event to the shared log so the PC can see it
+        sample_game_state_with_sheets["ground_truth_log"] = [
+            "[DM]: The forest is dense."
+        ]
 
         result = _build_pc_context(sample_game_state_with_sheets, "ranger")
         # Should not crash, but no character sheet should be present
         assert "## Your Character Sheet" not in result
-        # Should still have recent events from its own memory
+        # Should see shared events from ground_truth_log
         assert "The forest is dense" in result
 
     def test_pc_cannot_see_other_pc_sheets(

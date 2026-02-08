@@ -549,7 +549,6 @@ class TestContextBuildingEdgeCases:
         # Should not raise, should include other context
         context = _build_pc_context(state, "rogue")
         assert "Some adventures" in context
-        assert "Recent event" in context
 
     def test_dm_context_mixed_character_facts_some_none(self) -> None:
         """Test _build_dm_context handles mixed facts (some None, some present)."""

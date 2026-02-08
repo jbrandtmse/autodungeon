@@ -1355,8 +1355,9 @@ class TestGameStateFactoryCharacterSheets:
         state = populate_game_state(include_sample_messages=False)
         assert "character_sheets" in state
         assert isinstance(state["character_sheets"], dict)
-        # populate_game_state initializes character_sheets as empty by default
-        assert len(state["character_sheets"]) == 0
+        # Story 13-3: populate_game_state now generates sheets from character configs
+        assert len(state["character_sheets"]) == 1
+        assert "Thorin" in state["character_sheets"]
 
     @patch("config.load_character_configs")
     @patch("config.load_dm_config")
@@ -1385,8 +1386,10 @@ class TestGameStateFactoryCharacterSheets:
         }
 
         state = populate_game_state(include_sample_messages=False)
-        # Sheets are empty initially - populated when adventure starts
-        assert state["character_sheets"] == {}
+        # Story 13-3: Sheets are now generated from character configs
+        assert len(state["character_sheets"]) == 2
+        assert "Thorin" in state["character_sheets"]
+        assert "Elara" in state["character_sheets"]
 
 
 # =============================================================================

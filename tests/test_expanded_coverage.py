@@ -305,58 +305,75 @@ class TestBuildPCContextExpanded:
         assert "battle experience" in context
         assert "## Recent Events" not in context
 
-    def test_build_pc_context_with_buffer_only(self) -> None:
-        """Test PC context when agent has only short-term buffer."""
+    def test_build_pc_context_with_ground_truth_log(self) -> None:
+        """Test PC context includes shared events from ground_truth_log."""
         from agents import _build_pc_context
         from models import AgentMemory, create_initial_game_state
 
         state = create_initial_game_state()
         state["agent_memories"]["fighter"] = AgentMemory(
             long_term_summary="",
-            short_term_buffer=["You entered the tavern", "A stranger approaches"],
         )
+        state["ground_truth_log"] = [
+            "[DM]: You entered the tavern",
+            "[Fighter]: A stranger approaches",
+        ]
 
         context = _build_pc_context(state, "fighter")
-        assert "## Recent Events" in context
+        assert "## Current Scene" in context
         assert "tavern" in context
         assert "stranger" in context
         assert "## What You Remember" not in context
 
-    def test_build_pc_context_strict_isolation(self) -> None:
-        """Test that PC context ONLY includes their own memory (strict isolation)."""
+    def test_build_pc_context_private_memory_isolated(self) -> None:
+        """Test that PC private memory (summary, facts) is isolated."""
         from agents import _build_pc_context
         from models import AgentMemory, create_initial_game_state
 
         state = create_initial_game_state()
         state["agent_memories"]["fighter"] = AgentMemory(
-            short_term_buffer=["Fighter's secret action"]
+            long_term_summary="Fighter's private thoughts"
         )
         state["agent_memories"]["rogue"] = AgentMemory(
-            short_term_buffer=["Rogue's secret action"]
-        )
-        state["agent_memories"]["dm"] = AgentMemory(
-            short_term_buffer=["DM's global knowledge"]
+            long_term_summary="Rogue's private thoughts"
         )
 
         context = _build_pc_context(state, "fighter")
-        assert "Fighter's secret action" in context
-        # Should NOT include other agents' memories
-        assert "Rogue's secret" not in context
-        assert "DM's global" not in context
+        assert "Fighter's private thoughts" in context
+        # Should NOT include other agents' private memory
+        assert "Rogue's private" not in context
 
-    def test_build_pc_context_respects_buffer_limit(self) -> None:
-        """Test PC context respects the recent events limit."""
-        from agents import PC_CONTEXT_RECENT_EVENTS_LIMIT, _build_pc_context
+    def test_build_pc_context_shared_log_shows_all_agents(self) -> None:
+        """Test that ground_truth_log shows DM and all PC actions."""
+        from agents import _build_pc_context
         from models import AgentMemory, create_initial_game_state
 
         state = create_initial_game_state()
-        # Create buffer with more events than the limit
-        many_events = [f"Event {i}" for i in range(PC_CONTEXT_RECENT_EVENTS_LIMIT + 5)]
-        state["agent_memories"]["fighter"] = AgentMemory(short_term_buffer=many_events)
+        state["agent_memories"]["fighter"] = AgentMemory()
+        state["ground_truth_log"] = [
+            "[DM]: The dragon attacks!",
+            "[Fighter]: I raise my shield.",
+            "[Rogue]: I dodge behind a pillar.",
+        ]
+
+        context = _build_pc_context(state, "fighter")
+        assert "dragon attacks" in context
+        assert "raise my shield" in context
+        assert "dodge behind a pillar" in context
+
+    def test_build_pc_context_respects_shared_log_limit(self) -> None:
+        """Test PC context respects the shared context limit."""
+        from agents import PC_SHARED_CONTEXT_LIMIT, _build_pc_context
+        from models import create_initial_game_state
+
+        state = create_initial_game_state()
+        # Create log with more events than the limit
+        many_events = [f"[DM]: Event {i}" for i in range(PC_SHARED_CONTEXT_LIMIT + 5)]
+        state["ground_truth_log"] = many_events
 
         context = _build_pc_context(state, "fighter")
         # Should only include the last N events
-        assert f"Event {PC_CONTEXT_RECENT_EVENTS_LIMIT + 4}" in context
+        assert f"Event {PC_SHARED_CONTEXT_LIMIT + 4}" in context
         assert "Event 0" not in context
 
 

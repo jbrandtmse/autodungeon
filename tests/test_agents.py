@@ -17,6 +17,7 @@ from agents import (
     DM_CONTEXT_RECENT_EVENTS_LIMIT,
     DM_SYSTEM_PROMPT,
     PC_CONTEXT_RECENT_EVENTS_LIMIT,
+    PC_SHARED_CONTEXT_LIMIT,
     PC_SYSTEM_PROMPT_TEMPLATE,
     SUPPORTED_PROVIDERS,
     LLMConfigurationError,
@@ -30,7 +31,13 @@ from agents import (
     get_llm,
     pc_turn,
 )
-from models import AgentMemory, CharacterConfig, DMConfig, create_initial_game_state
+from models import (
+    AgentMemory,
+    CharacterConfig,
+    CharacterFacts,
+    DMConfig,
+    create_initial_game_state,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -286,6 +293,7 @@ class TestModuleExports:
             "PC_SYSTEM_PROMPT_TEMPLATE",
             "CLASS_GUIDANCE",
             "PC_CONTEXT_RECENT_EVENTS_LIMIT",
+            "PC_SHARED_CONTEXT_LIMIT",
             "build_pc_system_prompt",
             "create_pc_agent",
             "_build_pc_context",
@@ -905,61 +913,82 @@ class TestBuildPCContext:
         assert "What You Remember" in context
         assert "traveled far from my homeland" in context
 
-    def test_build_pc_context_with_short_term_buffer(self) -> None:
-        """Test context includes PC's recent events."""
+    def test_build_pc_context_includes_ground_truth_log(self) -> None:
+        """Test context includes shared game events from ground_truth_log."""
         state = create_initial_game_state()
+        state["ground_truth_log"] = [
+            "[DM]: You arrive at the tavern.",
+            "[Shadowmere]: I look around cautiously.",
+        ]
+
+        context = _build_pc_context(state, "shadowmere")
+
+        assert "Current Scene" in context
+        assert "arrive at the tavern" in context
+        assert "look around cautiously" in context
+
+    def test_build_pc_context_sees_all_shared_events(self) -> None:
+        """Test PC sees DM narration and all PC actions via ground_truth_log."""
+        state = create_initial_game_state()
+        state["ground_truth_log"] = [
+            "[DM]: The guard asks your business.",
+            "[Shadowmere]: I step forward to speak.",
+            "[Thorin]: I keep watch behind us.",
+        ]
         state["agent_memories"]["shadowmere"] = AgentMemory(
-            short_term_buffer=["I entered the tavern", "I spoke to the barkeep"]
+            short_term_buffer=["[Shadowmere]: I step forward to speak."]
         )
 
         context = _build_pc_context(state, "shadowmere")
 
-        assert "Recent Events" in context
-        assert "entered the tavern" in context
-        assert "spoke to the barkeep" in context
+        # Should see DM narration (shared event)
+        assert "guard asks your business" in context
+        # Should see own actions
+        assert "step forward to speak" in context
+        # Should see other PC actions (public events at the table)
+        assert "keep watch behind us" in context
 
-    def test_build_pc_context_only_sees_own_memory(self) -> None:
-        """Test PC ONLY sees their own memory (strict isolation)."""
+    def test_build_pc_context_private_memory_isolated(self) -> None:
+        """Test PC's private memory (facts, summary) is still isolated."""
         state = create_initial_game_state()
         state["agent_memories"]["shadowmere"] = AgentMemory(
-            short_term_buffer=["I am Shadowmere the rogue"]
+            long_term_summary="I have a secret past",
+            character_facts=CharacterFacts(
+                name="Shadowmere", character_class="Rogue"
+            ),
         )
         state["agent_memories"]["thor"] = AgentMemory(
-            short_term_buffer=["I am Thor the mighty"]
-        )
-        state["agent_memories"]["dm"] = AgentMemory(
-            short_term_buffer=["The DM narrates..."]
+            long_term_summary="I seek revenge for my fallen clan",
+            character_facts=CharacterFacts(name="Thorin", character_class="Fighter"),
         )
 
         context = _build_pc_context(state, "shadowmere")
 
-        # Should see own memory
-        assert "Shadowmere" in context
-        # Should NOT see other PC's memory
-        assert "Thor" not in context
-        # Should NOT see DM's memory
-        assert "DM narrates" not in context
+        # Should see own private memory
+        assert "secret past" in context
+        # Should NOT see other PC's private memory
+        assert "fallen clan" not in context
 
-    def test_build_pc_context_limits_short_term_buffer(self) -> None:
-        """Test context limits PC's short-term buffer to recent entries."""
+    def test_build_pc_context_limits_ground_truth_log(self) -> None:
+        """Test context limits shared events to PC_SHARED_CONTEXT_LIMIT."""
         state = create_initial_game_state()
         # Create more events than the limit
-        events = [f"Event {i}" for i in range(15)]
-        state["agent_memories"]["shadowmere"] = AgentMemory(short_term_buffer=events)
+        events = [f"[DM]: Event {i}" for i in range(20)]
+        state["ground_truth_log"] = events
 
         context = _build_pc_context(state, "shadowmere")
 
-        # Should only include last PC_CONTEXT_RECENT_EVENTS_LIMIT events
-        assert f"Event {15 - PC_CONTEXT_RECENT_EVENTS_LIMIT}" in context
-        assert "Event 14" in context
+        # Should only include last PC_SHARED_CONTEXT_LIMIT events
+        assert f"Event {20 - PC_SHARED_CONTEXT_LIMIT}" in context
+        assert "Event 19" in context
         # Earlier events should not be included
         assert "Event 0" not in context
 
-    def test_build_pc_context_returns_empty_for_unknown_agent(self) -> None:
-        """Test context returns empty string for unknown agent name."""
+    def test_build_pc_context_returns_empty_for_unknown_agent_no_log(self) -> None:
+        """Test context returns empty string when no log and unknown agent."""
         state = create_initial_game_state()
         state["agent_memories"]["shadowmere"] = AgentMemory(
-            short_term_buffer=["Some memory"]
+            long_term_summary="Some memory"
         )
 
         context = _build_pc_context(state, "unknown_agent")
@@ -1690,14 +1719,14 @@ class TestCharacterFactsInContext:
         state = create_initial_game_state()
         state["agent_memories"]["rogue"] = AgentMemory(
             long_term_summary="My journey",
-            short_term_buffer=["Recent event"],
         )
+        state["ground_truth_log"] = ["[DM]: The road stretches ahead."]
 
         context = _build_pc_context(state, "rogue")
 
         # Should work without character_facts
         assert "My journey" in context
-        assert "Recent event" in context
+        assert "road stretches ahead" in context
 
     def test_dm_context_includes_character_facts_for_all_pcs(self) -> None:
         """Test _build_dm_context includes character_facts for all PC agents."""

@@ -61,6 +61,7 @@ __all__ = [
     "MODULE_DISCOVERY_PROMPT",
     "MODULE_DISCOVERY_RETRY_PROMPT",
     "PC_CONTEXT_RECENT_EVENTS_LIMIT",
+    "PC_SHARED_CONTEXT_LIMIT",
     "PC_SYSTEM_PROMPT_TEMPLATE",
     "SUPPORTED_PROVIDERS",
     "_build_dm_context",
@@ -95,6 +96,7 @@ DM_CONTEXT_PLAYER_ENTRIES_LIMIT = 3  # Max entries per PC agent's buffer
 
 # Context building limits for PC agents
 PC_CONTEXT_RECENT_EVENTS_LIMIT = 10  # Max recent events from PC's buffer
+PC_SHARED_CONTEXT_LIMIT = 15  # Max recent ground_truth_log entries shown to PCs
 
 # DM System Prompt with improv principles and encounter mode awareness
 DM_SYSTEM_PROMPT = """You are the Dungeon Master for a D&D adventure. Your role is to narrate scenes, \
@@ -250,9 +252,14 @@ PC_SYSTEM_PROMPT_TEMPLATE = """You are {name}, a {character_class}.
 
 You are playing this character in a D&D adventure. Follow these guidelines:
 
+- **Read the scene** - Carefully read the "Current Scene" in your context. Your response MUST \
+react to what the DM just described and what other characters just did. Never ignore the scene.
 - **First person only** - Always speak and act as {name}, using "I" and "me"
+- **Match the situation** - In social encounters, talk to NPCs. In exploration, investigate. \
+In combat, fight. Do NOT attack when the scene is peaceful or NPCs are friendly.
 - **Stay in character** - Your responses should reflect your personality traits
-- **Be consistent** - Remember your character's motivations and relationships
+- **No unprovoked violence** - Never attack NPCs or creatures unless they are hostile, \
+you are provoked, or there is a clear strategic reason. When in doubt, use dialogue first.
 - **Collaborate** - Build on what others say and do; don't contradict established facts
 - **Reference the past** - When something reminds you of earlier events, mention it naturally
 
@@ -263,6 +270,8 @@ You are playing this character in a D&D adventure. Follow these guidelines:
 ## Actions and Dialogue
 
 When responding:
+- **Respond to the current scene** - If the DM described an NPC talking to you, answer them. \
+If the party is exploring, describe what you investigate. If combat started, then fight.
 - Describe your character's actions in first person: "I draw my sword and..."
 - Use direct dialogue with quotation marks: "Stay back!" I warn them.
 - Express your character's emotions and internal thoughts
@@ -1339,21 +1348,32 @@ def _build_dm_context(state: GameState) -> str:
 
 
 def _build_pc_context(state: GameState, agent_name: str) -> str:
-    """Build the context string for a PC agent from their own memory only.
+    """Build the context string for a PC agent.
 
-    PC agents have strict memory isolation - they can ONLY see their own
-    AgentMemory. This is the opposite of the DM's asymmetric access.
+    PC agents have memory isolation for private state (character facts,
+    long-term summary, secrets) but see shared game events via the
+    ground_truth_log - just like a player at the table hears the DM
+    and sees other players' actions.
 
     Args:
         state: Current game state.
         agent_name: The name of the PC agent (lowercase).
 
     Returns:
-        Formatted context string containing only this PC's memory.
+        Formatted context string with shared scene + private memory.
     """
     context_parts: list[str] = []
 
-    # PC agents ONLY access their own memory - strict isolation
+    # Shared context: recent game events from ground_truth_log.
+    # This is what everyone at the table sees - DM narration and PC actions.
+    # Without this, PCs would be blind to the current scene.
+    ground_truth_log = state.get("ground_truth_log", [])
+    if ground_truth_log:
+        recent_shared = ground_truth_log[-PC_SHARED_CONTEXT_LIMIT:]
+        shared_events = "\n".join(recent_shared)
+        context_parts.append(f"## Current Scene\n{shared_events}")
+
+    # Private memory: PC agents only access their own AgentMemory
     pc_memory = state["agent_memories"].get(agent_name)
     if pc_memory:
         # Add CharacterFacts first - who am I? (Story 5.4)
@@ -1365,13 +1385,6 @@ def _build_pc_context(state: GameState, agent_name: str) -> str:
         # Add long-term summary if available
         if pc_memory.long_term_summary:
             context_parts.append(f"## What You Remember\n{pc_memory.long_term_summary}")
-
-        # Add recent events from short-term buffer
-        if pc_memory.short_term_buffer:
-            recent = "\n".join(
-                pc_memory.short_term_buffer[-PC_CONTEXT_RECENT_EVENTS_LIMIT:]
-            )
-            context_parts.append(f"## Recent Events\n{recent}")
 
     # Add PC's own character sheet (Story 8.3 - FR62: PC sees only own sheet)
     # Find this PC's character sheet by matching character name
