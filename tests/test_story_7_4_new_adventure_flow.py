@@ -186,15 +186,13 @@ class TestHandleStartNewAdventure:
         mock_clear.assert_called_once()
 
     @patch("app.st")
-    @patch("app.start_module_discovery")
     @patch("app.clear_module_discovery_state")
-    def test_triggers_module_discovery(
+    def test_flags_module_discovery_needed(
         self,
         mock_clear: MagicMock,
-        mock_discovery: MagicMock,
         mock_st: MagicMock,
     ) -> None:
-        """Test handle_start_new_adventure triggers module discovery.
+        """Test handle_start_new_adventure flags discovery needed (deferred to render).
 
         Story 7.4: Task 2.4.
         """
@@ -204,7 +202,7 @@ class TestHandleStartNewAdventure:
 
         handle_start_new_adventure()
 
-        mock_discovery.assert_called_once()
+        assert mock_st.session_state["module_discovery_needed"] is True
 
     @patch("app.st")
     @patch("app.start_module_discovery")
@@ -731,23 +729,20 @@ class TestHandleStartNewAdventureExpanded:
         assert mock_st.session_state["module_selection_confirmed"] is False
 
     @patch("app.st")
-    @patch("app.start_module_discovery")
     @patch("app.clear_module_discovery_state")
     def test_order_of_operations(
         self,
         mock_clear: MagicMock,
-        mock_discovery: MagicMock,
         mock_st: MagicMock,
     ) -> None:
-        """Test handle_start_new_adventure calls functions in correct order.
+        """Test handle_start_new_adventure clears state then sets flags.
 
-        Story 7.4: Clear first, then set state, then start discovery.
+        Story 7.4: Clear first, then set state, then flag discovery needed.
         """
         from app import handle_start_new_adventure
 
         call_order = []
         mock_clear.side_effect = lambda: call_order.append("clear")
-        mock_discovery.side_effect = lambda: call_order.append("discovery")
 
         mock_st.session_state = {}
 
@@ -755,8 +750,8 @@ class TestHandleStartNewAdventureExpanded:
 
         # Clear should happen first
         assert call_order[0] == "clear"
-        # Discovery should happen after state is set
-        assert call_order[1] == "discovery"
+        # Discovery should be flagged (deferred to render), not called directly
+        assert mock_st.session_state["module_discovery_needed"] is True
 
 
 class TestRenderModuleSelectionViewExpanded:

@@ -7899,6 +7899,7 @@ def clear_module_discovery_state() -> None:
         "module_discovery_in_progress",
         "module_discovery_started_at",
         "module_discovery_error",
+        "module_discovery_needed",
         "selected_module",
         "module_selection_confirmed",
         "module_search_query",
@@ -7915,7 +7916,7 @@ def handle_start_new_adventure() -> None:
     Initiates the new adventure flow:
     1. Clear any previous module selection state
     2. Set app_view to module_selection
-    3. Trigger module discovery
+    3. Flag that discovery is needed (actual LLM call deferred to render)
 
     Story 7.4: AC #1 - New adventure flow integration.
     """
@@ -7926,8 +7927,9 @@ def handle_start_new_adventure() -> None:
     st.session_state["app_view"] = "module_selection"
     st.session_state["module_selection_confirmed"] = False
 
-    # Start module discovery (Story 7.1)
-    start_module_discovery()
+    # Flag discovery needed - actual LLM call happens in render_module_selection_view()
+    # so the loading UI is visible while the call blocks
+    st.session_state["module_discovery_needed"] = True
 
 
 def render_module_discovery_loading() -> None:
@@ -8187,9 +8189,9 @@ def render_module_discovery_error(error: UserError) -> None:
 
     with col1:
         if st.button("Try Again", use_container_width=True):
-            # Clear error and restart discovery
+            # Clear error and flag for re-discovery (deferred to render)
             st.session_state["module_discovery_error"] = None
-            start_module_discovery()
+            st.session_state["module_discovery_needed"] = True
             st.rerun()
 
     with col2:
@@ -8283,6 +8285,7 @@ def render_module_selection_view() -> None:
     Wraps render_module_selection_ui() with:
     - Step header
     - Back button navigation
+    - Discovery execution with visible loading spinner
     - Confirmation handling to proceed to party setup
 
     Story 7.4: AC #1-5 - New adventure flow integration.
@@ -8306,6 +8309,26 @@ def render_module_selection_view() -> None:
         # Proceed to party setup (Story 13.2)
         # Do NOT clear module discovery state here - module state must survive into party setup
         st.session_state["app_view"] = "party_setup"
+        st.rerun()
+        return
+
+    # Run module discovery with visible loading UI if needed.
+    # Discovery is deferred here (instead of the button callback) so the
+    # spinner is rendered to the browser before the blocking LLM call.
+    if st.session_state.get("module_discovery_needed"):
+        st.session_state["module_discovery_needed"] = False
+        st.markdown(
+            """
+        <div class="module-discovery-loading">
+            <div class="loading-icon">&#128214;</div>
+            <p class="loading-text">Consulting the Dungeon Master's Library...</p>
+            <p class="loading-subtext">Gathering tales of adventure from across the realms</p>
+        </div>
+        """,
+            unsafe_allow_html=True,
+        )
+        with st.spinner("Querying the DM for known adventures..."):
+            start_module_discovery()
         st.rerun()
         return
 
