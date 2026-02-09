@@ -1657,66 +1657,6 @@ hr {
   margin: 0 0 var(--space-md) 0;
 }
 
-/* Error panel button container */
-.error-panel-actions {
-  display: flex;
-  gap: var(--space-sm);
-  flex-wrap: wrap;
-}
-
-/* Error panel buttons - base styling */
-.error-panel-actions button {
-  font-family: var(--font-ui);
-  font-size: var(--text-system);
-  padding: var(--space-sm) var(--space-md);
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-/* Retry button - primary amber */
-.error-retry-btn {
-  background: var(--accent-warm);
-  border: none;
-  color: var(--bg-primary);
-}
-
-.error-retry-btn:hover:not(:disabled) {
-  background: #D49A3D;
-}
-
-.error-retry-btn:disabled,
-.error-retry-btn.disabled {
-  background: var(--bg-message);
-  color: var(--text-secondary);
-  cursor: not-allowed;
-}
-
-/* Restore button - secondary outline */
-.error-restore-btn {
-  background: transparent;
-  border: 1px solid var(--text-secondary);
-  color: var(--text-primary);
-}
-
-.error-restore-btn:hover {
-  background: var(--bg-message);
-  border-color: var(--text-primary);
-}
-
-/* New session button - subtle outline */
-.error-new-session-btn {
-  background: transparent;
-  border: 1px solid var(--text-secondary);
-  color: var(--text-secondary);
-}
-
-.error-new-session-btn:hover {
-  background: var(--bg-message);
-  border-color: var(--text-primary);
-  color: var(--text-primary);
-}
-
 /* Streamlit button overrides for error panel */
 .error-panel + div .stButton > button[key="error_retry_btn"] {
   background: var(--accent-warm);

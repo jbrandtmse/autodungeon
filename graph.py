@@ -438,12 +438,16 @@ def run_single_round(state: GameState) -> GameStateWithError:
 
     except LLMError as e:
         # Create user-friendly error without corrupting game state (Story 4.5)
+        detail = str(e)
+        if e.original_error:
+            detail += f"\nOriginal error: {e.original_error}"
         user_error = create_user_error(
             error_type=e.error_type,
             provider=e.provider,
             agent=e.agent,
             retry_count=0,
             last_checkpoint_turn=last_checkpoint_turn,
+            detail_message=detail,
         )
 
         # Return original state with error attached
@@ -463,6 +467,7 @@ def run_single_round(state: GameState) -> GameStateWithError:
             agent="unknown",
             retry_count=0,
             last_checkpoint_turn=last_checkpoint_turn,
+            detail_message=str(e),
         )
 
         error_result = dict(state)

@@ -3667,8 +3667,9 @@ MAX_RETRY_ATTEMPTS = 3
 def render_error_panel_html(error: UserError) -> str:
     """Generate HTML for error panel with campfire styling.
 
-    Creates an error panel with friendly title, message, action suggestion,
-    and styled buttons for recovery options.
+    Creates an error panel with friendly title, message, and action suggestion.
+    Action buttons are rendered separately as Streamlit buttons (not HTML)
+    so they are fully interactive.
 
     Args:
         error: UserError instance with title, message, and action fields.
@@ -3676,26 +3677,11 @@ def render_error_panel_html(error: UserError) -> str:
     Returns:
         HTML string for error panel.
     """
-    retry_disabled = (
-        'disabled="disabled"' if error.retry_count >= MAX_RETRY_ATTEMPTS else ""
-    )
-    retry_class = "disabled" if error.retry_count >= MAX_RETRY_ATTEMPTS else ""
-
-    # Show retry count if there have been attempts
-    retry_text = "Retry"
-    if error.retry_count > 0:
-        retry_text = f"Retry ({MAX_RETRY_ATTEMPTS - error.retry_count} left)"
-
     return (
         '<div class="error-panel">'
         f'<h3 class="error-panel-title">{escape_html(error.title)}</h3>'
         f'<p class="error-panel-message">{escape_html(error.message)}</p>'
         f'<p class="error-panel-action">{escape_html(error.action)}</p>'
-        '<div class="error-panel-actions">'
-        f'<button class="error-retry-btn {retry_class}" {retry_disabled}>{retry_text}</button>'
-        '<button class="error-restore-btn">Restore from Checkpoint</button>'
-        '<button class="error-new-session-btn">Start New Session</button>'
-        "</div>"
         "</div>"
     )
 
@@ -3727,6 +3713,7 @@ def handle_retry_click() -> None:
                 timestamp=current_error.timestamp,
                 provider=current_error.provider,
                 agent=current_error.agent,
+                detail_message=current_error.detail_message,
                 retry_count=MAX_RETRY_ATTEMPTS,
                 last_checkpoint_turn=current_error.last_checkpoint_turn,
             )
@@ -3755,6 +3742,7 @@ def handle_retry_click() -> None:
                 timestamp=current_error.timestamp,
                 provider=current_error.provider,
                 agent=current_error.agent,
+                detail_message=current_error.detail_message,
                 retry_count=new_retry_count,
                 last_checkpoint_turn=current_error.last_checkpoint_turn,
             )
@@ -3810,8 +3798,9 @@ def handle_error_new_session_click() -> None:
 def render_error_panel() -> None:
     """Render error panel if an error is present in session state.
 
-    Displays the error panel with friendly narrative-style message
-    and action buttons (Retry, Restore, New Session).
+    Displays the error panel with friendly narrative-style message,
+    action buttons (Retry, Restore, New Session), and an expandable
+    details section showing technical error information.
 
     Only renders if st.session_state["error"] contains a UserError.
     """
@@ -3819,16 +3808,19 @@ def render_error_panel() -> None:
     if error is None:
         return
 
-    # Render the error panel HTML
+    # Render the error panel HTML (message only, no buttons)
     st.markdown(render_error_panel_html(error), unsafe_allow_html=True)
 
-    # Render functional Streamlit buttons (styled via CSS)
+    # Render functional Streamlit buttons
     col1, col2, col3 = st.columns(3)
 
     with col1:
         retry_disabled = error.retry_count >= MAX_RETRY_ATTEMPTS
+        retry_label = "Retry"
+        if error.retry_count > 0:
+            retry_label = f"Retry ({MAX_RETRY_ATTEMPTS - error.retry_count} left)"
         if st.button(
-            "Retry",
+            retry_label,
             key="error_retry_btn",
             disabled=retry_disabled,
         ):
@@ -3849,6 +3841,21 @@ def render_error_panel() -> None:
         if st.button("New Session", key="error_new_session_btn"):
             handle_error_new_session_click()
             st.rerun()
+
+    # Expandable details section for technical info
+    with st.expander("Show Details"):
+        details: list[str] = []
+        if error.error_type:
+            details.append(f"**Error type:** {error.error_type}")
+        if error.provider:
+            details.append(f"**Provider:** {error.provider}")
+        if error.agent:
+            details.append(f"**Agent:** {error.agent}")
+        if error.timestamp:
+            details.append(f"**Time:** {error.timestamp}")
+        if error.detail_message:
+            details.append(f"**Details:** {error.detail_message}")
+        st.markdown("  \n".join(details) if details else "No additional details.")
 
 
 def render_input_context_bar(controlled_character: str | None = None) -> None:

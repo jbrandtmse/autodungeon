@@ -76,6 +76,7 @@ class TestUserError:
 
         assert error.provider == ""
         assert error.agent == ""
+        assert error.detail_message == ""
         assert error.retry_count == 0
         assert error.last_checkpoint_turn is None
 
@@ -165,6 +166,21 @@ class TestCreateUserError:
         error = create_user_error(error_type="timeout", last_checkpoint_turn=10)
 
         assert error.last_checkpoint_turn == 10
+
+    def test_create_user_error_with_detail_message(self) -> None:
+        """Test factory preserves detail_message."""
+        error = create_user_error(
+            error_type="timeout",
+            detail_message="Connection timed out after 30s",
+        )
+
+        assert error.detail_message == "Connection timed out after 30s"
+
+    def test_create_user_error_default_detail_message(self) -> None:
+        """Test factory uses empty string as default detail_message."""
+        error = create_user_error(error_type="timeout")
+
+        assert error.detail_message == ""
 
 
 # =============================================================================
@@ -414,6 +430,8 @@ class TestErrorInGameLoop:
         assert isinstance(error, UserError)
         # Should be categorized as unknown
         assert error.error_type == "unknown"
+        # Should capture the exception message
+        assert "Something went wrong" in error.detail_message
 
     @patch("persistence.save_checkpoint")
     @patch("persistence.get_latest_checkpoint")
@@ -460,18 +478,17 @@ class TestErrorPanelHTML:
         assert '<h3 class="error-panel-title">' in html
         assert '<p class="error-panel-message">' in html
         assert '<p class="error-panel-action">' in html
-        assert '<div class="error-panel-actions">' in html
 
-    def test_error_panel_has_buttons(self) -> None:
-        """Test error panel has Retry, Restore, New Session buttons."""
+    def test_error_panel_has_no_html_buttons(self) -> None:
+        """Test error panel HTML has no decorative buttons."""
         from app import render_error_panel_html
 
         error = create_user_error(error_type="timeout")
         html = render_error_panel_html(error)
 
-        assert "Retry" in html
-        assert "Restore from Checkpoint" in html
-        assert "Start New Session" in html
+        # HTML panel should NOT contain button elements - Streamlit handles buttons
+        assert "<button" not in html
+        assert "error-panel-actions" not in html
 
     def test_error_panel_narrative_style(self) -> None:
         """Test error messages use campfire narrative style."""
@@ -483,26 +500,19 @@ class TestErrorPanelHTML:
         # Should contain the narrative-style title
         assert "magical connection" in html.lower()
 
-    def test_error_panel_shows_retry_count(self) -> None:
-        """Test error panel shows remaining retries when count > 0."""
-        from app import MAX_RETRY_ATTEMPTS, render_error_panel_html
+    def test_error_panel_html_is_message_only(self) -> None:
+        """Test error panel HTML has no interactive controls."""
+        from app import render_error_panel_html
 
         error = create_user_error(error_type="timeout", retry_count=1)
         html = render_error_panel_html(error)
 
-        # Should show remaining retries
-        expected_remaining = MAX_RETRY_ATTEMPTS - 1
-        assert f"{expected_remaining} left" in html
-
-    def test_error_panel_retry_disabled_at_max(self) -> None:
-        """Test retry button is disabled when max retries reached."""
-        from app import MAX_RETRY_ATTEMPTS, render_error_panel_html
-
-        error = create_user_error(error_type="timeout", retry_count=MAX_RETRY_ATTEMPTS)
-        html = render_error_panel_html(error)
-
-        # Should have disabled attribute
-        assert "disabled" in html
+        # Should have message elements
+        assert "error-panel-title" in html
+        assert "error-panel-message" in html
+        assert "error-panel-action" in html
+        # Should NOT have button or interactive elements
+        assert "<button" not in html
 
     def test_error_panel_escapes_html(self) -> None:
         """Test error panel escapes HTML in error messages."""
@@ -1467,16 +1477,18 @@ class TestErrorTypeMessages:
 class TestErrorPanelRendering:
     """Additional tests for error panel HTML rendering."""
 
-    def test_error_panel_includes_all_buttons(self) -> None:
-        """Test error panel includes all three action buttons."""
+    def test_error_panel_html_no_buttons(self) -> None:
+        """Test error panel HTML has no action buttons."""
         from app import render_error_panel_html
 
         error = create_user_error(error_type="timeout")
         html = render_error_panel_html(error)
 
-        assert "Retry" in html
-        assert "Restore from Checkpoint" in html
-        assert "Start New Session" in html
+        # Buttons should NOT be in the HTML - they are Streamlit buttons
+        assert "<button" not in html
+        # But the error info should still be there
+        assert "error-panel" in html
+        assert error.title in html
 
     def test_error_panel_title_is_escaped(self) -> None:
         """Test error panel escapes HTML in title."""

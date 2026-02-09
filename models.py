@@ -1222,6 +1222,9 @@ class UserError(BaseModel):
     timestamp: str = Field(..., description="ISO format timestamp")
     provider: str = Field(default="", description="LLM provider that caused error")
     agent: str = Field(default="", description="Agent that was executing")
+    detail_message: str = Field(
+        default="", description="Technical error details for Show Details expander"
+    )
     retry_count: int = Field(default=0, ge=0, le=3, description="Retry attempts made")
     last_checkpoint_turn: int | None = Field(
         default=None, description="Last successful checkpoint turn number"
@@ -1234,6 +1237,7 @@ def create_user_error(
     agent: str = "",
     retry_count: int = 0,
     last_checkpoint_turn: int | None = None,
+    detail_message: str = "",
 ) -> UserError:
     """Factory function to create a UserError with appropriate messages.
 
@@ -1262,6 +1266,7 @@ def create_user_error(
         timestamp=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         provider=provider,
         agent=agent,
+        detail_message=detail_message,
         retry_count=retry_count,
         last_checkpoint_turn=last_checkpoint_turn,
     )
