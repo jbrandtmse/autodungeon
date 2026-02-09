@@ -816,10 +816,35 @@ h2, h3, h4 {
 .stSelectbox > div > div {
   background-color: var(--bg-secondary);
   border-color: var(--bg-message);
+  color: var(--text-primary);
 }
 
 .stSelectbox [data-baseweb="select"] {
   background-color: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.stSelectbox [data-baseweb="select"] span {
+  color: var(--text-primary);
+}
+
+/* Selectbox dropdown menu */
+.stSelectbox [data-baseweb="popover"],
+.stSelectbox [data-baseweb="menu"] {
+  background-color: var(--bg-secondary);
+}
+
+.stSelectbox [data-baseweb="menu"] li {
+  color: var(--text-primary);
+}
+
+.stSelectbox [data-baseweb="menu"] li:hover {
+  background-color: var(--bg-message);
+}
+
+/* Selectbox label */
+.stSelectbox label {
+  color: var(--text-secondary);
 }
 
 /* Expander styling */

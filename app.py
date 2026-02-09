@@ -8871,6 +8871,7 @@ def main() -> None:
         # Show config modal if opened from session browser
         if st.session_state.get("config_modal_open"):
             render_config_modal()
+            st.session_state["config_modal_open"] = False
     elif app_view == "character_wizard":
         # Character creation wizard view (Story 9.1)
         st.title("autodungeon")
@@ -8932,6 +8933,10 @@ def main() -> None:
             # Show config modal if open (Story 6.1)
             if st.session_state.get("config_modal_open"):
                 render_config_modal()
+                # Clear flag after rendering - @st.dialog keeps itself open
+                # internally. Without this, the X button leaves the flag True
+                # and the modal re-opens on the next unrelated rerun.
+                st.session_state["config_modal_open"] = False
 
             # Show character sheet modal if viewing (Story 8.2)
             viewing_sheet = st.session_state.get("viewing_character_sheet")

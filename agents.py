@@ -1407,6 +1407,79 @@ def _build_pc_context(state: GameState, agent_name: str) -> str:
     return "\n\n".join(context_parts)
 
 
+# Maximum characters to include from the last DM narration in the turn prompt
+_DM_EXCERPT_MAX_CHARS = 300
+
+
+def _build_pc_turn_prompt(state: GameState, character_name: str) -> str:
+    """Build a scene-aware turn prompt for a PC agent.
+
+    Extracts the last DM narration from ground_truth_log and includes
+    it in the prompt so the model has a direct reminder of what to
+    respond to. This significantly helps smaller/local models stay
+    on-topic instead of defaulting to combat actions.
+
+    Args:
+        state: Current game state.
+        character_name: Display name of the PC (e.g. "Thorin").
+
+    Returns:
+        A turn prompt string that references the current scene.
+    """
+    ground_truth_log = state.get("ground_truth_log", [])
+
+    # Find the last DM entry
+    last_dm_line = ""
+    for entry in reversed(ground_truth_log):
+        if entry.startswith("[DM]:"):
+            last_dm_line = entry[len("[DM]:") :].strip()
+            break
+
+    if not last_dm_line:
+        return "It's your turn. What do you do?"
+
+    # Truncate to a reasonable excerpt
+    excerpt = last_dm_line
+    if len(excerpt) > _DM_EXCERPT_MAX_CHARS:
+        # Cut at last sentence boundary within limit
+        truncated = excerpt[:_DM_EXCERPT_MAX_CHARS]
+        last_period = truncated.rfind(".")
+        last_question = truncated.rfind("?")
+        last_quote = truncated.rfind('"')
+        cut = max(last_period, last_question, last_quote)
+        if cut > _DM_EXCERPT_MAX_CHARS // 2:
+            excerpt = truncated[: cut + 1]
+        else:
+            excerpt = truncated + "..."
+
+    # Collect what other PCs said this round (after the last DM entry)
+    other_pc_actions: list[str] = []
+    found_dm = False
+    for entry in ground_truth_log:
+        if entry.startswith("[DM]:") and entry[len("[DM]:") :].strip() == last_dm_line[: len(entry) - 5]:
+            found_dm = True
+            other_pc_actions.clear()
+            continue
+        if found_dm and not entry.startswith("[DM]:"):
+            # Extract character name from "[Name]: action"
+            bracket_end = entry.find("]:")
+            if bracket_end > 1:
+                name = entry[1:bracket_end]
+                if name != character_name and name not in ("DM", "SHEET"):
+                    other_pc_actions.append(name)
+
+    parts = [f"The DM said: \"{excerpt}\""]
+    if other_pc_actions:
+        parts.append(
+            f"{', '.join(other_pc_actions)} already responded."
+        )
+    parts.append(
+        f"It's your turn, {character_name}. Respond to the scene above "
+        "- what do you say or do?"
+    )
+    return "\n\n".join(parts)
+
+
 def dm_turn(state: GameState) -> GameState:
     """Execute the DM's turn in the game loop.
 
@@ -1965,7 +2038,11 @@ def pc_turn(state: GameState, agent_name: str) -> GameState:
             messages.append(
                 HumanMessage(content=f"Your current knowledge:\n\n{context}")
             )
-        messages.append(HumanMessage(content="It's your turn. What do you do?"))
+
+        # Build a scene-aware turn prompt that helps the model respond to
+        # the current situation rather than defaulting to combat.
+        turn_prompt = _build_pc_turn_prompt(state, character_config.name)
+        messages.append(HumanMessage(content=turn_prompt))
 
         # Track any dice results for fallback response
         dice_results: list[str] = []
