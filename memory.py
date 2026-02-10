@@ -218,14 +218,18 @@ class Summarizer:
             llm = self._get_llm()
             response = llm.invoke(messages)
 
-            # Extract content from response - handle both str and list[str] cases
+            # Extract content from response - handle str, list[str], and
+            # list[dict] formats (Gemini returns [{'type':'text','text':'...'}])
             content = response.content
             if isinstance(content, str):
                 return content
-            # LangChain may return list of content blocks (e.g., Claude)
-            # Join string elements, skip non-string items (like tool use blocks)
             if hasattr(content, "__iter__"):
-                text_parts = [part for part in content if isinstance(part, str)]
+                text_parts: list[str] = []
+                for part in content:
+                    if isinstance(part, str):
+                        text_parts.append(part)
+                    elif isinstance(part, dict) and "text" in part:
+                        text_parts.append(part["text"])
                 return "".join(text_parts)
             # Fallback for unexpected types
             return str(content) if content else ""
@@ -1292,14 +1296,18 @@ class NarrativeElementExtractor:
             ]
             response = llm.invoke(messages)
 
-            # Extract text from response
+            # Extract text from response - handle str, list[str], and
+            # list[dict] formats (Gemini returns [{'type':'text','text':'...'}])
             response_content = response.content
             if isinstance(response_content, str):
                 response_text = response_content
             elif hasattr(response_content, "__iter__"):
-                text_parts = [
-                    part for part in response_content if isinstance(part, str)
-                ]
+                text_parts: list[str] = []
+                for part in response_content:
+                    if isinstance(part, str):
+                        text_parts.append(part)
+                    elif isinstance(part, dict) and "text" in part:
+                        text_parts.append(part["text"])
                 response_text = "".join(text_parts)
             else:
                 response_text = str(response_content) if response_content else ""

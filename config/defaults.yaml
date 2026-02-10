@@ -1,20 +1,20 @@
 # Default LLM Configuration
 default_provider: gemini
-default_model: gemini-1.5-flash
+default_model: gemini-3-flash-preview
 
 # Per-agent defaults (can override)
 agents:
   dm:
     provider: gemini
-    model: gemini-1.5-flash
+    model: gemini-3-flash-preview
     token_limit: 8000
   summarizer:
     provider: gemini
-    model: gemini-1.5-flash
+    model: gemini-3-flash-preview
     token_limit: 4000
   extractor:
     provider: gemini
-    model: gemini-1.5-flash
+    model: gemini-3-flash-preview
     token_limit: 4000
 
 # Game defaults

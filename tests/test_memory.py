@@ -2290,7 +2290,7 @@ class TestSummarizerConfigIntegration:
 
         # Default should be gemini based on defaults.yaml
         assert config.agents.summarizer.provider == "gemini"
-        assert config.agents.summarizer.model == "gemini-1.5-flash"
+        assert config.agents.summarizer.model == "gemini-3-flash-preview"
 
     def test_summarizer_config_has_token_limit(self) -> None:
         """Test that summarizer config includes token_limit."""

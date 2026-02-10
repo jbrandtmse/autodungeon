@@ -1120,7 +1120,7 @@ class TestExtractorConfig:
         config = AgentsConfig()
         assert hasattr(config, "extractor")
         assert config.extractor.provider == "gemini"
-        assert config.extractor.model == "gemini-1.5-flash"
+        assert config.extractor.model == "gemini-3-flash-preview"
         assert config.extractor.token_limit == 4000
 
     def test_app_config_loads_extractor(self) -> None:

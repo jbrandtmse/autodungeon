@@ -64,7 +64,7 @@ class TestPydanticSettings:
         config = AppConfig.load()
         # These should match config/defaults.yaml
         assert config.default_provider == "gemini"
-        assert config.default_model == "gemini-1.5-flash"
+        assert config.default_model == "gemini-3-flash-preview"
         assert config.party_size == 4
         assert config.auto_save is True
 
@@ -75,7 +75,7 @@ class TestPydanticSettings:
         config = AppConfig.load()
         # DM agent config
         assert config.agents.dm.provider == "gemini"
-        assert config.agents.dm.model == "gemini-1.5-flash"
+        assert config.agents.dm.model == "gemini-3-flash-preview"
         assert config.agents.dm.token_limit == 8000
         # Summarizer agent config
         assert config.agents.summarizer.provider == "gemini"

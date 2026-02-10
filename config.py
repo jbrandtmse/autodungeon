@@ -114,7 +114,7 @@ class AgentConfig(BaseSettings):
     """Configuration for a single agent."""
 
     provider: str = "gemini"
-    model: str = "gemini-1.5-flash"
+    model: str = "gemini-3-flash-preview"
     token_limit: int = 8000
 
 
@@ -152,7 +152,7 @@ class AppConfig(BaseSettings):
 
     # LLM Defaults (from YAML, overridable by env)
     default_provider: str = "gemini"
-    default_model: str = "gemini-1.5-flash"
+    default_model: str = "gemini-3-flash-preview"
 
     # Game defaults
     party_size: int = 4
@@ -189,7 +189,7 @@ class AppConfig(BaseSettings):
             kwargs["default_provider"] = yaml_defaults.get("default_provider", "gemini")
         if "DEFAULT_MODEL" not in os.environ:
             kwargs["default_model"] = yaml_defaults.get(
-                "default_model", "gemini-1.5-flash"
+                "default_model", "gemini-3-flash-preview"
             )
         if "PARTY_SIZE" not in os.environ:
             kwargs["party_size"] = yaml_defaults.get("party_size", 4)
@@ -661,7 +661,7 @@ def validate_ollama_connection(base_url: str) -> ValidationResult:
 # These represent the maximum tokens a model can accept as input context
 MODEL_MAX_CONTEXT: dict[str, int] = {
     # Gemini models (as of 2024-2025)
-    "gemini-1.5-flash": 1_000_000,
+    "gemini-3-flash-preview": 1_000_000,
     "gemini-1.5-pro": 2_000_000,
     "gemini-2.0-flash": 1_000_000,
     "gemini-2.5-flash-preview-05-20": 1_000_000,
@@ -698,7 +698,7 @@ def get_model_max_context(model: str) -> int:
         Returns DEFAULT_MAX_CONTEXT for unknown models.
 
     Example:
-        >>> get_model_max_context("gemini-1.5-flash")
+        >>> get_model_max_context("gemini-3-flash-preview")
         1000000
         >>> get_model_max_context("unknown-model")
         8192
@@ -723,7 +723,7 @@ def get_max_context_for_provider(provider: str, model: str) -> int:
     Example:
         >>> get_max_context_for_provider("ollama", "llama3")
         128000
-        >>> get_max_context_for_provider("gemini", "gemini-1.5-flash")
+        >>> get_max_context_for_provider("gemini", "gemini-3-flash-preview")
         1000000
     """
     if provider.lower() == "ollama":
@@ -844,7 +844,7 @@ def get_default_token_limit(provider: str, model: str) -> int:
 
 # Model lists by provider (static for Gemini/Claude, dynamic for Ollama)
 GEMINI_MODELS: list[str] = [
-    "gemini-1.5-flash",
+    "gemini-3-flash-preview",
     "gemini-1.5-pro",
     "gemini-2.0-flash",
     "gemini-2.5-flash-preview-05-20",
@@ -881,7 +881,7 @@ def get_available_models(provider: str) -> list[str]:
 
     Example:
         >>> get_available_models("gemini")
-        ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-2.0-flash']
+        ['gemini-3-flash-preview', 'gemini-1.5-pro', 'gemini-2.0-flash']
     """
     provider = provider.lower()
 
