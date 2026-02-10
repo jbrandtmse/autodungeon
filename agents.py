@@ -674,6 +674,7 @@ def get_llm(provider: str, model: str) -> BaseChatModel:
             return ChatOllama(
                 model=model,
                 base_url=base_url,
+                timeout=300,  # 5 minutes - Ollama server may be shared
             )
         case _:
             raise ValueError(f"Unknown provider: {provider}")
