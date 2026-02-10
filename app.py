@@ -2395,7 +2395,10 @@ def get_current_agent_model(agent_key: str) -> tuple[str, str]:
     if agent_key == "extractor":
         game_config = game.get("game_config")
         if game_config:
-            return game_config.extractor_provider, game_config.extractor_model
+            return (
+                getattr(game_config, "extractor_provider", "gemini"),
+                getattr(game_config, "extractor_model", "gemini-3-flash-preview"),
+            )
         return "gemini", "gemini-3-flash-preview"
 
     # PC character
@@ -2740,10 +2743,12 @@ def apply_model_config_changes() -> None:
         game["game_config"] = old_game_config.model_copy(
             update={
                 "extractor_provider": ext_override.get(
-                    "provider", old_game_config.extractor_provider
+                    "provider",
+                    getattr(old_game_config, "extractor_provider", "gemini"),
                 ),
                 "extractor_model": ext_override.get(
-                    "model", old_game_config.extractor_model
+                    "model",
+                    getattr(old_game_config, "extractor_model", "gemini-3-flash-preview"),
                 ),
             }
         )
