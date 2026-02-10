@@ -2392,6 +2392,12 @@ def get_current_agent_model(agent_key: str) -> tuple[str, str]:
             return game_config.summarizer_provider, game_config.summarizer_model
         return "gemini", "gemini-1.5-flash"
 
+    if agent_key == "extractor":
+        game_config = game.get("game_config")
+        if game_config:
+            return game_config.extractor_provider, game_config.extractor_model
+        return "gemini", "gemini-3-flash-preview"
+
     # PC character
     characters = game.get("characters", {})
     char_config = characters.get(agent_key)
@@ -2538,6 +2544,8 @@ def render_agent_model_row(
     css_class: str,
     is_dm: bool = False,
     is_summarizer: bool = False,
+    help_text: str | None = None,
+    show_status: bool = True,
 ) -> None:
     """Render a single agent row in the Models tab.
 
@@ -2550,7 +2558,9 @@ def render_agent_model_row(
         agent_name: Display name for the agent.
         css_class: CSS class for styling (dm, fighter, rogue, wizard, cleric, summarizer).
         is_dm: True if this is the DM row.
-        is_summarizer: True if this is the Summarizer row.
+        is_summarizer: True if this is the Summarizer row (deprecated, use show_status/help_text).
+        help_text: Optional help text shown below model dropdowns.
+        show_status: Whether to show the agent status badge. Defaults to True.
     """
     # Sanitize css_class to prevent injection - only allow alphanumeric and hyphens
     safe_css_class = "".join(c for c in css_class if c.isalnum() or c == "-").lower()
@@ -2567,8 +2577,8 @@ def render_agent_model_row(
     if current_model and current_model not in available_models:
         available_models.insert(0, current_model)
 
-    # Get status (not applicable for summarizer)
-    status = "" if is_summarizer else get_agent_status(agent_key)
+    # Get status (not applicable for summarizer/extractor)
+    status = "" if (is_summarizer or not show_status) else get_agent_status(agent_key)
 
     # Story 6.5: Check for pending changes and provider availability
     pending = has_pending_change(agent_key)
@@ -2629,8 +2639,13 @@ def render_agent_model_row(
             label_visibility="collapsed",
         )
 
-    # Help text for summarizer
-    if is_summarizer:
+    # Help text for summarizer (legacy) or custom help_text
+    if help_text:
+        st.markdown(
+            f'<p class="model-help-text">{escape_html(help_text)}</p>',
+            unsafe_allow_html=True,
+        )
+    elif is_summarizer:
         st.markdown(
             '<p class="model-help-text">Model used for memory compression</p>',
             unsafe_allow_html=True,
@@ -2718,6 +2733,21 @@ def apply_model_config_changes() -> None:
             }
         )
 
+    # Update extractor config
+    if "extractor" in overrides:
+        ext_override = overrides["extractor"]
+        old_game_config = game.get("game_config") or GameConfig()
+        game["game_config"] = old_game_config.model_copy(
+            update={
+                "extractor_provider": ext_override.get(
+                    "provider", old_game_config.extractor_provider
+                ),
+                "extractor_model": ext_override.get(
+                    "model", old_game_config.extractor_model
+                ),
+            }
+        )
+
     st.session_state["game"] = game
     st.session_state["model_config_changed"] = True
 
@@ -2759,6 +2789,8 @@ def generate_model_change_messages() -> list[str]:
             display_name = "Dungeon Master"
         elif agent_key == "summarizer":
             display_name = "Summarizer"
+        elif agent_key == "extractor":
+            display_name = "Extractor"
         else:
             char_config = game.get("characters", {}).get(agent_key)
             display_name = char_config.name if char_config else agent_key.title()
@@ -2925,6 +2957,10 @@ def get_effective_token_limit(agent_key: str) -> int:
         # Summarizer uses default from config
         config = get_config()
         return config.agents.summarizer.token_limit
+
+    if agent_key == "extractor":
+        config = get_config()
+        return config.agents.extractor.token_limit
 
     # Character agent
     characters = game.get("characters", {})
@@ -3123,6 +3159,15 @@ def render_models_tab() -> None:
         is_summarizer=True,
     )
 
+    # Extractor row
+    render_agent_model_row(
+        agent_key="extractor",
+        agent_name="Extractor",
+        css_class="summarizer",
+        show_status=False,
+        help_text="Model used for narrative element extraction",
+    )
+
     st.markdown("</div>", unsafe_allow_html=True)
 
     # Quick actions
@@ -3296,6 +3341,13 @@ def render_settings_tab() -> None:
     render_token_limit_row(
         agent_key="summarizer",
         agent_name="Summarizer",
+        css_class="summarizer",
+    )
+
+    # Extractor row
+    render_token_limit_row(
+        agent_key="extractor",
+        agent_name="Extractor",
         css_class="summarizer",
     )
 

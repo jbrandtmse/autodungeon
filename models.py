@@ -291,6 +291,14 @@ class GameConfig(BaseModel):
         default="gemini-1.5-flash",
         description="Model for memory compression",
     )
+    extractor_provider: str = Field(
+        default="gemini",
+        description="Provider for narrative element extraction",
+    )
+    extractor_model: str = Field(
+        default="gemini-3-flash-preview",
+        description="Model for narrative element extraction",
+    )
     party_size: int = Field(
         default=4,
         ge=1,
