@@ -305,6 +305,12 @@ class GameConfig(BaseModel):
         le=8,
         description="Number of player characters",
     )
+    narrative_display_limit: int = Field(
+        default=50,
+        ge=10,
+        le=1000,
+        description="Max messages to render in the narrative area",
+    )
 
 
 class SessionMetadata(BaseModel):

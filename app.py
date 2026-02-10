@@ -1614,11 +1614,12 @@ def get_character_info(state: GameState, agent_name: str) -> tuple[str, str] | N
 
 
 def render_narrative_messages(state: GameState) -> None:
-    """Render all messages from ground_truth_log.
+    """Render recent messages from ground_truth_log with pagination.
 
-    Iterates through the log, parses each entry, determines message type,
-    and routes to appropriate renderer (DM or PC). The last message receives
-    a current-turn highlight class for visual emphasis.
+    Only renders the most recent N messages (controlled by
+    ``narrative_display_limit`` on GameConfig). A "Load earlier messages"
+    button lets the user expand the window. This prevents the UI from
+    becoming unresponsive on sessions with hundreds of turns.
 
     Args:
         state: Current game state with ground_truth_log.
@@ -1637,9 +1638,35 @@ def render_narrative_messages(state: GameState) -> None:
         )
         return
 
+    # Determine display window
+    game_config = state.get("game_config")
+    display_limit = (
+        game_config.narrative_display_limit
+        if game_config and hasattr(game_config, "narrative_display_limit")
+        else 50
+    )
+    extra = st.session_state.get("narrative_display_offset", 0)
+    if not isinstance(extra, int):
+        extra = 0
+    total_to_show = display_limit + extra
+
+    total = len(log)
+    start_index = max(0, total - total_to_show)
+    visible_log = log[start_index:]
+
+    # Show "Load earlier messages" button if there are hidden messages
+    if start_index > 0:
+        hidden_count = start_index
+        if st.button(
+            f"Load earlier messages ({hidden_count} hidden)",
+            key="load_earlier_btn",
+        ):
+            st.session_state["narrative_display_offset"] = extra + display_limit
+            st.rerun()
+
     last_index = len(log) - 1
 
-    for i, entry in enumerate(log):
+    for i, entry in enumerate(visible_log, start=start_index):
         message = parse_log_entry(entry)
         is_current = i == last_index
 
@@ -1721,6 +1748,10 @@ def initialize_session_state() -> None:
     # Module selection state (Story 7.4)
     if "module_selection_confirmed" not in st.session_state:
         st.session_state["module_selection_confirmed"] = False
+
+    # Narrative pagination state (Story 14.1)
+    if "narrative_display_offset" not in st.session_state:
+        st.session_state["narrative_display_offset"] = 0
 
     # Recap state (Story 4.3)
     if "show_recap" not in st.session_state:
@@ -3355,6 +3386,35 @@ def render_settings_tab() -> None:
         agent_name="Extractor",
         css_class="summarizer",
     )
+
+    # Separator before display settings
+    st.markdown('<div class="token-limit-separator"></div>', unsafe_allow_html=True)
+
+    # Narrative display limit (Story 14.1)
+    st.markdown(
+        '<h4 class="settings-section-header">Display</h4>',
+        unsafe_allow_html=True,
+    )
+    game: GameState | None = st.session_state.get("game")
+    current_limit = 50
+    if game:
+        gc = game.get("game_config")
+        if gc:
+            current_limit = gc.narrative_display_limit
+    new_limit = st.number_input(
+        "Narrative display limit",
+        min_value=10,
+        max_value=1000,
+        value=current_limit,
+        step=10,
+        help="Maximum messages shown in the narrative area. "
+        "Use 'Load earlier messages' to see older entries.",
+        key="narrative_display_limit_input",
+    )
+    if game and new_limit != current_limit:
+        gc = game.get("game_config")
+        if gc:
+            gc.narrative_display_limit = int(new_limit)
 
 
 @st.dialog("Configuration", width="large")
@@ -5014,6 +5074,7 @@ def handle_checkpoint_restore(session_id: str, turn_number: int) -> bool:
     st.session_state["human_whisper_submitted"] = False
     st.session_state["pending_secret_reveal"] = None
     st.session_state["autopilot_turn_count"] = 0
+    st.session_state["narrative_display_offset"] = 0
 
     # Clean up any lingering preview state keys
     keys_to_remove = [k for k in st.session_state if k.startswith("show_preview_")]
@@ -7159,6 +7220,7 @@ def handle_switch_to_fork(session_id: str, fork_id: str) -> None:
 
     # Update session state
     st.session_state["game"] = fork_state
+    st.session_state["narrative_display_offset"] = 0
     safe_name = escape_html(fork_meta.name)
     st.toast(f"Switched to fork: {safe_name}")
 
@@ -7203,6 +7265,7 @@ def handle_return_to_main(session_id: str) -> None:
 
     # Update session state
     st.session_state["game"] = main_state
+    st.session_state["narrative_display_offset"] = 0
     st.toast("Returned to main timeline")
 
 
@@ -7242,6 +7305,7 @@ def handle_promote_fork(session_id: str, fork_id: str) -> None:
 
         # Update session state
         st.session_state["game"] = main_state
+        st.session_state["narrative_display_offset"] = 0
         safe_name = escape_html(fork_name)
         st.toast(f"Fork '{safe_name}' promoted to main timeline")
 
@@ -7857,6 +7921,7 @@ def handle_session_continue(session_id: str) -> bool:
         apply_token_limit_changes()
 
     # Reset UI state
+    st.session_state["narrative_display_offset"] = 0
     st.session_state["ui_mode"] = "watch"
     st.session_state["controlled_character"] = None
     st.session_state["human_active"] = False
@@ -8752,6 +8817,7 @@ def handle_new_session_click(
         apply_token_limit_changes()
 
     # Reset UI state
+    st.session_state["narrative_display_offset"] = 0
     st.session_state["ui_mode"] = "watch"
     st.session_state["controlled_character"] = None
     st.session_state["human_active"] = False

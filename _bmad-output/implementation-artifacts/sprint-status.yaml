@@ -164,3 +164,11 @@ development_status:
   13-2-party-composition-ui: done
   13-3-character-sheet-initialization: done
   epic-13-retrospective: optional
+
+  # ===========================================
+  # v1.2 PERFORMANCE & UX POLISH
+  # ===========================================
+
+  # Epic 14: Performance & UX Polish (1 story)
+  epic-14: done
+  14-1-narrative-pagination: done
