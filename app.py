@@ -275,10 +275,14 @@ def run_continuous_loop(max_turns: int = DEFAULT_MAX_TURNS_PER_SESSION) -> int:
         return 0
 
     # Execute one turn
-    if run_game_turn():
+    success = run_game_turn()
+    if success:
         # Increment turn count
         st.session_state["autopilot_turn_count"] = turn_count + 1
-        # Continue autopilot on next rerun
+
+    # Always rerun if autopilot is still active, even if the turn failed.
+    # Without this, a transient error or skip silently kills the loop.
+    if st.session_state.get("is_autopilot_running", False):
         st.rerun()
 
     return 1
@@ -321,10 +325,14 @@ def run_autopilot_step() -> None:
         return
 
     # Execute one turn
-    if run_game_turn():
+    success = run_game_turn()
+    if success:
         # Increment turn count
         st.session_state["autopilot_turn_count"] = turn_count + 1
-        # Continue autopilot on next rerun
+
+    # Always rerun if autopilot is still active, even if the turn failed.
+    # Without this, a transient error or skip silently kills the loop.
+    if st.session_state.get("is_autopilot_running", False):
         st.rerun()
 
 
