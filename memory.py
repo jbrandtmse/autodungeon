@@ -172,7 +172,10 @@ class Summarizer:
         return self._llm
 
     # Maximum characters to send to summarizer to prevent context overflow
-    MAX_BUFFER_CHARS = 50_000  # ~12k tokens for most models
+    # Must be large enough to fit the biggest agent buffer at compression time
+    # plus the existing summary. At DM token_limit=32K, buffer can reach ~26K
+    # tokens (~104K chars) plus summary (~20K chars) = ~124K chars.
+    MAX_BUFFER_CHARS = 250_000  # ~62k tokens - 2x headroom for largest agent
 
     def generate_summary(self, agent_name: str, buffer_entries: list[str]) -> str:
         """Generate a summary from buffer entries.
