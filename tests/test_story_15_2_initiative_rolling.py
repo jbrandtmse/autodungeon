@@ -532,7 +532,7 @@ class TestExecuteEndCombat:
 
         from agents import _execute_end_combat
 
-        result_str, reset_cs = _execute_end_combat(state)
+        result_str, reset_cs, _restored_queue = _execute_end_combat(state)
 
         assert reset_cs.active is False
         assert reset_cs.round_number == 0
@@ -548,7 +548,7 @@ class TestExecuteEndCombat:
 
         from agents import _execute_end_combat
 
-        result_str, reset_cs = _execute_end_combat(state)
+        result_str, reset_cs, _restored_queue = _execute_end_combat(state)
 
         assert (
             "No combat" in result_str
@@ -564,7 +564,7 @@ class TestExecuteEndCombat:
 
         from agents import _execute_end_combat
 
-        _, reset_cs = _execute_end_combat(state)
+        _, reset_cs, _restored_queue = _execute_end_combat(state)
 
         assert reset_cs == CombatState()
 

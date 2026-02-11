@@ -19,7 +19,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from agents import LLMError, dm_turn, pc_turn
 from memory import MemoryManager
-from models import CombatState, GameState, create_user_error
+from models import CombatState, GameConfig, GameState, create_user_error
 
 __all__ = [
     "GameStateWithError",
@@ -116,6 +116,26 @@ def context_manager(state: GameState) -> GameState:
         updated_state["combat_state"] = combat.model_copy(
             update={"round_number": combat.round_number + 1}
         )
+
+        # Story 15.6: Max round limit safety valve
+        max_rounds = updated_state.get("game_config", GameConfig()).max_combat_rounds
+        new_round = combat.round_number + 1
+        if max_rounds > 0 and new_round > max_rounds:
+            logger.warning(
+                "Combat force-ended: round %d exceeded max_combat_rounds=%d",
+                new_round,
+                max_rounds,
+            )
+            # Restore turn queue from backup
+            if combat.original_turn_queue:
+                updated_state["turn_queue"] = list(combat.original_turn_queue)
+            # Reset combat state
+            updated_state["combat_state"] = CombatState()
+            # Append system notification to ground truth log
+            updated_state["ground_truth_log"] = [
+                *updated_state["ground_truth_log"],
+                "[System]: Combat ended after reaching the maximum round limit.",
+            ]
 
     return updated_state
 

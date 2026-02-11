@@ -1798,6 +1798,8 @@ def dm_turn(state: GameState) -> GameState:
 
         # Track combat state updates from combat tool calls (Story 15.2)
         updated_combat_state: CombatState | None = None
+        # Track restored turn queue from end combat (Story 15.6)
+        restored_turn_queue: list[str] | None = None
 
         # Invoke the model with tool call handling loop
         max_tool_iterations = 5  # Increased for sheet updates alongside dice rolls
@@ -1884,10 +1886,14 @@ def dm_turn(state: GameState) -> GameState:
                         updated_combat_state = new_combat_state
                     logger.info("DM started combat: %s", tool_result)
 
-                # Execute the end combat tool (Story 15.2)
+                # Execute the end combat tool (Story 15.2, 15.6)
                 elif tool_name == "dm_end_combat":
-                    tool_result, reset_combat_state = _execute_end_combat(state)
+                    tool_result, reset_combat_state, restored_queue = (
+                        _execute_end_combat(state)
+                    )
                     updated_combat_state = reset_combat_state
+                    if restored_queue is not None:
+                        restored_turn_queue = restored_queue
                     logger.info("DM ended combat: %s", tool_result)
 
                 else:
@@ -2016,11 +2022,17 @@ def dm_turn(state: GameState) -> GameState:
     else:
         return_current_turn = "dm"
 
+    # Story 15.6: Restore turn queue when combat ends
+    turn_queue_for_return = (
+        restored_turn_queue if restored_turn_queue is not None
+        else state["turn_queue"]
+    )
+
     # Return new state with current_turn set appropriately
     # This is critical for route_to_next_agent to know who just acted
     return GameState(
         ground_truth_log=new_log,
-        turn_queue=state["turn_queue"],
+        turn_queue=turn_queue_for_return,
         current_turn=return_current_turn,
         agent_memories=new_memories,
         game_config=state["game_config"],
@@ -2376,27 +2388,39 @@ def _execute_start_combat(
 
 def _execute_end_combat(
     state: GameState,
-) -> tuple[str, CombatState]:
+) -> tuple[str, CombatState, list[str] | None]:
     """Process dm_end_combat tool call.
 
-    Resets combat state to defaults. Turn queue restoration is handled
-    by Story 15-3 (combat-aware routing).
+    Resets combat state to defaults and restores the original turn queue.
 
-    Story 15.2: Initiative Rolling & Turn Reordering.
+    Story 15.6: Combat End Conditions.
 
     Args:
         state: Current game state for reading combat_state.
 
     Returns:
-        Tuple of (tool_result_string, reset_combat_state).
+        Tuple of (tool_result_string, reset_combat_state, restored_turn_queue).
+        restored_turn_queue is None when combat was not active or
+        original_turn_queue was empty.
     """
     combat_state = state.get("combat_state")
     if combat_state is None or not combat_state.active:
-        return "No combat is currently active.", CombatState()
+        return "No combat is currently active.", CombatState(), None
+
+    # Restore turn queue from backup
+    restored_queue: list[str] | None = None
+    if combat_state.original_turn_queue:
+        restored_queue = list(combat_state.original_turn_queue)
+    else:
+        logger.warning(
+            "Combat ending but original_turn_queue is empty -- "
+            "turn_queue will not be modified"
+        )
 
     return (
         "Combat ended. Restoring exploration turn order.",
         CombatState(),
+        restored_queue,
     )
 
 

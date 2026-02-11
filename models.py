@@ -285,6 +285,11 @@ class GameConfig(BaseModel):
         default="Narrative",
         description="Combat handling mode",
     )
+    max_combat_rounds: int = Field(
+        default=50,
+        ge=0,
+        description="Maximum combat rounds before auto-termination (0 = unlimited)",
+    )
     summarizer_provider: str = Field(
         default="gemini",
         description="Provider for memory compression (Story 6.3)",
