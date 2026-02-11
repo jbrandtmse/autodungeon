@@ -328,6 +328,16 @@ class TestModuleExports:
             "MIN_CALLBACK_SCORE",
             "score_callback_relevance",
             "format_callback_suggestions",
+            # Story 15.2: Initiative Rolling & Turn Reordering
+            "_execute_start_combat",
+            "_execute_end_combat",
+            # Story 15.4: DM Bookend & NPC Turns
+            "DM_COMBAT_BOOKEND_PROMPT_TEMPLATE",
+            "DM_NPC_TURN_PROMPT_TEMPLATE",
+            "_get_combat_turn_type",
+            "_build_combatant_summary",
+            "_build_combat_bookend_prompt",
+            "_build_npc_turn_prompt",
         }
 
         assert set(agents.__all__) == expected_exports

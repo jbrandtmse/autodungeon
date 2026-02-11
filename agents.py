@@ -7,6 +7,7 @@ node functions for the LangGraph state machine.
 
 import logging
 from datetime import UTC, datetime
+from typing import Literal
 
 from langchain_anthropic import ChatAnthropic
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -35,6 +36,7 @@ from models import (
     ModuleInfo,
     NarrativeElement,
     NarrativeElementStore,
+    NpcProfile,
 )
 from tools import (
     apply_character_sheet_update,
@@ -54,8 +56,10 @@ logger = logging.getLogger("autodungeon")
 __all__ = [
     "CLASS_GUIDANCE",
     "DEFAULT_MODELS",
+    "DM_COMBAT_BOOKEND_PROMPT_TEMPLATE",
     "DM_CONTEXT_PLAYER_ENTRIES_LIMIT",
     "DM_CONTEXT_RECENT_EVENTS_LIMIT",
+    "DM_NPC_TURN_PROMPT_TEMPLATE",
     "DM_SYSTEM_PROMPT",
     "LLMConfigurationError",
     "LLMError",
@@ -68,8 +72,12 @@ __all__ = [
     "PC_SHARED_CONTEXT_LIMIT",
     "PC_SYSTEM_PROMPT_TEMPLATE",
     "SUPPORTED_PROVIDERS",
+    "_build_combat_bookend_prompt",
+    "_build_combatant_summary",
     "_build_dm_context",
+    "_build_npc_turn_prompt",
     "_build_pc_context",
+    "_get_combat_turn_type",
     "_execute_end_combat",
     "_execute_reveal",
     "_execute_sheet_update",
@@ -247,6 +255,45 @@ Keep your responses focused and engaging:
 - Include NPC dialogue when relevant (use quotation marks)
 - End with a hook or prompt for player action when appropriate
 - Avoid walls of text - aim for punchy, dramatic moments"""
+
+# Combat bookend prompt template (Story 15.4)
+DM_COMBAT_BOOKEND_PROMPT_TEMPLATE = """
+## Combat Round {round_number}
+
+You are narrating the start of combat round {round_number}. Your role is to set the scene for this round.
+
+**Your task:**
+- Summarize the battlefield state and any changes from the previous round
+- Describe environmental details, ongoing effects, or dramatic tension
+- Set the stage for the combatants who will act this round
+- Do NOT act for any specific NPC or monster -- their turns will come individually
+
+**Current Combatants:**
+{combatant_summary}
+
+Keep this narration concise (2-4 sentences). Focus on atmosphere and tactical awareness.
+"""
+
+# NPC turn prompt template (Story 15.4)
+DM_NPC_TURN_PROMPT_TEMPLATE = """
+## NPC Turn: {npc_name}
+
+You are now acting as **{npc_name}** for their combat turn.
+
+**{npc_name}'s Status:**
+- HP: {hp_current}/{hp_max} | AC: {ac} | Initiative: {initiative_roll}
+- Personality: {personality}
+- Tactics: {tactics}
+{conditions_line}
+
+**Your task:**
+- Narrate {npc_name}'s action this round (attack, movement, ability, etc.)
+- Stay in character using {npc_name}'s personality and tactics
+- Focus ONLY on {npc_name}'s action -- do not narrate other combatants' turns
+- Describe the action dramatically and with tactical detail
+
+Respond as the DM narrating {npc_name}'s action in third person.
+"""
 
 # PC System Prompt Template with placeholders for character-specific content
 PC_SYSTEM_PROMPT_TEMPLATE = """You are {name}, a {character_class}.
@@ -1498,6 +1545,150 @@ def _build_pc_turn_prompt(state: GameState, character_name: str) -> str:
     return "\n\n".join(parts)
 
 
+# =============================================================================
+# Combat Turn Helpers (Story 15.4)
+# =============================================================================
+
+
+def _get_combat_turn_type(
+    state: GameState,
+) -> Literal["non_combat", "bookend", "npc_turn"]:
+    """Determine the type of DM turn based on combat state.
+
+    Args:
+        state: Current game state.
+
+    Returns:
+        "non_combat" if no active combat,
+        "bookend" if DM round-start narration turn,
+        "npc_turn" if DM is acting for a specific NPC.
+    """
+    combat = state.get("combat_state")
+    if not combat or not isinstance(combat, CombatState) or not combat.active:
+        return "non_combat"
+
+    current = state.get("current_turn", "dm")
+    if isinstance(current, str) and current.startswith("dm:"):
+        return "npc_turn"
+    return "bookend"
+
+
+def _build_combatant_summary(state: GameState) -> str:
+    """Build a brief combatant status summary for the DM bookend prompt.
+
+    Lists all combatants from initiative_order with HP and conditions,
+    skipping the bookend "dm" entry itself.
+
+    Args:
+        state: Current game state.
+
+    Returns:
+        Formatted string with one combatant per line.
+    """
+    combat = state.get("combat_state")
+    if not combat:
+        return ""
+
+    lines: list[str] = []
+    character_sheets = state.get("character_sheets", {})
+
+    for entry in combat.initiative_order:
+        if entry == "dm":
+            continue  # Skip bookend entry itself
+        if entry.startswith("dm:"):
+            npc_key = entry.split(":", 1)[1]
+            npc = combat.npc_profiles.get(npc_key)
+            if npc:
+                roll = combat.initiative_rolls.get(entry, "?")
+                status = f"HP {npc.hp_current}/{npc.hp_max}"
+                if npc.conditions:
+                    status += f" [{', '.join(npc.conditions)}]"
+                lines.append(f"- {npc.name} (Init {roll}): {status}")
+            else:
+                lines.append(f"- {npc_key} (Init ?): Unknown NPC")
+        else:
+            # PC entry
+            sheet = character_sheets.get(entry)
+            roll = combat.initiative_rolls.get(entry, "?")
+            if sheet:
+                status = f"HP {sheet.hit_points_current}/{sheet.hit_points_max}"
+                if hasattr(sheet, "conditions") and sheet.conditions:
+                    status += f" [{', '.join(sheet.conditions)}]"
+                lines.append(f"- {sheet.name} (Init {roll}): {status}")
+            else:
+                lines.append(f"- {entry} (Init {roll})")
+
+    return "\n".join(lines) if lines else "No combatants listed."
+
+
+def _build_combat_bookend_prompt(state: GameState) -> str:
+    """Build the combat bookend system prompt addendum.
+
+    Creates a round-opening narration prompt with combatant summary
+    for the DM to narrate the start of a combat round.
+
+    Story 15.4: DM Bookend & NPC Turns (AC #1, #5, #8, #12).
+
+    Args:
+        state: Current game state.
+
+    Returns:
+        Formatted bookend prompt string.
+    """
+    combat = state.get("combat_state", CombatState())
+    round_number = combat.round_number
+    combatant_summary = _build_combatant_summary(state)
+
+    return DM_COMBAT_BOOKEND_PROMPT_TEMPLATE.format(
+        round_number=round_number,
+        combatant_summary=combatant_summary,
+    )
+
+
+def _build_npc_turn_prompt(state: GameState, npc_key: str) -> str:
+    """Build the NPC turn system prompt addendum.
+
+    Creates an NPC-specific action prompt with profile data for the DM
+    to narrate a specific NPC's combat turn.
+
+    Story 15.4: DM Bookend & NPC Turns (AC #2, #3, #7).
+
+    Args:
+        state: Current game state.
+        npc_key: The NPC's key in npc_profiles (e.g., "goblin_1").
+
+    Returns:
+        Formatted NPC turn prompt string.
+    """
+    combat = state.get("combat_state", CombatState())
+    npc = combat.npc_profiles.get(npc_key)
+
+    if npc is None:
+        logger.warning(
+            "NPC '%s' not found in npc_profiles. Available: %s",
+            npc_key,
+            ", ".join(sorted(combat.npc_profiles.keys())) if combat.npc_profiles else "none",
+        )
+        return f"It is now {npc_key}'s turn. Narrate their action."
+
+    initiative_roll = combat.initiative_rolls.get(f"dm:{npc_key}", "?")
+
+    conditions_line = ""
+    if npc.conditions:
+        conditions_line = f"- Conditions: {', '.join(npc.conditions)}"
+
+    return DM_NPC_TURN_PROMPT_TEMPLATE.format(
+        npc_name=npc.name,
+        hp_current=npc.hp_current,
+        hp_max=npc.hp_max,
+        ac=npc.ac,
+        initiative_roll=initiative_roll,
+        personality=npc.personality or "None specified",
+        tactics=npc.tactics or "None specified",
+        conditions_line=conditions_line,
+    )
+
+
 def dm_turn(state: GameState) -> GameState:
     """Execute the DM's turn in the game loop.
 
@@ -1554,13 +1745,42 @@ def dm_turn(state: GameState) -> GameState:
         selected_module = state.get("selected_module")
         if selected_module is not None:
             system_prompt_parts.append(format_module_context(selected_module))
+
+        # Add combat-specific prompt addendum (Story 15.4)
+        combat_turn_type = _get_combat_turn_type(state)
+        if combat_turn_type == "bookend":
+            system_prompt_parts.append(_build_combat_bookend_prompt(state))
+        elif combat_turn_type == "npc_turn":
+            npc_key = state["current_turn"].split(":", 1)[1]
+            system_prompt_parts.append(_build_npc_turn_prompt(state, npc_key))
+
         full_system_prompt = "\n\n".join(system_prompt_parts)
 
         # Build messages for the model
         messages: list[BaseMessage] = [SystemMessage(content=full_system_prompt)]
         if context:
             messages.append(HumanMessage(content=f"Current game context:\n\n{context}"))
-        messages.append(HumanMessage(content="Continue the adventure."))
+
+        # Story 15.4: Use turn-type-specific human message
+        if combat_turn_type == "npc_turn":
+            npc_key = state["current_turn"].split(":", 1)[1]
+            combat_st = state.get("combat_state", CombatState())
+            npc = combat_st.npc_profiles.get(npc_key)
+            npc_name = npc.name if npc else npc_key
+            messages.append(
+                HumanMessage(
+                    content=f"It is now {npc_name}'s turn in combat. Narrate their action."
+                )
+            )
+        elif combat_turn_type == "bookend":
+            combat_st = state.get("combat_state", CombatState())
+            messages.append(
+                HumanMessage(
+                    content=f"Begin round {combat_st.round_number} of combat. Set the scene."
+                )
+            )
+        else:
+            messages.append(HumanMessage(content="Continue the adventure."))
 
         # Track any dice results for fallback response
         dice_results: list[str] = []
@@ -1783,12 +2003,25 @@ def dm_turn(state: GameState) -> GameState:
         updated_callback_db = state.get("callback_database", NarrativeElementStore())
         updated_callback_log = state.get("callback_log", CallbackLog())
 
-    # Return new state with current_turn updated to "dm"
+    # Story 15.4: Set current_turn dynamically for combat routing
+    # Determine the final combat state (after any tool calls that started/ended combat)
+    combat_state_for_return = (
+        updated_combat_state
+        if updated_combat_state is not None
+        else state.get("combat_state", CombatState())
+    )
+    if combat_state_for_return.active:
+        # Preserve "dm" for bookend or "dm:npc_name" for NPC turns
+        return_current_turn = state["current_turn"]
+    else:
+        return_current_turn = "dm"
+
+    # Return new state with current_turn set appropriately
     # This is critical for route_to_next_agent to know who just acted
     return GameState(
         ground_truth_log=new_log,
         turn_queue=state["turn_queue"],
-        current_turn="dm",
+        current_turn=return_current_turn,
         agent_memories=new_memories,
         game_config=state["game_config"],
         dm_config=state["dm_config"],
@@ -1806,9 +2039,7 @@ def dm_turn(state: GameState) -> GameState:
         callback_database=updated_callback_db,
         callback_log=updated_callback_log,
         active_fork_id=state.get("active_fork_id"),
-        combat_state=updated_combat_state
-        if updated_combat_state is not None
-        else state.get("combat_state", CombatState()),
+        combat_state=combat_state_for_return,
     )
 
 
@@ -2068,7 +2299,6 @@ def _execute_start_combat(
         Tuple of (tool_result_string, new_combat_state_or_None).
         Returns None for combat_state when combat_mode is Narrative (no-op).
     """
-    from models import NpcProfile
     from tools import _sanitize_npc_name
 
     # Check combat mode gate

@@ -182,6 +182,6 @@ development_status:
   15-1-combat-state-model: done
   15-2-initiative-rolling: done
   15-3-combat-aware-routing: done
-  15-4-dm-bookend-npc-turns: ready-for-dev
-  15-5-combat-ui-indicators: backlog
+  15-4-dm-bookend-npc-turns: done
+  15-5-combat-ui-indicators: ready-for-dev
   15-6-combat-end-conditions: backlog
