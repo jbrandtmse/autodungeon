@@ -17,6 +17,7 @@ from models import (
     AgentMemory,
     CallbackLog,
     CharacterConfig,
+    CombatState,
     DMConfig,
     GameConfig,
     GameState,
@@ -113,6 +114,7 @@ def sample_game_state() -> GameState:
         callback_database=NarrativeElementStore(),
         callback_log=CallbackLog(),
         active_fork_id=None,
+        combat_state=CombatState(),
     )
 
 
@@ -230,6 +232,7 @@ class TestGameStateSerialization:
             "callback_database",  # Story 11.2: Callback Database
             "callback_log",  # Story 11.4: Callback Detection
             "active_fork_id",  # Story 12.1: Fork Creation
+            "combat_state",  # Story 15.1: Combat State Model
         }
         assert set(data.keys()) == expected_keys
 
@@ -1806,7 +1809,7 @@ class TestCheckpointFileSizes:
             path = save_checkpoint(state, "001", 1)
 
         file_size = path.stat().st_size
-        assert file_size < 1024  # Less than 1KB
+        assert file_size < 1500  # Less than 1.5KB (grows as GameState fields are added)
 
     def test_large_state_file_size(
         self, temp_campaigns_dir: Path, sample_game_state: GameState

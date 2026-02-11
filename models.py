@@ -38,6 +38,7 @@ __all__ = [
     "ModuleDiscoveryResult",
     "ModuleInfo",
     "NarrativeMessage",
+    "NpcProfile",
     "MessageSegment",
     "SessionMetadata",
     "Spell",
@@ -47,6 +48,7 @@ __all__ = [
     "ValidationResult",
     "Weapon",
     "Whisper",
+    "CombatState",
     "ComparisonTurn",
     "ComparisonTimeline",
     "ComparisonData",
@@ -809,6 +811,73 @@ def create_narrative_element(
         session_introduced=session_introduced,
         characters_involved=characters_involved or [],
         potential_callbacks=potential_callbacks or [],
+    )
+
+
+# =============================================================================
+# Combat State (Story 15.1)
+# =============================================================================
+
+
+class NpcProfile(BaseModel):
+    """NPC/monster profile for combat encounters.
+
+    Stored in CombatState.npc_profiles and injected into the DM's
+    prompt on each NPC's initiative turn (Story 15-4).
+    """
+
+    name: str = Field(
+        ..., min_length=1, description="NPC name (e.g., 'Goblin 1', 'Klarg')"
+    )
+    initiative_modifier: int = Field(
+        default=0, description="Added to d20 for initiative roll"
+    )
+    hp_max: int = Field(default=1, ge=1, description="Maximum hit points")
+    hp_current: int = Field(
+        default=1, ge=0, description="Current hit points (0 = defeated)"
+    )
+    ac: int = Field(default=10, ge=0, description="Armor class")
+    personality: str = Field(
+        default="", description="Personality traits for DM roleplay"
+    )
+    tactics: str = Field(default="", description="Combat tactics for DM to follow")
+    secret: str = Field(
+        default="", description="Hidden info (e.g., 'knows where prisoner is held')"
+    )
+    conditions: list[str] = Field(
+        default_factory=list,
+        description="Active conditions (poisoned, prone, etc.)",
+    )
+
+
+class CombatState(BaseModel):
+    """Tracks active combat encounter state.
+
+    When combat_mode is 'Tactical' and active is True, the graph routing
+    (Story 15-3) uses initiative_order instead of the standard turn_queue.
+    """
+
+    active: bool = Field(
+        default=False, description="Whether combat is currently active"
+    )
+    round_number: int = Field(
+        default=0, ge=0, description="Current combat round (0 = not started)"
+    )
+    initiative_order: list[str] = Field(
+        default_factory=list,
+        description="Turn order for combat (agent names, with 'dm:npc_name' for NPC turns)",
+    )
+    initiative_rolls: dict[str, int] = Field(
+        default_factory=dict,
+        description="Initiative roll results per combatant (name -> total roll)",
+    )
+    original_turn_queue: list[str] = Field(
+        default_factory=list,
+        description="Saved pre-combat turn queue for restoration when combat ends",
+    )
+    npc_profiles: dict[str, NpcProfile] = Field(
+        default_factory=dict,
+        description="NPC data keyed by NPC name (for DM context injection on NPC turns)",
     )
 
 
@@ -1772,6 +1841,8 @@ class GameState(TypedDict):
             Used for context injection into agent prompts.
         agent_secrets: Per-agent secrets and whispers (Story 10.1).
             Keys are agent names, values are AgentSecrets instances.
+        combat_state: Combat encounter tracking (Story 15.1).
+            Tracks initiative order, NPC profiles, and round number.
     """
 
     ground_truth_log: list[str]
@@ -1794,6 +1865,7 @@ class GameState(TypedDict):
     callback_database: "NarrativeElementStore"  # Story 11.2: Campaign-level database
     callback_log: "CallbackLog"  # Story 11.4: Detected callback log
     active_fork_id: str | None  # Story 12.1: None = main timeline
+    combat_state: CombatState  # Story 15.1: Combat encounter tracking
 
 
 class MessageSegment(BaseModel):
@@ -2516,6 +2588,7 @@ def create_initial_game_state() -> GameState:
         callback_database=NarrativeElementStore(),
         callback_log=CallbackLog(),
         active_fork_id=None,
+        combat_state=CombatState(),
     )
 
 
@@ -2627,6 +2700,7 @@ def populate_game_state(
         callback_database=NarrativeElementStore(),
         callback_log=CallbackLog(),
         active_fork_id=None,
+        combat_state=CombatState(),
     )
 
 

@@ -1533,3 +1533,10 @@ Completed in separate cycle sessions (not logged here).
 
 ---
 
+# Epic 15: Combat Initiative System - Development Cycle
+
+**Date:** 2026-02-10
+**Sprint Change Proposal:** sprint-change-proposal-2026-02-10.md
+**Stories:** 15-1 through 15-6 (6 stories)
+**Design Decisions:** DM tool-based combat start/end, strict per-NPC initiative ordering with DM bookend, rich NPC context injection, dynamic turn queue, combat_mode toggle
+

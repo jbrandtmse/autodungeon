@@ -17,8 +17,10 @@ logger = logging.getLogger("autodungeon")
 __all__ = [
     "DiceResult",
     "apply_character_sheet_update",
+    "dm_end_combat",
     "dm_reveal_secret",
     "dm_roll_dice",
+    "dm_start_combat",
     "dm_update_character_sheet",
     "dm_whisper_to_agent",
     "pc_roll_dice",
@@ -436,7 +438,9 @@ def apply_character_sheet_update(
     for key, value in updates.items():
         if key == "hit_points_current":
             if not isinstance(value, int) or isinstance(value, bool):
-                raise ValueError(f"hit_points_current must be an integer, got {type(value).__name__}")
+                raise ValueError(
+                    f"hit_points_current must be an integer, got {type(value).__name__}"
+                )
             max_hp = sheet.hit_points_max + sheet.hit_points_temp
             clamped = max(0, min(value, max_hp))
             update_dict["hit_points_current"] = clamped
@@ -450,17 +454,23 @@ def apply_character_sheet_update(
 
         elif key == "hit_points_temp":
             if not isinstance(value, int) or isinstance(value, bool):
-                raise ValueError(f"hit_points_temp must be an integer, got {type(value).__name__}")
+                raise ValueError(
+                    f"hit_points_temp must be an integer, got {type(value).__name__}"
+                )
             clamped = max(0, value)
             update_dict["hit_points_temp"] = clamped
             changes.append(f"Temp HP: {sheet.hit_points_temp} -> {clamped}")
 
         elif key == "conditions":
             if not isinstance(value, list):
-                raise ValueError(f"conditions must be a list, got {type(value).__name__}")
+                raise ValueError(
+                    f"conditions must be a list, got {type(value).__name__}"
+                )
             new_conditions = _apply_list_updates(sheet.conditions, value)
             update_dict["conditions"] = new_conditions
-            added = [v.lstrip("+").strip() for v in value if not v.strip().startswith("-")]
+            added = [
+                v.lstrip("+").strip() for v in value if not v.strip().startswith("-")
+            ]
             removed = [v[1:].strip() for v in value if v.strip().startswith("-")]
             parts: list[str] = []
             if added:
@@ -471,21 +481,29 @@ def apply_character_sheet_update(
 
         elif key == "equipment":
             if not isinstance(value, list):
-                raise ValueError(f"equipment must be a list, got {type(value).__name__}")
+                raise ValueError(
+                    f"equipment must be a list, got {type(value).__name__}"
+                )
             new_equipment = _apply_equipment_updates(sheet.equipment, value)
             update_dict["equipment"] = new_equipment
-            added = [v.lstrip("+").strip() for v in value if not v.strip().startswith("-")]
+            added = [
+                v.lstrip("+").strip() for v in value if not v.strip().startswith("-")
+            ]
             removed = [v[1:].strip() for v in value if v.strip().startswith("-")]
             parts_eq: list[str] = []
             if added:
                 parts_eq.append(f"gained {', '.join(added)}")
             if removed:
                 parts_eq.append(f"lost {', '.join(removed)}")
-            changes.append(f"Equipment: {'; '.join(parts_eq) if parts_eq else 'unchanged'}")
+            changes.append(
+                f"Equipment: {'; '.join(parts_eq) if parts_eq else 'unchanged'}"
+            )
 
         elif key in ("gold", "silver", "copper"):
             if not isinstance(value, int) or isinstance(value, bool):
-                raise ValueError(f"{key} must be an integer, got {type(value).__name__}")
+                raise ValueError(
+                    f"{key} must be an integer, got {type(value).__name__}"
+                )
             clamped = max(0, value)
             update_dict[key] = clamped
             old_val = getattr(sheet, key)
@@ -499,7 +517,9 @@ def apply_character_sheet_update(
 
         elif key == "spell_slots":
             if not isinstance(value, dict):
-                raise ValueError(f"spell_slots must be a dict, got {type(value).__name__}")
+                raise ValueError(
+                    f"spell_slots must be a dict, got {type(value).__name__}"
+                )
             new_slots = dict(sheet.spell_slots)
             slot_changes: list[str] = []
             for level_key, slot_update in value.items():
@@ -514,13 +534,17 @@ def apply_character_sheet_update(
                 old_slot = new_slots[level]
                 clamped_current = max(0, min(new_current, old_slot.max))
                 new_slots[level] = SpellSlots(current=clamped_current, max=old_slot.max)
-                slot_changes.append(f"L{level}: {old_slot.current}/{old_slot.max} -> {clamped_current}/{old_slot.max}")
+                slot_changes.append(
+                    f"L{level}: {old_slot.current}/{old_slot.max} -> {clamped_current}/{old_slot.max}"
+                )
             update_dict["spell_slots"] = new_slots
             changes.append(f"Spell Slots: {', '.join(slot_changes)}")
 
         elif key == "experience_points":
             if not isinstance(value, int) or isinstance(value, bool):
-                raise ValueError(f"experience_points must be an integer, got {type(value).__name__}")
+                raise ValueError(
+                    f"experience_points must be an integer, got {type(value).__name__}"
+                )
             clamped = max(0, value)
             update_dict["experience_points"] = clamped
             changes.append(f"XP: {sheet.experience_points} -> {clamped}")
@@ -656,3 +680,49 @@ def dm_update_character_sheet(character_name: str, updates: dict[str, Any]) -> s
     # The @tool decorator is for LangChain schema binding only.
     # Actual execution happens in agents.py _execute_sheet_update().
     return f"Sheet update for {character_name}: {updates}"
+
+
+@tool
+def dm_start_combat(participants: list[dict[str, Any]]) -> str:
+    """Begin a tactical combat encounter.
+
+    Call this when combat starts. Provide profiles for all NPC/monster
+    combatants. Initiative will be rolled for all PCs and NPCs, and
+    the turn order will be reordered by initiative.
+
+    Each participant dict should contain:
+    - name (str, required): NPC name (e.g., "Goblin 1", "Klarg")
+    - initiative_modifier (int): Modifier added to d20 initiative roll
+    - hp (int): Maximum hit points
+    - ac (int): Armor class
+    - personality (str): Personality for distinct NPC roleplay
+    - tactics (str): Combat tactics to follow
+    - secret (str, optional): Hidden information
+
+    Args:
+        participants: List of NPC profile dicts.
+
+    Returns:
+        Confirmation message.
+
+    Examples:
+        - dm_start_combat([{"name": "Goblin 1", "initiative_modifier": 2, "hp": 7, "ac": 15, "personality": "Cowardly", "tactics": "Uses shortbow from cover"}])
+        - dm_start_combat([{"name": "Klarg", "initiative_modifier": 3, "hp": 27, "ac": 16, "personality": "Brutal, vain", "tactics": "Uses wolf as flanking partner, retreats below 10 HP", "secret": "Knows where Gundren was taken"}])
+    """
+    # Tool schema only - execution intercepted in dm_turn()
+    return f"Combat started with {len(participants)} NPC(s)."
+
+
+@tool
+def dm_end_combat() -> str:
+    """End the current combat encounter.
+
+    Call this when combat concludes (enemies defeated, party flees,
+    or narrative resolution). The turn order will be restored to the
+    pre-combat exploration order.
+
+    Returns:
+        Confirmation message.
+    """
+    # Tool schema only - execution intercepted in dm_turn()
+    return "Combat ended. Restoring exploration turn order."

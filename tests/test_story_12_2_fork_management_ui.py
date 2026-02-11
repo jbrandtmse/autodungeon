@@ -16,6 +16,7 @@ from models import (
     AgentSecrets,
     CallbackLog,
     CharacterConfig,
+    CombatState,
     DMConfig,
     ForkRegistry,
     GameConfig,
@@ -108,6 +109,7 @@ def sample_game_state() -> GameState:
         callback_database=NarrativeElementStore(),
         callback_log=CallbackLog(),
         active_fork_id=None,
+        combat_state=CombatState(),
     )
 
 
@@ -136,9 +138,7 @@ class TestSaveForkCheckpoint:
     ) -> None:
         """Checkpoint is saved to the fork directory with correct filename."""
         session_id, fork_id = session_with_fork
-        result_path = save_fork_checkpoint(
-            sample_game_state, session_id, fork_id, 2
-        )
+        result_path = save_fork_checkpoint(sample_game_state, session_id, fork_id, 2)
         expected_dir = get_fork_dir(session_id, fork_id)
         assert result_path == expected_dir / "turn_002.json"
         assert result_path.exists()
@@ -150,9 +150,7 @@ class TestSaveForkCheckpoint:
     ) -> None:
         """Saved checkpoint file contains valid JSON."""
         session_id, fork_id = session_with_fork
-        result_path = save_fork_checkpoint(
-            sample_game_state, session_id, fork_id, 2
-        )
+        result_path = save_fork_checkpoint(sample_game_state, session_id, fork_id, 2)
         content = result_path.read_text(encoding="utf-8")
         data = json.loads(content)
         assert isinstance(data, dict)
@@ -270,9 +268,7 @@ class TestListForkCheckpoints:
         turns = list_fork_checkpoints("001", "999")
         assert turns == []
 
-    def test_empty_for_empty_dir(
-        self, session_with_fork: tuple[str, str]
-    ) -> None:
+    def test_empty_for_empty_dir(self, session_with_fork: tuple[str, str]) -> None:
         """Returns empty list when fork dir exists but has no turn files."""
         session_id, fork_id = session_with_fork
         fork_dir = get_fork_dir(session_id, fork_id)
@@ -321,9 +317,7 @@ class TestGetLatestForkCheckpoint:
 class TestRenameFork:
     """Tests for rename_fork()."""
 
-    def test_updates_name(
-        self, session_with_fork: tuple[str, str]
-    ) -> None:
+    def test_updates_name(self, session_with_fork: tuple[str, str]) -> None:
         """Renames fork in registry and persists."""
         session_id, fork_id = session_with_fork
         result = rename_fork(session_id, fork_id, "New Name")
@@ -336,9 +330,7 @@ class TestRenameFork:
         assert fork is not None
         assert fork.name == "New Name"
 
-    def test_rejects_empty_names(
-        self, session_with_fork: tuple[str, str]
-    ) -> None:
+    def test_rejects_empty_names(self, session_with_fork: tuple[str, str]) -> None:
         """Raises ValueError for empty or whitespace-only names."""
         session_id, fork_id = session_with_fork
         with pytest.raises(ValueError, match="empty"):
@@ -376,17 +368,13 @@ class TestRenameFork:
         assert fork2_meta is not None
         assert fork2_meta.name == "Second Fork"
 
-    def test_rename_to_same_name(
-        self, session_with_fork: tuple[str, str]
-    ) -> None:
+    def test_rename_to_same_name(self, session_with_fork: tuple[str, str]) -> None:
         """Renaming to the same name succeeds and updates timestamp."""
         session_id, fork_id = session_with_fork
         result = rename_fork(session_id, fork_id, "Test Fork")
         assert result.name == "Test Fork"
 
-    def test_strips_whitespace(
-        self, session_with_fork: tuple[str, str]
-    ) -> None:
+    def test_strips_whitespace(self, session_with_fork: tuple[str, str]) -> None:
         """Leading/trailing whitespace is stripped from the new name."""
         session_id, fork_id = session_with_fork
         result = rename_fork(session_id, fork_id, "  Trimmed  ")
@@ -412,9 +400,7 @@ class TestDeleteFork:
         assert registry is not None
         assert registry.get_fork(fork_id) is None
 
-    def test_returns_false_for_missing(
-        self, temp_campaigns_dir: Path
-    ) -> None:
+    def test_returns_false_for_missing(self, temp_campaigns_dir: Path) -> None:
         """Returns False for non-existent fork."""
         # Need a session with a registry but without the target fork
         session_id = "001"
@@ -485,9 +471,7 @@ class TestForkAwareCheckpointRouting:
         active_fork_id = sample_game_state.get("active_fork_id")
         assert active_fork_id is not None
 
-        save_fork_checkpoint(
-            sample_game_state, session_id, active_fork_id, turn_number
-        )
+        save_fork_checkpoint(sample_game_state, session_id, active_fork_id, turn_number)
 
         # Verify saved to fork directory
         fork_dir = get_fork_dir(session_id, fork_id)
@@ -570,9 +554,9 @@ class TestForkSwitchingFlow:
 
         # Save a fork checkpoint with fork-specific content
         fork_state = dict(sample_game_state)
-        fork_state["ground_truth_log"] = list(
-            sample_game_state["ground_truth_log"]
-        ) + ["[dm] Fork event."]
+        fork_state["ground_truth_log"] = list(sample_game_state["ground_truth_log"]) + [
+            "[dm] Fork event."
+        ]
         fork_state["active_fork_id"] = fork_id
         save_fork_checkpoint(fork_state, session_id, fork_id, 2)
 
@@ -607,15 +591,15 @@ class TestForkSwitchingFlow:
 
         # Save different content to each fork
         state1 = dict(sample_game_state)
-        state1["ground_truth_log"] = list(
-            sample_game_state["ground_truth_log"]
-        ) + ["[dm] Fork 1 event."]
+        state1["ground_truth_log"] = list(sample_game_state["ground_truth_log"]) + [
+            "[dm] Fork 1 event."
+        ]
         save_fork_checkpoint(state1, session_id, fork_id_1, 2)
 
         state2 = dict(sample_game_state)
-        state2["ground_truth_log"] = list(
-            sample_game_state["ground_truth_log"]
-        ) + ["[dm] Fork 2 event."]
+        state2["ground_truth_log"] = list(sample_game_state["ground_truth_log"]) + [
+            "[dm] Fork 2 event."
+        ]
         save_fork_checkpoint(state2, session_id, fork_id_2, 2)
 
         # Load each fork and verify independence
@@ -667,9 +651,7 @@ class TestForkModeIndicator:
         assert "<script>" not in html
         assert "&lt;script&gt;" in html
 
-    def test_fork_name_from_registry(
-        self, session_with_fork: tuple[str, str]
-    ) -> None:
+    def test_fork_name_from_registry(self, session_with_fork: tuple[str, str]) -> None:
         """Fork name is correctly loaded from registry."""
         session_id, fork_id = session_with_fork
         registry = load_fork_registry(session_id)

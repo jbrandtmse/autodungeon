@@ -172,3 +172,16 @@ development_status:
   # Epic 14: Performance & UX Polish (1 story)
   epic-14: done
   14-1-narrative-pagination: done
+
+  # ===========================================
+  # v1.2 COMBAT INITIATIVE SYSTEM
+  # ===========================================
+
+  # Epic 15: Combat Initiative System (6 stories)
+  epic-15: in-progress
+  15-1-combat-state-model: review
+  15-2-initiative-rolling: ready-for-dev
+  15-3-combat-aware-routing: backlog
+  15-4-dm-bookend-npc-turns: backlog
+  15-5-combat-ui-indicators: backlog
+  15-6-combat-end-conditions: backlog

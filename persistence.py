@@ -27,6 +27,7 @@ from models import (
     CallbackLog,
     CharacterConfig,
     CharacterSheet,
+    CombatState,
     ComparisonData,
     ComparisonTimeline,
     ComparisonTurn,
@@ -38,6 +39,7 @@ from models import (
     ModuleInfo,
     NarrativeElement,
     NarrativeElementStore,
+    NpcProfile,
     SessionMetadata,
     TranscriptEntry,
     Whisper,
@@ -256,6 +258,8 @@ def serialize_game_state(state: GameState) -> str:
         "callback_log": state.get("callback_log", CallbackLog()).model_dump(),
         # Story 12.1: Fork tracking
         "active_fork_id": state.get("active_fork_id", None),
+        # Story 15.1: Combat state persistence
+        "combat_state": state.get("combat_state", CombatState()).model_dump(),
     }
     return json.dumps(serializable, indent=2)
 
@@ -331,6 +335,24 @@ def deserialize_game_state(json_str: str) -> GameState:
     else:
         callback_log = CallbackLog()
 
+    # Handle combat_state deserialization (Story 15.1)
+    # Backward compatible: old checkpoints may not have this field
+    combat_state_raw = data.get("combat_state", {})
+    if isinstance(combat_state_raw, dict) and combat_state_raw:
+        # Reconstruct NpcProfile objects from nested dicts
+        npc_profiles_raw = combat_state_raw.get("npc_profiles", {})
+        npc_profiles = {k: NpcProfile(**v) for k, v in npc_profiles_raw.items()}
+        combat_state = CombatState(
+            active=combat_state_raw.get("active", False),
+            round_number=combat_state_raw.get("round_number", 0),
+            initiative_order=combat_state_raw.get("initiative_order", []),
+            initiative_rolls=combat_state_raw.get("initiative_rolls", {}),
+            original_turn_queue=combat_state_raw.get("original_turn_queue", []),
+            npc_profiles=npc_profiles,
+        )
+    else:
+        combat_state = CombatState()
+
     return GameState(
         ground_truth_log=data["ground_truth_log"],
         turn_queue=data["turn_queue"],
@@ -352,6 +374,7 @@ def deserialize_game_state(json_str: str) -> GameState:
         callback_database=callback_database,
         callback_log=callback_log,
         active_fork_id=data.get("active_fork_id", None),
+        combat_state=combat_state,
     )
 
 
@@ -1996,9 +2019,7 @@ def build_comparison_data(session_id: str, fork_id: str) -> ComparisonData | Non
         # Fallback: use fork's branch checkpoint log length if main was deleted
         fork_branch_state = load_fork_checkpoint(session_id, fork_id, branch_turn)
         if fork_branch_state is not None:
-            branch_log_count = len(
-                fork_branch_state.get("ground_truth_log", [])
-            )
+            branch_log_count = len(fork_branch_state.get("ground_truth_log", []))
 
     # Load fork's latest checkpoint for the log
     fork_latest = get_latest_fork_checkpoint(session_id, fork_id)
