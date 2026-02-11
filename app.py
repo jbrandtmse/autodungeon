@@ -52,6 +52,7 @@ from models import (
     CallbackLog,
     CharacterConfig,
     CharacterSheet,
+    CombatState,
     ComparisonTurn,
     DeathSaves,
     DMConfig,
@@ -7094,6 +7095,9 @@ def render_sidebar(config: AppConfig) -> None:
         else:
             st.caption("No characters loaded")
 
+        # Story 15.5: Initiative order (combat only)
+        render_initiative_order()
+
         # Keyboard shortcuts help (Story 3.6)
         render_keyboard_shortcuts_help()
 
@@ -7720,6 +7724,157 @@ def render_game_controls() -> None:
     st.markdown("</div>", unsafe_allow_html=True)
 
 
+# =============================================================================
+# Combat UI Indicators (Story 15.5)
+# =============================================================================
+
+
+def render_combat_banner_html(round_number: int) -> str:
+    """Generate HTML for the combat status banner.
+
+    Displays "COMBAT - Round N" at the top of the narrative area
+    when tactical combat is active.
+
+    Args:
+        round_number: Current combat round number (1+).
+
+    Returns:
+        HTML string for combat banner, or empty string if round_number <= 0.
+    """
+    if round_number <= 0:
+        return ""
+    return (
+        '<div class="combat-banner">'
+        '<span class="combat-banner-label">COMBAT</span>'
+        f' <span class="combat-banner-round">Round {round_number}</span>'
+        "</div>"
+    )
+
+
+def render_combat_banner() -> None:
+    """Render combat banner above narrative area during active combat.
+
+    Reads combat_state from session game state and displays
+    the banner only when combat is active. Story 15.5.
+    """
+    game: GameState | None = st.session_state.get("game")
+    if not game:
+        return
+
+    combat_state = game.get("combat_state")
+    if (
+        not combat_state
+        or not isinstance(combat_state, CombatState)
+        or not combat_state.active
+    ):
+        return
+
+    html = render_combat_banner_html(combat_state.round_number)
+    if html:
+        st.markdown(html, unsafe_allow_html=True)
+
+
+def render_initiative_order_html(
+    combat_state: CombatState,
+    current_turn: str,
+    characters: dict[str, CharacterConfig],
+) -> str:
+    """Generate HTML for the initiative order display.
+
+    Shows all combatants in initiative order with roll numbers.
+    The current combatant is highlighted. PCs use their character
+    class color; NPCs use DM gold.
+
+    Args:
+        combat_state: Active combat state with initiative data.
+        current_turn: Current turn identifier (e.g., "dm", "shadowmere", "dm:goblin_1").
+        characters: Character config dict for PC name/class lookup.
+
+    Returns:
+        HTML string for initiative order panel.
+    """
+    entries: list[str] = []
+
+    for entry in combat_state.initiative_order:
+        if entry == "dm":
+            # Skip bookend entry from initiative display
+            continue
+
+        roll = combat_state.initiative_rolls.get(entry, 0)
+        is_active = entry == current_turn
+        active_class = " initiative-active" if is_active else ""
+
+        if entry.startswith("dm:"):
+            # NPC entry
+            npc_key = entry.split(":", 1)[1]
+            npc_profile = combat_state.npc_profiles.get(npc_key)
+            display_name = escape_html(
+                npc_profile.name if npc_profile else npc_key
+            )
+            entries.append(
+                f'<div class="initiative-entry initiative-npc{active_class}">'
+                f'<span class="initiative-name">{display_name}</span>'
+                f'<span class="initiative-roll">{roll}</span>'
+                f"</div>"
+            )
+        else:
+            # PC entry
+            char_config = characters.get(entry)
+            if char_config:
+                display_name = escape_html(char_config.name)
+                class_slug = "".join(
+                    c
+                    for c in char_config.character_class.lower()
+                    if c.isalnum() or c == "-"
+                )
+            else:
+                display_name = escape_html(entry)
+                class_slug = ""
+
+            class_attr = f" {class_slug}" if class_slug else ""
+            css = f"initiative-entry initiative-pc{class_attr}"
+            css += active_class
+            entries.append(
+                f'<div class="{css}">'
+                f'<span class="initiative-name">{display_name}</span>'
+                f'<span class="initiative-roll">{roll}</span>'
+                f"</div>"
+            )
+
+    entries_html = "\n".join(entries)
+    return f'<div class="initiative-order">{entries_html}</div>'
+
+
+def render_initiative_order() -> None:
+    """Render initiative order panel in sidebar during active combat.
+
+    Shows combatant list with initiative rolls, highlighting the
+    current turn. Only displays when combat_state.active is True.
+    Story 15.5.
+    """
+    game: GameState | None = st.session_state.get("game")
+    if not game:
+        return
+
+    combat_state = game.get("combat_state")
+    if (
+        not combat_state
+        or not isinstance(combat_state, CombatState)
+        or not combat_state.active
+    ):
+        return
+
+    current_turn = game.get("current_turn", "")
+    characters = game.get("characters", {})
+
+    st.markdown("---")
+    st.markdown("### Initiative")
+    st.markdown(
+        render_initiative_order_html(combat_state, current_turn, characters),
+        unsafe_allow_html=True,
+    )
+
+
 def render_module_banner() -> None:
     """Render selected module banner in game view.
 
@@ -7790,6 +7945,9 @@ def render_main_content() -> None:
         )
         # Clear after displaying (single-use notification)
         st.session_state["pending_secret_reveal"] = None
+
+    # Story 15.5: Combat banner (above narrative area)
+    render_combat_banner()
 
     # Story 12.3: Fork Comparison View - replaces narrative when active
     if st.session_state.get("comparison_mode"):
