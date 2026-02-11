@@ -181,7 +181,7 @@ development_status:
   epic-15: in-progress
   15-1-combat-state-model: done
   15-2-initiative-rolling: done
-  15-3-combat-aware-routing: ready-for-dev
-  15-4-dm-bookend-npc-turns: backlog
+  15-3-combat-aware-routing: done
+  15-4-dm-bookend-npc-turns: ready-for-dev
   15-5-combat-ui-indicators: backlog
   15-6-combat-end-conditions: backlog

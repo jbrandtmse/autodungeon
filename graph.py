@@ -19,7 +19,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from agents import LLMError, dm_turn, pc_turn
 from memory import MemoryManager
-from models import GameState, create_user_error
+from models import CombatState, GameState, create_user_error
 
 __all__ = [
     "GameStateWithError",
@@ -107,17 +107,31 @@ def context_manager(state: GameState) -> GameState:
     # Clear the summarization flag after completion
     updated_state["summarization_in_progress"] = False
 
+    # Combat round tracking (Story 15-3)
+    # Increment round_number at the start of each new round after the initial one.
+    # _execute_start_combat() sets round_number=1 when combat begins mid-round.
+    # Subsequent rounds (2, 3, ...) are incremented here.
+    combat = updated_state.get("combat_state")
+    if combat and isinstance(combat, CombatState) and combat.active and combat.round_number >= 1:
+        updated_state["combat_state"] = combat.model_copy(
+            update={"round_number": combat.round_number + 1}
+        )
+
     return updated_state
 
 
 def route_to_next_agent(state: GameState) -> str:
-    """Route to the next agent based on turn_queue position.
+    """Route to the next agent based on turn_queue or initiative_order.
 
     Implements the supervisor routing pattern:
     - DM routes to first PC
     - Each PC routes to next PC
     - Last PC signals END (completing one round)
     - Human override routes to human node when human_active=True
+
+    When combat_state.active is True (Story 15-3), uses
+    combat_state.initiative_order instead of turn_queue. NPC entries
+    (e.g., "dm:goblin_1") are routed to the "dm" node.
 
     The graph executes ONE complete round per invocation:
     DM -> PC1 -> PC2 -> ... -> PCn -> END
@@ -132,7 +146,18 @@ def route_to_next_agent(state: GameState) -> str:
         or END to signal round completion.
     """
     current = state["current_turn"]
-    turn_queue = state["turn_queue"]
+
+    # Determine which order list to use (Story 15-3: combat-aware routing)
+    combat = state.get("combat_state")
+    if (
+        combat
+        and isinstance(combat, CombatState)
+        and combat.active
+        and combat.initiative_order
+    ):
+        order = combat.initiative_order
+    else:
+        order = state["turn_queue"]
 
     # Handle human override - only when it's the controlled character's turn
     if state["human_active"] and state["controlled_character"]:
@@ -140,21 +165,26 @@ def route_to_next_agent(state: GameState) -> str:
         if current != "dm" and current == state["controlled_character"]:
             return "human"
 
-    # Find current position in queue
+    # Find current position in order
     try:
-        current_idx = turn_queue.index(current)
+        current_idx = order.index(current)
     except ValueError:
-        # If current agent not in queue, default to DM
+        # If current agent not in order, default to DM
         return "dm"
 
-    # Check if this is the last agent in the turn queue (end of round)
-    if current_idx == len(turn_queue) - 1:
+    # Check if this is the last agent in the order (end of round)
+    if current_idx == len(order) - 1:
         # Round complete - signal END
         return END  # type: ignore[return-value]
 
-    # Route to next agent in queue
-    next_idx = current_idx + 1
-    return turn_queue[next_idx]
+    # Get next agent in order
+    next_agent = order[current_idx + 1]
+
+    # Route NPC turns to DM node (Story 15-3)
+    if next_agent.startswith("dm:"):
+        return "dm"
+
+    return next_agent
 
 
 def human_intervention_node(state: GameState) -> GameState:
@@ -223,11 +253,12 @@ def human_intervention_node(state: GameState) -> GameState:
     # Clear the pending action from session state
     st.session_state["human_pending_action"] = None
 
-    # Build updated state
+    # Build updated state (includes combat_state passthrough for Story 15-3)
     updated_state: GameState = {
         **state,
         "ground_truth_log": new_log,
         "agent_memories": new_memories,
+        "combat_state": state.get("combat_state", CombatState()),
     }
 
     # Get session_id and turn_number for persistence
@@ -428,12 +459,20 @@ def run_single_round(state: GameState) -> GameStateWithError:
 
     workflow = create_game_workflow(state["turn_queue"])
 
+    # Compute recursion limit: use the longer of turn_queue or initiative_order (Story 15-3)
+    combat = state.get("combat_state")
+    if combat and isinstance(combat, CombatState) and combat.active and combat.initiative_order:
+        turn_count = max(len(state["turn_queue"]), len(combat.initiative_order))
+    else:
+        turn_count = len(state["turn_queue"])
+    recursion_limit = turn_count + 2
+
     try:
         # Run the workflow with recursion limit to prevent infinite loops
-        # The limit is set to turn_queue length + 1 to allow one full round
+        # The limit is set to turn count + 2 to allow one full round
         result: GameState = workflow.invoke(
             state,
-            config={"recursion_limit": len(state["turn_queue"]) + 2},
+            config={"recursion_limit": recursion_limit},
         )  # type: ignore[assignment]
 
     except LLMError as e:

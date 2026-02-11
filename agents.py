@@ -2391,6 +2391,8 @@ def pc_turn(state: GameState, agent_name: str) -> GameState:
         narrative_elements=updated_narrative,
         callback_database=updated_callback_db,
         callback_log=updated_callback_log,
+        active_fork_id=state.get("active_fork_id"),
+        combat_state=state.get("combat_state", CombatState()),
     )
 
 
