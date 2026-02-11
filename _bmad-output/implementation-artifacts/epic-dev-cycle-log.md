@@ -1540,3 +1540,32 @@ Completed in separate cycle sessions (not logged here).
 **Stories:** 15-1 through 15-6 (6 stories)
 **Design Decisions:** DM tool-based combat start/end, strict per-NPC initiative ordering with DM bookend, rich NPC context injection, dynamic turn queue, combat_mode toggle
 
+## Story: 15-1-combat-state-model
+
+**Status:** Done
+**Commit:** 592ddff
+**Duration:** 2026-02-10
+
+### Files Touched
+- `models.py` - NpcProfile, CombatState models, GameState combat_state field, factory functions, __all__
+- `tools.py` - dm_start_combat, dm_end_combat schema-only tools, __all__
+- `persistence.py` - serialize/deserialize combat_state with backward compat
+- `tests/test_persistence.py` - combat_state fixture + expected_keys
+- `tests/test_story_12_2_fork_management_ui.py` - combat_state fixture update
+- `tests/test_story_15_1_combat_state_model.py` - 37 new tests
+
+### Key Design Decisions
+- NpcProfile: name (required, non-empty), initiative_modifier (int, default 0), hp_max (ge=1), hp_current (ge=0), ac (ge=0), personality/tactics/secret/conditions (optional)
+- CombatState: active (bool), round_number (ge=0), initiative_order/initiative_rolls/original_turn_queue (lists/dicts), npc_profiles (dict)
+- Schema-only tools for dm_start_combat/dm_end_combat (execution intercepted in dm_turn, Story 15-2)
+- Backward-compatible deserialization: missing combat_state defaults to CombatState()
+
+### Code Review
+- All 37 story tests pass, 124 fork tests pass (0 regressions), ruff lint clean
+- 4361 total tests passing, 14 pre-existing failures unchanged
+
+### User Input Required
+- None - all issues auto-resolved
+
+---
+

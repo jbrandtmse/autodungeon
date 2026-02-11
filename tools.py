@@ -10,7 +10,7 @@ from typing import Any
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
-from models import CharacterSheet, EquipmentItem, SpellSlots
+from models import CharacterSheet, EquipmentItem, NpcProfile, SpellSlots
 
 logger = logging.getLogger("autodungeon")
 
@@ -26,6 +26,7 @@ __all__ = [
     "pc_roll_dice",
     "resolve_inline_dice_notation",
     "roll_dice",
+    "roll_initiative",
     "MAX_DICE_COUNT",
     "MAX_DICE_SIDES",
     "MAX_TOTAL_DICE",
@@ -726,3 +727,65 @@ def dm_end_combat() -> str:
     """
     # Tool schema only - execution intercepted in dm_turn()
     return "Combat ended. Restoring exploration turn order."
+
+
+# =============================================================================
+# Initiative Rolling (Story 15-2)
+# =============================================================================
+
+
+def _sanitize_npc_name(name: str) -> str:
+    """Convert NPC name to lowercase key format: 'Goblin 1' -> 'goblin_1'."""
+    return name.strip().lower().replace(" ", "_")
+
+
+def roll_initiative(
+    pc_names: list[str],
+    character_sheets: dict[str, CharacterSheet],
+    npc_profiles: dict[str, NpcProfile],
+) -> tuple[dict[str, int], list[str]]:
+    """Roll initiative for all combatants and build sorted turn order.
+
+    Rolls 1d20 + modifier for each PC and NPC. PCs use CharacterSheet.initiative
+    (DEX modifier), NPCs use NpcProfile.initiative_modifier. Results are sorted
+    highest-first with ties broken by modifier descending, then name ascending.
+
+    Args:
+        pc_names: List of PC agent names (e.g., ["shadowmere", "thorin"]).
+        character_sheets: Current character sheets keyed by name.
+        npc_profiles: NPC profiles keyed by sanitized name.
+
+    Returns:
+        Tuple of (initiative_rolls dict, initiative_order list).
+        initiative_order has "dm" bookend at index 0, followed by sorted combatants.
+        NPC entries use "dm:npc_key" format.
+    """
+    # Collect (entry_key, total, modifier) tuples for sorting
+    combatants: list[tuple[str, int, int]] = []
+    initiative_rolls: dict[str, int] = {}
+
+    # Roll for PCs
+    for name in pc_names:
+        d20_result = roll_dice("1d20")
+        sheet = character_sheets.get(name)
+        modifier = sheet.initiative if sheet is not None else 0
+        total = d20_result.total + modifier
+        initiative_rolls[name] = total
+        combatants.append((name, total, modifier))
+
+    # Roll for NPCs
+    for npc_key, profile in npc_profiles.items():
+        d20_result = roll_dice("1d20")
+        modifier = profile.initiative_modifier
+        total = d20_result.total + modifier
+        entry_key = f"dm:{npc_key}"
+        initiative_rolls[entry_key] = total
+        combatants.append((entry_key, total, modifier))
+
+    # Sort: total descending, modifier descending, name ascending
+    combatants.sort(key=lambda c: (-c[1], -c[2], c[0]))
+
+    # Build initiative order with DM bookend at position 0
+    initiative_order = ["dm"] + [c[0] for c in combatants]
+
+    return initiative_rolls, initiative_order

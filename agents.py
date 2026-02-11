@@ -28,6 +28,7 @@ from models import (
     CharacterConfig,
     CharacterFacts,
     CharacterSheet,
+    CombatState,
     DMConfig,
     GameState,
     ModuleDiscoveryResult,
@@ -37,11 +38,14 @@ from models import (
 )
 from tools import (
     apply_character_sheet_update,
+    dm_end_combat,
     dm_reveal_secret,
     dm_roll_dice,
+    dm_start_combat,
     dm_update_character_sheet,
     dm_whisper_to_agent,
     pc_roll_dice,
+    roll_initiative,
 )
 
 # Logger for error tracking (technical details logged internally per FR40)
@@ -66,8 +70,10 @@ __all__ = [
     "SUPPORTED_PROVIDERS",
     "_build_dm_context",
     "_build_pc_context",
+    "_execute_end_combat",
     "_execute_reveal",
     "_execute_sheet_update",
+    "_execute_start_combat",
     "_execute_whisper",
     "_parse_module_json",
     "build_pc_system_prompt",
@@ -693,12 +699,16 @@ def create_dm_agent(config: DMConfig) -> Runnable:  # type: ignore[type-arg]
         Configured chat model with dice rolling tool bound.
     """
     base_model = get_llm(config.provider, config.model)
-    return base_model.bind_tools([
-        dm_roll_dice,
-        dm_update_character_sheet,
-        dm_whisper_to_agent,
-        dm_reveal_secret,
-    ])
+    return base_model.bind_tools(
+        [
+            dm_roll_dice,
+            dm_update_character_sheet,
+            dm_whisper_to_agent,
+            dm_reveal_secret,
+            dm_start_combat,
+            dm_end_combat,
+        ]
+    )
 
 
 def build_pc_system_prompt(config: CharacterConfig) -> str:
@@ -835,7 +845,9 @@ def _format_modifier(value: int) -> str:
     return f"+{value}" if value >= 0 else str(value)
 
 
-def format_character_sheet_context(sheet: CharacterSheet, for_own_character: bool = True) -> str:
+def format_character_sheet_context(
+    sheet: CharacterSheet, for_own_character: bool = True
+) -> str:
     """Format a CharacterSheet into a context string for agent prompts.
 
     Creates a concise but complete text representation of a character sheet
@@ -939,7 +951,9 @@ def format_character_sheet_context(sheet: CharacterSheet, for_own_character: boo
     for weapon in sheet.weapons:
         # Calculate attack bonus based on weapon properties
         attack_bonus = sheet.proficiency_bonus + weapon.attack_bonus
-        props_lower = [p.lower() for p in weapon.properties] if weapon.properties else []
+        props_lower = (
+            [p.lower() for p in weapon.properties] if weapon.properties else []
+        )
         if "finesse" in props_lower:
             # Finesse weapons use higher of STR/DEX
             attack_bonus += max(sheet.strength_modifier, sheet.dexterity_modifier)
@@ -1395,7 +1409,9 @@ def _build_pc_context(state: GameState, agent_name: str) -> str:
         # Look up sheet by character name (e.g., "Thorin" not "fighter")
         sheet = character_sheets.get(character_config.name)
         if sheet:
-            context_parts.append(format_character_sheet_context(sheet, for_own_character=True))
+            context_parts.append(
+                format_character_sheet_context(sheet, for_own_character=True)
+            )
 
     # Add secret knowledge section (Story 10.3 - FR72: PC sees only own secrets)
     agent_secrets = state.get("agent_secrets", {})
@@ -1457,7 +1473,10 @@ def _build_pc_turn_prompt(state: GameState, character_name: str) -> str:
     other_pc_actions: list[str] = []
     found_dm = False
     for entry in ground_truth_log:
-        if entry.startswith("[DM]:") and entry[len("[DM]:") :].strip() == last_dm_line[: len(entry) - 5]:
+        if (
+            entry.startswith("[DM]:")
+            and entry[len("[DM]:") :].strip() == last_dm_line[: len(entry) - 5]
+        ):
             found_dm = True
             other_pc_actions.clear()
             continue
@@ -1469,11 +1488,9 @@ def _build_pc_turn_prompt(state: GameState, character_name: str) -> str:
                 if name != character_name and name not in ("DM", "SHEET"):
                     other_pc_actions.append(name)
 
-    parts = [f"The DM said: \"{excerpt}\""]
+    parts = [f'The DM said: "{excerpt}"']
     if other_pc_actions:
-        parts.append(
-            f"{', '.join(other_pc_actions)} already responded."
-        )
+        parts.append(f"{', '.join(other_pc_actions)} already responded.")
     parts.append(
         f"It's your turn, {character_name}. Respond to the scene above "
         "- what do you say or do?"
@@ -1552,10 +1569,15 @@ def dm_turn(state: GameState) -> GameState:
         sheet_notifications: list[str] = []
 
         # Track character sheet updates from tool calls (Story 8.4)
-        updated_sheets: dict[str, CharacterSheet] = dict(state.get("character_sheets", {}))
+        updated_sheets: dict[str, CharacterSheet] = dict(
+            state.get("character_sheets", {})
+        )
 
         # Track agent secrets updates from whisper tool calls (Story 10.2)
         updated_secrets: dict[str, AgentSecrets] = dict(state.get("agent_secrets", {}))
+
+        # Track combat state updates from combat tool calls (Story 15.2)
+        updated_combat_state: CombatState | None = None
 
         # Invoke the model with tool call handling loop
         max_tool_iterations = 5  # Increased for sheet updates alongside dice rolls
@@ -1585,9 +1607,7 @@ def dm_turn(state: GameState) -> GameState:
 
                 # Execute the character sheet update tool (Story 8.4)
                 elif tool_name == "dm_update_character_sheet":
-                    tool_result = _execute_sheet_update(
-                        tool_args, updated_sheets
-                    )
+                    tool_result = _execute_sheet_update(tool_args, updated_sheets)
                     logger.info(
                         "DM updated character sheet: %s -> %s",
                         tool_args,
@@ -1624,13 +1644,31 @@ def dm_turn(state: GameState) -> GameState:
                         # Store pending reveal for UI notification (Story 10.5)
                         try:
                             import streamlit as st
+
                             st.session_state["pending_secret_reveal"] = {
-                                "character_name": str(tool_args.get("character_name", "")),
+                                "character_name": str(
+                                    tool_args.get("character_name", "")
+                                ),
                                 "content": revealed_content,
                                 "turn": turn_number,
                             }
                         except Exception:
                             pass  # Not in Streamlit context (e.g., testing)
+
+                # Execute the start combat tool (Story 15.2)
+                elif tool_name == "dm_start_combat":
+                    tool_result, new_combat_state = _execute_start_combat(
+                        tool_args, state
+                    )
+                    if new_combat_state is not None:
+                        updated_combat_state = new_combat_state
+                    logger.info("DM started combat: %s", tool_result)
+
+                # Execute the end combat tool (Story 15.2)
+                elif tool_name == "dm_end_combat":
+                    tool_result, reset_combat_state = _execute_end_combat(state)
+                    updated_combat_state = reset_combat_state
+                    logger.info("DM ended combat: %s", tool_result)
 
                 else:
                     tool_result = f"Unknown tool: {tool_name}"
@@ -1767,6 +1805,10 @@ def dm_turn(state: GameState) -> GameState:
         narrative_elements=updated_narrative,
         callback_database=updated_callback_db,
         callback_log=updated_callback_log,
+        active_fork_id=state.get("active_fork_id"),
+        combat_state=updated_combat_state
+        if updated_combat_state is not None
+        else state.get("combat_state", CombatState()),
     )
 
 
@@ -1834,7 +1876,9 @@ def _execute_whisper(
     current_secrets = agent_secrets[agent_key]
     new_whispers = current_secrets.whispers.copy()
     new_whispers.append(whisper)
-    agent_secrets[agent_key] = current_secrets.model_copy(update={"whispers": new_whispers})
+    agent_secrets[agent_key] = current_secrets.model_copy(
+        update={"whispers": new_whispers}
+    )
 
     # Return confirmation with normalized agent key for consistency
     return f"Secret shared with {agent_key}"
@@ -1880,7 +1924,10 @@ def _execute_reveal(
 
     # Need at least one identifier (after stripping whitespace)
     if not whisper_id and not content_hint:
-        return "Error: Either whisper_id or content_hint is required to identify the secret.", None
+        return (
+            "Error: Either whisper_id or content_hint is required to identify the secret.",
+            None,
+        )
 
     # Normalize character name to lowercase for agent key lookup
     agent_key = character_name.lower()
@@ -1915,13 +1962,18 @@ def _execute_reveal(
 
     # Check if already revealed
     if found_whisper.revealed:
-        return f"Error: That secret was already revealed on turn {found_whisper.turn_revealed}.", None
+        return (
+            f"Error: That secret was already revealed on turn {found_whisper.turn_revealed}.",
+            None,
+        )
 
     # Create updated whisper with revealed=True
-    updated_whisper = found_whisper.model_copy(update={
-        "revealed": True,
-        "turn_revealed": turn_number,
-    })
+    updated_whisper = found_whisper.model_copy(
+        update={
+            "revealed": True,
+            "turn_revealed": turn_number,
+        }
+    )
 
     # Build new whispers list with the updated whisper
     updated_whispers = secrets.whispers.copy()
@@ -1994,6 +2046,128 @@ def _execute_sheet_update(
         return confirmation
     except (ValueError, TypeError) as e:
         return f"Error updating {character_name}: {e}"
+
+
+def _execute_start_combat(
+    tool_args: dict[str, object],
+    state: GameState,
+) -> tuple[str, CombatState | None]:
+    """Process dm_start_combat tool call.
+
+    Parses NPC participant data, rolls initiative for all PCs and NPCs,
+    builds a CombatState with initiative order and NPC profiles. When
+    combat_mode is Narrative, returns a no-op placeholder.
+
+    Story 15.2: Initiative Rolling & Turn Reordering.
+
+    Args:
+        tool_args: Tool call arguments with "participants" list of NPC dicts.
+        state: Current game state for reading config, turn queue, and sheets.
+
+    Returns:
+        Tuple of (tool_result_string, new_combat_state_or_None).
+        Returns None for combat_state when combat_mode is Narrative (no-op).
+    """
+    from models import NpcProfile
+    from tools import _sanitize_npc_name
+
+    # Check combat mode gate
+    game_config = state["game_config"]
+    if game_config.combat_mode == "Narrative":
+        return (
+            f"Combat started with {len(tool_args.get('participants', []))} NPC(s). "
+            "(Narrative mode -- initiative not rolled.)",
+            None,
+        )
+
+    # Parse NPC participants
+    participants = tool_args.get("participants", [])
+    if not isinstance(participants, list):
+        participants = []
+
+    npc_profiles: dict[str, NpcProfile] = {}
+    for p in participants:
+        if not isinstance(p, dict):
+            continue
+        name = p.get("name", "Unknown")
+        key = _sanitize_npc_name(str(name))
+        hp = p.get("hp", 1)
+        if not isinstance(hp, int) or hp < 1:
+            hp = 1
+        npc_profiles[key] = NpcProfile(
+            name=str(name),
+            initiative_modifier=int(p.get("initiative_modifier", 0)),
+            hp_max=hp,
+            hp_current=hp,
+            ac=int(p.get("ac", 10)),
+            personality=str(p.get("personality", "")),
+            tactics=str(p.get("tactics", "")),
+            secret=str(p.get("secret", "")),
+        )
+
+    # Get PC names from turn queue (all entries except "dm")
+    pc_names = [name for name in state["turn_queue"] if name != "dm"]
+
+    # Get character sheets for initiative modifiers
+    character_sheets = dict(state.get("character_sheets", {}))
+
+    # Roll initiative
+    initiative_rolls, initiative_order = roll_initiative(
+        pc_names, character_sheets, npc_profiles
+    )
+
+    # Save current turn queue and build combat state
+    combat_state = CombatState(
+        active=True,
+        round_number=1,
+        initiative_order=initiative_order,
+        initiative_rolls=initiative_rolls,
+        original_turn_queue=list(state["turn_queue"]),
+        npc_profiles=npc_profiles,
+    )
+
+    # Format initiative order summary for DM feedback
+    # Skip the "dm" bookend at index 0 for the summary
+    order_parts: list[str] = []
+    for entry in initiative_order[1:]:
+        roll = initiative_rolls.get(entry, 0)
+        # Use display name: for NPCs strip "dm:" prefix and title-case
+        if entry.startswith("dm:"):
+            display_name = entry[3:].replace("_", " ").title()
+        else:
+            display_name = entry.replace("_", " ").title()
+        order_parts.append(f"{display_name} ({roll})")
+
+    result_str = (
+        f"Combat started! Initiative order: {', '.join(order_parts)}. Round 1 begins."
+    )
+    return result_str, combat_state
+
+
+def _execute_end_combat(
+    state: GameState,
+) -> tuple[str, CombatState]:
+    """Process dm_end_combat tool call.
+
+    Resets combat state to defaults. Turn queue restoration is handled
+    by Story 15-3 (combat-aware routing).
+
+    Story 15.2: Initiative Rolling & Turn Reordering.
+
+    Args:
+        state: Current game state for reading combat_state.
+
+    Returns:
+        Tuple of (tool_result_string, reset_combat_state).
+    """
+    combat_state = state.get("combat_state")
+    if combat_state is None or not combat_state.active:
+        return "No combat is currently active.", CombatState()
+
+    return (
+        "Combat ended. Restoring exploration turn order.",
+        CombatState(),
+    )
 
 
 def pc_turn(state: GameState, agent_name: str) -> GameState:
