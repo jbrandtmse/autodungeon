@@ -191,7 +191,7 @@ development_status:
   # ===========================================
 
   # Epic 16: UI Framework Migration — FastAPI + SvelteKit (12 stories)
-  epic-16: in-progress
+  epic-16: done
   16-1-api-layer-foundation: done
   16-2-game-engine-extraction: done
   16-3-websocket-game-streaming: done
@@ -203,4 +203,4 @@ development_status:
   16-9-character-creation-library: done
   16-10-advanced-features-ui: done
   16-11-frontend-testing: done
-  16-12-cutover-cleanup: backlog
+  16-12-cutover-cleanup: done
