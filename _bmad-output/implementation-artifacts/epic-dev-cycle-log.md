@@ -1558,7 +1558,7 @@ Completed in separate cycle sessions (not logged here).
 | 16-7-session-management-ui | ✅ done | Full Cycle |
 | 16-8-settings-configuration-ui | ✅ done | Full Cycle |
 | 16-9-character-creation-library | ✅ done | Full Cycle |
-| 16-10-advanced-features-ui | pending | - |
+| 16-10-advanced-features-ui | ✅ done | Full Cycle |
 | 16-11-frontend-testing | pending | - |
 | 16-12-cutover-cleanup | pending | - |
 
@@ -1875,6 +1875,45 @@ Completed in separate cycle sessions (not logged here).
 - **MEDIUM**: Wizard allows invalid tokenLimit values — Added validation
 - **MEDIUM**: Wizard allows empty model name — Added non-empty check
 - **LOW**: Character list not sorted — Alphabetical sort added
+
+### User Input Required
+- None - all issues auto-resolved
+
+---
+
+## Story: 16-10-advanced-features-ui
+
+**Status:** ✅ Completed
+**Commit:** 73aa07d
+**Duration:** 2026-02-11
+
+### Files Touched
+- `api/routes.py` - 12 new REST endpoints (fork CRUD, checkpoint list/preview/restore, character sheet)
+- `api/schemas.py` - 16 new Pydantic schemas
+- `api/engine.py` - submit_whisper() method
+- `api/websocket.py` - Whisper command routing
+- `frontend/src/lib/components/ForkPanel.svelte` - Fork create/list/manage sidebar panel
+- `frontend/src/lib/components/ForkComparison.svelte` - Side-by-side timeline comparison overlay
+- `frontend/src/lib/components/WhisperPanel.svelte` - Whisper input + history panel
+- `frontend/src/lib/components/CharacterSheetModal.svelte` - Full D&D 5e character sheet modal
+- `frontend/src/lib/components/StoryThreadsPanel.svelte` - Narrative element tracker with callbacks
+- `frontend/src/lib/components/CheckpointBrowser.svelte` - Checkpoint list/preview/restore
+- `frontend/src/lib/components/Sidebar.svelte` - Integration of all new panels
+- `frontend/src/lib/components/CharacterCard.svelte` - "Sheet" button for character sheet modal
+- `frontend/src/lib/api.ts` - 12 new API client functions
+- `frontend/src/lib/types.ts` - 20+ new TypeScript interfaces
+- `frontend/src/lib/stores/uiStore.ts` - characterSheetName, comparisonForkId fields
+- `frontend/src/routes/game/[sessionId]/+page.svelte` - ForkComparison overlay, CharacterSheetModal
+- `tests/test_api.py` - 40 new tests (112 total)
+
+### Issues Auto-Resolved (Code Review)
+- **HIGH**: Missing fork_id validation at API boundary — Added _validate_fork_id_param() helper
+- **HIGH**: switch_to_fork overwrites main timeline checkpoint — Removed destructive save_checkpoint
+- **HIGH**: Missing character_name path traversal check — Added traversal character rejection
+- **MEDIUM**: Negative turn parameter accepted — Added _validate_turn_param() helper
+- **MEDIUM**: Missing OSError handling in preview_checkpoint — Added try/except
+- **MEDIUM**: Autopilot race on checkpoint restore — Added docstring documentation
+- **LOW**: Empty catch blocks in ForkPanel.svelte — UX polish, not fixed
 
 ### User Input Required
 - None - all issues auto-resolved
