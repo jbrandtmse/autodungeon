@@ -194,6 +194,22 @@ This keeps the DM and background agents (summarizer, extractor) on Gemini Flash 
 
 Set your Google API key in `.env` as `GOOGLE_API_KEY` and all agents will use Gemini Flash. You can also mix in Claude models for PC characters if you have an Anthropic key.
 
+### Combat Modes
+
+autodungeon supports two combat modes, configurable per-session in the Configuration modal:
+
+| Feature | Narrative (default) | Tactical |
+|---------|-------------------|----------|
+| Initiative rolls | Skipped | Full d20 + modifier per combatant |
+| Turn reordering | No - fixed turn queue | Yes - sorted by initiative result |
+| NPC turns | DM narrates all NPCs in a single turn | Individual NPC turns interleaved with PCs |
+| Round tracking | No | Yes, with configurable max round limit |
+| Combat state | Not created | Full CombatState (HP, AC, initiative, NPC profiles) |
+
+**Narrative mode** is story-first: when the DM starts combat, no mechanics are activated. The DM narrates all NPC actions as part of their own turn and the party order stays fixed. Best for roleplay-heavy sessions where combat is dramatic flavor rather than tactical challenge.
+
+**Tactical mode** activates the full D&D 5e initiative system. When combat starts, initiative is rolled (`1d20 + modifier`) for every PC and NPC. The turn order is reordered by initiative, NPCs get individual turns interleaved with PCs, and a DM "bookend" turn opens each round to set the scene. When combat ends, the original turn queue is restored.
+
 ## Architecture Overview
 
 autodungeon uses a **supervisor pattern** where the DM agent orchestrates turns:
