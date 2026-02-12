@@ -576,6 +576,28 @@ class GameEngine:
         if self._state is not None:
             self._state["pending_nudge"] = sanitized  # type: ignore[literal-required]
 
+    MAX_WHISPER_LENGTH: int = 2000
+
+    def submit_whisper(self, content: str) -> None:
+        """Submit a private whisper from the human to the DM.
+
+        Stores the whisper in the game state's ``pending_human_whisper``
+        field, which the DM agent reads on the next turn (mirroring the
+        Streamlit implementation in app.py).
+
+        Args:
+            content: The whisper text from the human player.
+
+        Raises:
+            ValueError: If content is empty after sanitization.
+        """
+        sanitized = content.strip()[: self.MAX_WHISPER_LENGTH]
+        if not sanitized:
+            raise ValueError("Whisper text cannot be empty.")
+
+        if self._state is not None:
+            self._state["pending_human_whisper"] = sanitized  # type: ignore[literal-required]
+
     # -------------------------------------------------------------------------
     # Broadcast Callback
     # -------------------------------------------------------------------------

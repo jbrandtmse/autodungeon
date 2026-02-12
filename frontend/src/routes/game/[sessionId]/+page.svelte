@@ -2,11 +2,24 @@
 	import { page } from '$app/stores';
 	import { onMount, onDestroy } from 'svelte';
 	import NarrativePanel from '$lib/components/NarrativePanel.svelte';
+	import ForkComparison from '$lib/components/ForkComparison.svelte';
+	import CharacterSheetModal from '$lib/components/CharacterSheetModal.svelte';
 	import { createGameConnection, type GameConnection } from '$lib/ws';
 	import { connectionStatus, lastError, wsSend, sendCommand } from '$lib/stores/connectionStore';
 	import { handleServerMessage, resetStores, gameState } from '$lib/stores/gameStore';
+	import { uiState } from '$lib/stores';
 
 	const sessionId = $derived($page.params.sessionId ?? '');
+	const comparisonForkId = $derived($uiState.comparisonForkId);
+	const characterSheetName = $derived($uiState.characterSheetName);
+
+	function closeComparison(): void {
+		uiState.update((s) => ({ ...s, comparisonForkId: null }));
+	}
+
+	function closeCharacterSheet(): void {
+		uiState.update((s) => ({ ...s, characterSheetName: null }));
+	}
 
 	let connection: GameConnection | undefined;
 	let cleanupCallbacks: Array<() => void> = [];
@@ -87,9 +100,20 @@
 
 <div class="game-view">
 	<div class="narrative-area">
-		<NarrativePanel />
+		{#if comparisonForkId}
+			<ForkComparison {sessionId} forkId={comparisonForkId} onClose={closeComparison} />
+		{:else}
+			<NarrativePanel />
+		{/if}
 	</div>
 </div>
+
+<CharacterSheetModal
+	open={!!characterSheetName}
+	{sessionId}
+	characterName={characterSheetName ?? ''}
+	onClose={closeCharacterSheet}
+/>
 
 <style>
 	.game-view {

@@ -92,6 +92,11 @@ export interface CombatState {
   npc_profiles: Record<string, { name: string }>;
 }
 
+export interface AgentSecrets {
+  whispers?: Whisper[];
+  [key: string]: unknown;
+}
+
 export interface GameState {
   ground_truth_log: string[];
   turn_queue: string[];
@@ -105,6 +110,10 @@ export interface GameState {
   characters?: Record<string, Character>;
   combat_state?: CombatState | null;
   character_sheets?: Record<string, { hp: CharacterSheetHP }>;
+  active_fork_id?: string | null;
+  callback_database?: NarrativeElementStore | null;
+  callback_log?: CallbackLog | null;
+  agent_secrets?: Record<string, AgentSecrets> | null;
 }
 
 // === WebSocket Server-to-Client Events ===
@@ -249,6 +258,11 @@ export interface WsCmdRetry {
   type: 'retry';
 }
 
+export interface WsCmdWhisper {
+  type: 'whisper';
+  content: string;
+}
+
 export type WsCommand =
   | WsCmdStartAutopilot
   | WsCmdStopAutopilot
@@ -260,4 +274,246 @@ export type WsCommand =
   | WsCmdSetSpeed
   | WsCmdPause
   | WsCmdResume
-  | WsCmdRetry;
+  | WsCmdRetry
+  | WsCmdWhisper;
+
+// === Fork Management Types (Story 16-10) ===
+
+export interface ForkMetadata {
+  fork_id: string;
+  name: string;
+  parent_session_id: string;
+  branch_turn: number;
+  created_at: string;
+  updated_at: string;
+  turn_count: number;
+}
+
+export interface ComparisonTurn {
+  turn_number: number;
+  entries: string[];
+  is_branch_point: boolean;
+  is_ended: boolean;
+}
+
+export interface ComparisonTimeline {
+  label: string;
+  timeline_type: 'main' | 'fork';
+  fork_id: string | null;
+  turns: ComparisonTurn[];
+  total_turns: number;
+}
+
+export interface ComparisonData {
+  session_id: string;
+  branch_turn: number;
+  left: ComparisonTimeline;
+  right: ComparisonTimeline;
+}
+
+// === Whisper Types (Story 16-10) ===
+
+export interface Whisper {
+  id: string;
+  from_agent: string;
+  to_agent: string;
+  content: string;
+  turn_created: number;
+  revealed: boolean;
+  turn_revealed: number | null;
+}
+
+export interface WhisperHistory {
+  [characterName: string]: Whisper[];
+}
+
+// === Character Sheet Types (Story 16-10) ===
+
+export interface WeaponData {
+  name: string;
+  damage_dice: string;
+  damage_type: string;
+  properties: string[];
+  attack_bonus: number;
+  is_equipped: boolean;
+}
+
+export interface ArmorData {
+  name: string;
+  armor_class: number;
+  armor_type: string;
+  strength_requirement: number;
+  stealth_disadvantage: boolean;
+  is_equipped: boolean;
+}
+
+export interface EquipmentItemData {
+  name: string;
+  quantity: number;
+  description: string;
+  weight: number;
+}
+
+export interface SpellData {
+  name: string;
+  level: number;
+  school: string;
+  casting_time: string;
+  range: string;
+  components: string[];
+  duration: string;
+  description: string;
+  is_prepared: boolean;
+}
+
+export interface SpellSlotsData {
+  max: number;
+  current: number;
+}
+
+export interface DeathSavesData {
+  successes: number;
+  failures: number;
+}
+
+export interface CharacterSheetFull {
+  // Basic Info
+  name: string;
+  race: string;
+  character_class: string;
+  level: number;
+  background: string;
+  alignment: string;
+  experience_points: number;
+
+  // Ability Scores
+  strength: number;
+  dexterity: number;
+  constitution: number;
+  intelligence: number;
+  wisdom: number;
+  charisma: number;
+
+  // Computed Modifiers
+  strength_modifier: number;
+  dexterity_modifier: number;
+  constitution_modifier: number;
+  intelligence_modifier: number;
+  wisdom_modifier: number;
+  charisma_modifier: number;
+  proficiency_bonus: number;
+
+  // Combat Stats
+  armor_class: number;
+  initiative: number;
+  speed: number;
+  hit_points_max: number;
+  hit_points_current: number;
+  hit_points_temp: number;
+  hit_dice: string;
+  hit_dice_remaining: number;
+
+  // Saving Throws
+  saving_throw_proficiencies: string[];
+
+  // Skills
+  skill_proficiencies: string[];
+  skill_expertise: string[];
+
+  // Proficiencies
+  armor_proficiencies: string[];
+  weapon_proficiencies: string[];
+  tool_proficiencies: string[];
+  languages: string[];
+
+  // Features & Traits
+  class_features: string[];
+  racial_traits: string[];
+  feats: string[];
+
+  // Equipment
+  weapons: WeaponData[];
+  armor: ArmorData | null;
+  equipment: EquipmentItemData[];
+  gold: number;
+  silver: number;
+  copper: number;
+
+  // Spellcasting
+  spellcasting_ability: string | null;
+  spell_save_dc: number | null;
+  spell_attack_bonus: number | null;
+  cantrips: string[];
+  spells_known: SpellData[];
+  spell_slots: Record<string, SpellSlotsData>;
+
+  // Personality
+  personality_traits: string;
+  ideals: string;
+  bonds: string;
+  flaws: string;
+  backstory: string;
+
+  // Conditions & Status
+  conditions: string[];
+  death_saves: DeathSavesData;
+}
+
+// === Story Threads Types (Story 16-10) ===
+
+export interface NarrativeElement {
+  id: string;
+  element_type: 'character' | 'item' | 'location' | 'event' | 'promise' | 'threat';
+  name: string;
+  description: string;
+  turn_introduced: number;
+  session_introduced: number;
+  turns_referenced: number[];
+  characters_involved: string[];
+  resolved: boolean;
+  times_referenced: number;
+  last_referenced_turn: number;
+  potential_callbacks: string[];
+  dormant: boolean;
+}
+
+export interface NarrativeElementStore {
+  elements: NarrativeElement[];
+}
+
+export interface CallbackEntry {
+  id: string;
+  element_id: string;
+  element_name: string;
+  element_type: string;
+  turn_detected: number;
+  turn_gap: number;
+  match_type: 'name_exact' | 'name_fuzzy' | 'description_keyword';
+  match_context: string;
+  is_story_moment: boolean;
+  session_detected: number;
+}
+
+export interface CallbackLog {
+  entries: CallbackEntry[];
+}
+
+export interface StoryThreadsSummary {
+  activeCount: number;
+  dormantCount: number;
+  storyMomentCount: number;
+}
+
+// === Checkpoint Types (Story 16-10) ===
+
+export interface CheckpointInfo {
+  turn_number: number;
+  timestamp: string;
+  brief_context: string;
+  message_count: number;
+}
+
+export interface CheckpointPreview {
+  turn_number: number;
+  entries: string[];
+}

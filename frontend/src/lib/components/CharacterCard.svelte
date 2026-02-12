@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { gameState, isThinking, connectionStatus, sendCommand } from '$lib/stores';
+	import { gameState, isThinking, connectionStatus, sendCommand, uiState } from '$lib/stores';
 
 	let {
 		agentKey,
@@ -42,6 +42,10 @@
 			sendCommand({ type: 'drop_in', character: agentKey });
 		}
 	}
+
+	function handleViewSheet(): void {
+		uiState.update((s) => ({ ...s, characterSheetName: name }));
+	}
 </script>
 
 <div
@@ -81,15 +85,24 @@
 		</div>
 	{/if}
 
-	<button
-		class="drop-in-btn {classSlug}"
-		class:release={isControlled}
-		onclick={handleDropInRelease}
-		disabled={buttonsDisabled}
-		aria-label={isControlled ? `Release control of ${name}` : `Drop in as ${name}`}
-	>
-		{isControlled ? 'Release' : 'Drop In'}
-	</button>
+	<div class="card-actions">
+		<button
+			class="drop-in-btn {classSlug}"
+			class:release={isControlled}
+			onclick={handleDropInRelease}
+			disabled={buttonsDisabled}
+			aria-label={isControlled ? `Release control of ${name}` : `Drop in as ${name}`}
+		>
+			{isControlled ? 'Release' : 'Drop In'}
+		</button>
+		<button
+			class="view-sheet-btn"
+			onclick={handleViewSheet}
+			aria-label="View character sheet for {name}"
+		>
+			Sheet
+		</button>
+	</div>
 </div>
 
 <style>
@@ -223,8 +236,15 @@
 		text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
 	}
 
+	/* Button row */
+	.card-actions {
+		display: flex;
+		gap: 6px;
+	}
+
 	/* Drop-In / Release button */
 	.drop-in-btn {
+		flex: 1;
 		padding: 6px 12px;
 		border-radius: var(--border-radius-sm);
 		font-family: var(--font-ui);
@@ -285,5 +305,26 @@
 	.drop-in-btn:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;
+	}
+
+	/* View Sheet button */
+	.view-sheet-btn {
+		padding: 6px 10px;
+		border-radius: var(--border-radius-sm);
+		font-family: var(--font-ui);
+		font-size: 11px;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all var(--transition-fast);
+		background: transparent;
+		border: 1px solid var(--text-secondary);
+		color: var(--text-secondary);
+		flex-shrink: 0;
+	}
+
+	.view-sheet-btn:hover {
+		background: var(--bg-message);
+		color: var(--text-primary);
+		border-color: var(--text-primary);
 	}
 </style>

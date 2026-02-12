@@ -185,6 +185,245 @@ class ErrorResponse(BaseModel):
 
 
 # =============================================================================
+# Fork Management Schemas (Story 16-10)
+# =============================================================================
+
+
+class ForkCreateRequest(BaseModel):
+    """Request body for creating a new fork."""
+
+    name: str = Field(
+        ..., min_length=1, max_length=200, description="Name for the fork"
+    )
+
+
+class ForkRenameRequest(BaseModel):
+    """Request body for renaming a fork."""
+
+    name: str = Field(
+        ..., min_length=1, max_length=200, description="New fork name"
+    )
+
+
+class ForkMetadataResponse(BaseModel):
+    """Response for fork metadata, mirrors ForkMetadata model."""
+
+    fork_id: str = Field(..., description="Fork identifier (zero-padded)")
+    name: str = Field(..., description="User-provided fork name")
+    parent_session_id: str = Field(..., description="Parent session ID")
+    branch_turn: int = Field(..., ge=0, description="Turn number at branch point")
+    created_at: str = Field(..., description="ISO timestamp when fork was created")
+    updated_at: str = Field(..., description="ISO timestamp of last checkpoint")
+    turn_count: int = Field(default=0, ge=0, description="Turns beyond branch point")
+
+
+class ComparisonTurnResponse(BaseModel):
+    """A single turn's content for comparison alignment."""
+
+    turn_number: int = Field(..., ge=0, description="Turn number for alignment")
+    entries: list[str] = Field(default_factory=list, description="Log entries at this turn")
+    is_branch_point: bool = Field(default=False, description="Whether this is the branch point")
+    is_ended: bool = Field(default=False, description="Whether timeline ended here")
+
+
+class ComparisonTimelineResponse(BaseModel):
+    """One side of a fork comparison (main or fork timeline)."""
+
+    label: str = Field(..., description="Display label")
+    timeline_type: Literal["main", "fork"] = Field(..., description="Timeline type")
+    fork_id: str | None = Field(default=None, description="Fork ID (None for main)")
+    turns: list[ComparisonTurnResponse] = Field(
+        default_factory=list, description="Aligned turns"
+    )
+    total_turns: int = Field(default=0, ge=0, description="Total turns in timeline")
+
+
+class ComparisonDataResponse(BaseModel):
+    """Complete comparison data for two timelines."""
+
+    session_id: str = Field(..., description="Session ID")
+    branch_turn: int = Field(..., ge=0, description="Branch point turn number")
+    left: ComparisonTimelineResponse = Field(..., description="Left column (main) timeline")
+    right: ComparisonTimelineResponse = Field(..., description="Right column (fork) timeline")
+
+
+# =============================================================================
+# Checkpoint Schemas (Story 16-10)
+# =============================================================================
+
+
+class CheckpointInfoResponse(BaseModel):
+    """Response for checkpoint metadata."""
+
+    turn_number: int = Field(..., ge=0, description="Checkpoint turn number")
+    timestamp: str = Field(..., description="When checkpoint was saved")
+    brief_context: str = Field(default="", description="Preview of last log entry")
+    message_count: int = Field(default=0, ge=0, description="Number of log messages")
+
+
+class CheckpointPreviewResponse(BaseModel):
+    """Response for checkpoint preview with log entries."""
+
+    turn_number: int = Field(..., ge=0, description="Checkpoint turn number")
+    entries: list[str] = Field(default_factory=list, description="Recent log entries")
+
+
+# =============================================================================
+# Character Sheet Schema (Story 16-10)
+# =============================================================================
+
+
+class WeaponResponse(BaseModel):
+    """Weapon data for character sheet."""
+
+    name: str = Field(..., description="Weapon name")
+    damage_dice: str = Field(..., description="Damage dice notation")
+    damage_type: str = Field(default="slashing", description="Damage type")
+    properties: list[str] = Field(default_factory=list, description="Weapon properties")
+    attack_bonus: int = Field(default=0, description="Magic/other attack bonus")
+    is_equipped: bool = Field(default=False, description="Whether weapon is equipped")
+
+
+class ArmorResponse(BaseModel):
+    """Armor data for character sheet."""
+
+    name: str = Field(..., description="Armor name")
+    armor_class: int = Field(..., ge=0, description="Base AC")
+    armor_type: str = Field(..., description="Armor category")
+    strength_requirement: int = Field(default=0, description="Minimum STR")
+    stealth_disadvantage: bool = Field(default=False, description="Stealth disadvantage")
+    is_equipped: bool = Field(default=True, description="Whether worn")
+
+
+class EquipmentItemResponse(BaseModel):
+    """Equipment item for character sheet."""
+
+    name: str = Field(..., description="Item name")
+    quantity: int = Field(default=1, ge=1, description="Quantity")
+    description: str = Field(default="", description="Item description")
+    weight: float = Field(default=0.0, ge=0, description="Weight in pounds")
+
+
+class SpellResponse(BaseModel):
+    """Spell data for character sheet."""
+
+    name: str = Field(..., description="Spell name")
+    level: int = Field(..., ge=0, le=9, description="Spell level (0 = cantrip)")
+    school: str = Field(default="", description="School of magic")
+    casting_time: str = Field(default="1 action", description="Casting time")
+    range: str = Field(default="Self", description="Spell range")
+    components: list[str] = Field(default_factory=list, description="V/S/M components")
+    duration: str = Field(default="Instantaneous", description="Duration")
+    description: str = Field(default="", description="Spell description")
+    is_prepared: bool = Field(default=True, description="Whether prepared")
+
+
+class SpellSlotsResponse(BaseModel):
+    """Spell slot tracking for a single level."""
+
+    max: int = Field(..., ge=0, description="Maximum slots")
+    current: int = Field(..., ge=0, description="Current available slots")
+
+
+class DeathSavesResponse(BaseModel):
+    """Death saving throw tracking."""
+
+    successes: int = Field(default=0, ge=0, le=3, description="Successful saves")
+    failures: int = Field(default=0, ge=0, le=3, description="Failed saves")
+
+
+class CharacterSheetResponse(BaseModel):
+    """Full D&D 5e character sheet response."""
+
+    # Basic Info
+    name: str = Field(..., description="Character name")
+    race: str = Field(..., description="Character race")
+    character_class: str = Field(..., description="Character class")
+    level: int = Field(default=1, ge=1, le=20, description="Character level")
+    background: str = Field(default="", description="Character background")
+    alignment: str = Field(default="", description="Alignment")
+    experience_points: int = Field(default=0, ge=0, description="XP total")
+
+    # Ability Scores
+    strength: int = Field(..., ge=1, le=30, description="STR score")
+    dexterity: int = Field(..., ge=1, le=30, description="DEX score")
+    constitution: int = Field(..., ge=1, le=30, description="CON score")
+    intelligence: int = Field(..., ge=1, le=30, description="INT score")
+    wisdom: int = Field(..., ge=1, le=30, description="WIS score")
+    charisma: int = Field(..., ge=1, le=30, description="CHA score")
+
+    # Computed Modifiers
+    strength_modifier: int = Field(..., description="STR modifier")
+    dexterity_modifier: int = Field(..., description="DEX modifier")
+    constitution_modifier: int = Field(..., description="CON modifier")
+    intelligence_modifier: int = Field(..., description="INT modifier")
+    wisdom_modifier: int = Field(..., description="WIS modifier")
+    charisma_modifier: int = Field(..., description="CHA modifier")
+    proficiency_bonus: int = Field(..., description="Proficiency bonus")
+
+    # Combat Stats
+    armor_class: int = Field(..., ge=1, description="Armor Class")
+    initiative: int = Field(default=0, description="Initiative modifier")
+    speed: int = Field(default=30, ge=0, description="Speed in feet")
+    hit_points_max: int = Field(..., ge=1, description="Maximum HP")
+    hit_points_current: int = Field(..., ge=0, description="Current HP")
+    hit_points_temp: int = Field(default=0, ge=0, description="Temporary HP")
+    hit_dice: str = Field(..., description="Hit dice (e.g., 5d10)")
+    hit_dice_remaining: int = Field(..., ge=0, description="Remaining hit dice")
+
+    # Saving Throws
+    saving_throw_proficiencies: list[str] = Field(
+        default_factory=list, description="Abilities proficient in saves"
+    )
+
+    # Skills
+    skill_proficiencies: list[str] = Field(
+        default_factory=list, description="Skills with proficiency"
+    )
+    skill_expertise: list[str] = Field(
+        default_factory=list, description="Skills with expertise"
+    )
+
+    # Proficiencies
+    armor_proficiencies: list[str] = Field(default_factory=list)
+    weapon_proficiencies: list[str] = Field(default_factory=list)
+    tool_proficiencies: list[str] = Field(default_factory=list)
+    languages: list[str] = Field(default_factory=list)
+
+    # Features & Traits
+    class_features: list[str] = Field(default_factory=list)
+    racial_traits: list[str] = Field(default_factory=list)
+    feats: list[str] = Field(default_factory=list)
+
+    # Equipment
+    weapons: list[WeaponResponse] = Field(default_factory=list)
+    armor: ArmorResponse | None = Field(default=None)
+    equipment: list[EquipmentItemResponse] = Field(default_factory=list)
+    gold: int = Field(default=0, ge=0)
+    silver: int = Field(default=0, ge=0)
+    copper: int = Field(default=0, ge=0)
+
+    # Spellcasting
+    spellcasting_ability: str | None = Field(default=None)
+    spell_save_dc: int | None = Field(default=None)
+    spell_attack_bonus: int | None = Field(default=None)
+    cantrips: list[str] = Field(default_factory=list)
+    spells_known: list[SpellResponse] = Field(default_factory=list)
+    spell_slots: dict[str, SpellSlotsResponse] = Field(default_factory=dict)
+
+    # Personality
+    personality_traits: str = Field(default="")
+    ideals: str = Field(default="")
+    bonds: str = Field(default="")
+    flaws: str = Field(default="")
+    backstory: str = Field(default="")
+
+    # Conditions & Status
+    conditions: list[str] = Field(default_factory=list)
+    death_saves: DeathSavesResponse = Field(default_factory=DeathSavesResponse)
+
+
+# =============================================================================
 # WebSocket Server-to-Client Messages
 # =============================================================================
 

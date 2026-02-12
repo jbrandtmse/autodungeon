@@ -6,6 +6,11 @@ import type {
   CharacterDetail,
   CharacterCreateRequest,
   CharacterUpdateRequest,
+  ForkMetadata,
+  ComparisonData,
+  CheckpointInfo,
+  CheckpointPreview,
+  CharacterSheetFull,
 } from './types';
 
 const BASE_URL = '';  // Empty — Vite proxy handles /api routing
@@ -138,4 +143,123 @@ export async function deleteCharacter(name: string): Promise<void> {
     throw new ApiError(response.status, response.statusText, message);
   }
   // 204 No Content — no body to parse
+}
+
+// === Fork Management API (Story 16-10) ===
+
+export async function getForks(sessionId: string): Promise<ForkMetadata[]> {
+  return request<ForkMetadata[]>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/forks`,
+  );
+}
+
+export async function createFork(
+  sessionId: string,
+  name: string,
+): Promise<ForkMetadata> {
+  return request<ForkMetadata>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/forks`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    },
+  );
+}
+
+export async function renameFork(
+  sessionId: string,
+  forkId: string,
+  name: string,
+): Promise<ForkMetadata> {
+  return request<ForkMetadata>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/forks/${encodeURIComponent(forkId)}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ name }),
+    },
+  );
+}
+
+export async function deleteFork(sessionId: string, forkId: string): Promise<void> {
+  const response = await fetch(
+    `${BASE_URL}/api/sessions/${encodeURIComponent(sessionId)}/forks/${encodeURIComponent(forkId)}`,
+    { method: 'DELETE' },
+  );
+  if (!response.ok) {
+    const body = await response.text();
+    let message: string;
+    try {
+      const json = JSON.parse(body);
+      message = json.detail || json.message || body;
+    } catch {
+      message = body || response.statusText;
+    }
+    throw new ApiError(response.status, response.statusText, message);
+  }
+  // 204 No Content — no body to parse
+}
+
+export async function switchFork(sessionId: string, forkId: string): Promise<void> {
+  await request<{ status: string; fork_id: string }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/forks/${encodeURIComponent(forkId)}/switch`,
+    { method: 'POST' },
+  );
+}
+
+export async function promoteFork(sessionId: string, forkId: string): Promise<void> {
+  await request<{ status: string; latest_turn: number }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/forks/${encodeURIComponent(forkId)}/promote`,
+    { method: 'POST' },
+  );
+}
+
+export async function returnToMain(sessionId: string): Promise<void> {
+  await request<{ status: string }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/forks/return-to-main`,
+    { method: 'POST' },
+  );
+}
+
+export async function getComparison(
+  sessionId: string,
+  forkId: string,
+): Promise<ComparisonData> {
+  return request<ComparisonData>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/forks/${encodeURIComponent(forkId)}/compare`,
+  );
+}
+
+// === Checkpoint API (Story 16-10) ===
+
+export async function getCheckpoints(sessionId: string): Promise<CheckpointInfo[]> {
+  return request<CheckpointInfo[]>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/checkpoints`,
+  );
+}
+
+export async function getCheckpointPreview(
+  sessionId: string,
+  turn: number,
+): Promise<CheckpointPreview> {
+  return request<CheckpointPreview>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/checkpoints/${turn}/preview`,
+  );
+}
+
+export async function restoreCheckpoint(sessionId: string, turn: number): Promise<void> {
+  await request<{ status: string; turn: number }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/checkpoints/${turn}/restore`,
+    { method: 'POST' },
+  );
+}
+
+// === Character Sheet API (Story 16-10) ===
+
+export async function getCharacterSheet(
+  sessionId: string,
+  name: string,
+): Promise<CharacterSheetFull> {
+  return request<CharacterSheetFull>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/character-sheets/${encodeURIComponent(name)}`,
+  );
 }

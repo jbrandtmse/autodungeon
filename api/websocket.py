@@ -44,6 +44,7 @@ _REQUIRED_FIELDS: dict[str, list[str]] = {
     "drop_in": ["character"],
     "submit_action": ["content"],
     "nudge": ["content"],
+    "whisper": ["content"],
     "set_speed": ["speed"],
 }
 
@@ -57,6 +58,7 @@ _KNOWN_COMMANDS: frozenset[str] = frozenset(
         "release_control",
         "submit_action",
         "nudge",
+        "whisper",
         "set_speed",
         "pause",
         "resume",
@@ -357,6 +359,9 @@ async def _handle_command(
             engine.submit_nudge(cmd["content"])
             # Direct broadcast ack for nudge
             await manager.broadcast(session_id, WsNudgeReceived().model_dump())
+
+        elif cmd_type == "whisper":
+            engine.submit_whisper(cmd["content"])
 
         elif cmd_type == "set_speed":
             engine.set_speed(cmd["speed"])

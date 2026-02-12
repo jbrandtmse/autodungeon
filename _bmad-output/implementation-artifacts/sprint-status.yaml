@@ -201,6 +201,6 @@ development_status:
   16-7-session-management-ui: done
   16-8-settings-configuration-ui: done
   16-9-character-creation-library: done
-  16-10-advanced-features-ui: backlog
+  16-10-advanced-features-ui: done
   16-11-frontend-testing: backlog
   16-12-cutover-cleanup: backlog

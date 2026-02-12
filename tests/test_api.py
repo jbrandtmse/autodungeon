@@ -1259,3 +1259,623 @@ class TestDeleteCharacterEndpoint:
         """Delete is case-insensitive."""
         resp = await client.delete("/api/characters/Eden")
         assert resp.status_code == 204
+
+
+# =============================================================================
+# Fork Endpoint Tests (Story 16-10)
+# =============================================================================
+
+
+class TestForkEndpoints:
+    """Tests for fork management endpoints."""
+
+    @pytest.mark.anyio
+    async def test_list_forks_empty(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Returns empty list when no forks exist."""
+        _create_test_session(temp_campaigns_dir, session_id="001")
+        resp = await client.get("/api/sessions/001/forks")
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    @pytest.mark.anyio
+    async def test_list_forks_invalid_session(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Returns 400 for invalid session ID."""
+        resp = await client.get("/api/sessions/bad!id/forks")
+        assert resp.status_code == 400
+
+    @pytest.mark.anyio
+    async def test_list_forks_nonexistent_session(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Returns 404 for non-existent session."""
+        resp = await client.get("/api/sessions/999/forks")
+        assert resp.status_code == 404
+
+    @pytest.mark.anyio
+    async def test_create_fork_success(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Creates a fork and returns 201."""
+        _create_test_session(temp_campaigns_dir, session_id="001")
+        _create_test_checkpoint(temp_campaigns_dir, "001", 1)
+
+        resp = await client.post(
+            "/api/sessions/001/forks",
+            json={"name": "Diplomacy attempt"},
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["name"] == "Diplomacy attempt"
+        assert data["fork_id"] == "001"
+        assert data["branch_turn"] == 1
+        assert data["parent_session_id"] == "001"
+
+    @pytest.mark.anyio
+    async def test_create_fork_no_checkpoints(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Returns 400 when session has no checkpoints."""
+        _create_test_session(temp_campaigns_dir, session_id="001")
+
+        resp = await client.post(
+            "/api/sessions/001/forks",
+            json={"name": "Bad fork"},
+        )
+        assert resp.status_code == 400
+
+    @pytest.mark.anyio
+    async def test_create_fork_empty_name(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Returns 422 when fork name is empty."""
+        _create_test_session(temp_campaigns_dir, session_id="001")
+        _create_test_checkpoint(temp_campaigns_dir, "001", 1)
+
+        resp = await client.post(
+            "/api/sessions/001/forks",
+            json={"name": ""},
+        )
+        assert resp.status_code == 422
+
+    @pytest.mark.anyio
+    async def test_create_fork_appears_in_list(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """A created fork appears in the fork list."""
+        _create_test_session(temp_campaigns_dir, session_id="001")
+        _create_test_checkpoint(temp_campaigns_dir, "001", 1)
+
+        await client.post(
+            "/api/sessions/001/forks",
+            json={"name": "Test fork"},
+        )
+
+        resp = await client.get("/api/sessions/001/forks")
+        assert resp.status_code == 200
+        forks = resp.json()
+        assert len(forks) == 1
+        assert forks[0]["name"] == "Test fork"
+
+    @pytest.mark.anyio
+    async def test_rename_fork(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Renames a fork successfully."""
+        _create_test_session(temp_campaigns_dir, session_id="001")
+        _create_test_checkpoint(temp_campaigns_dir, "001", 1)
+
+        create_resp = await client.post(
+            "/api/sessions/001/forks",
+            json={"name": "Original name"},
+        )
+        fork_id = create_resp.json()["fork_id"]
+
+        resp = await client.put(
+            f"/api/sessions/001/forks/{fork_id}",
+            json={"name": "New name"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["name"] == "New name"
+
+    @pytest.mark.anyio
+    async def test_rename_nonexistent_fork(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Returns 404 for renaming a non-existent fork."""
+        _create_test_session(temp_campaigns_dir, session_id="001")
+
+        resp = await client.put(
+            "/api/sessions/001/forks/999",
+            json={"name": "New name"},
+        )
+        assert resp.status_code == 404
+
+    @pytest.mark.anyio
+    async def test_delete_fork(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Deletes a fork and returns 204."""
+        _create_test_session(temp_campaigns_dir, session_id="001")
+        _create_test_checkpoint(temp_campaigns_dir, "001", 1)
+
+        create_resp = await client.post(
+            "/api/sessions/001/forks",
+            json={"name": "To delete"},
+        )
+        fork_id = create_resp.json()["fork_id"]
+
+        resp = await client.delete(f"/api/sessions/001/forks/{fork_id}")
+        assert resp.status_code == 204
+
+        # Verify it no longer appears in the list
+        list_resp = await client.get("/api/sessions/001/forks")
+        assert list_resp.json() == []
+
+    @pytest.mark.anyio
+    async def test_delete_nonexistent_fork(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Returns 404 for deleting a non-existent fork."""
+        _create_test_session(temp_campaigns_dir, session_id="001")
+
+        resp = await client.delete("/api/sessions/001/forks/999")
+        assert resp.status_code == 404
+
+    @pytest.mark.anyio
+    async def test_switch_fork(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Switching to a fork returns 200."""
+        _create_test_session(temp_campaigns_dir, session_id="001")
+        _create_test_checkpoint(temp_campaigns_dir, "001", 1)
+
+        create_resp = await client.post(
+            "/api/sessions/001/forks",
+            json={"name": "Switch target"},
+        )
+        fork_id = create_resp.json()["fork_id"]
+
+        resp = await client.post(f"/api/sessions/001/forks/{fork_id}/switch")
+        assert resp.status_code == 200
+        assert resp.json()["fork_id"] == fork_id
+
+    @pytest.mark.anyio
+    async def test_switch_nonexistent_fork(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Returns 404 for switching to a non-existent fork."""
+        _create_test_session(temp_campaigns_dir, session_id="001")
+
+        resp = await client.post("/api/sessions/001/forks/999/switch")
+        assert resp.status_code == 404
+
+    @pytest.mark.anyio
+    async def test_return_to_main(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Returning to main timeline returns 200."""
+        _create_test_session(temp_campaigns_dir, session_id="001")
+        _create_test_checkpoint(temp_campaigns_dir, "001", 1)
+
+        resp = await client.post("/api/sessions/001/forks/return-to-main")
+        assert resp.status_code == 200
+
+    @pytest.mark.anyio
+    async def test_return_to_main_no_checkpoints(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Returns 400 when session has no main timeline checkpoints."""
+        _create_test_session(temp_campaigns_dir, session_id="001")
+
+        resp = await client.post("/api/sessions/001/forks/return-to-main")
+        assert resp.status_code == 400
+
+    @pytest.mark.anyio
+    async def test_compare_fork(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Comparison endpoint returns comparison data."""
+        _create_test_session(temp_campaigns_dir, session_id="001")
+        # Create a checkpoint with some log data
+        state = create_initial_game_state()
+        state["session_id"] = "001"
+        state["ground_truth_log"] = [
+            "[DM]: The adventure begins.",
+            "[Fighter]: I draw my sword.",
+        ]
+        save_checkpoint(state, "001", 1, update_metadata=False)
+
+        # Create a fork
+        create_resp = await client.post(
+            "/api/sessions/001/forks",
+            json={"name": "Alt path"},
+        )
+        fork_id = create_resp.json()["fork_id"]
+
+        resp = await client.get(f"/api/sessions/001/forks/{fork_id}/compare")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["session_id"] == "001"
+        assert "left" in data
+        assert "right" in data
+        assert data["left"]["timeline_type"] == "main"
+        assert data["right"]["timeline_type"] == "fork"
+
+    @pytest.mark.anyio
+    async def test_compare_nonexistent_fork(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Returns 404 for comparing a non-existent fork."""
+        _create_test_session(temp_campaigns_dir, session_id="001")
+        _create_test_checkpoint(temp_campaigns_dir, "001", 1)
+
+        resp = await client.get("/api/sessions/001/forks/999/compare")
+        assert resp.status_code == 404
+
+    @pytest.mark.anyio
+    async def test_promote_fork(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Promoting a fork returns 200 with latest turn number."""
+        _create_test_session(temp_campaigns_dir, session_id="001")
+        # Create checkpoints for main timeline
+        state = create_initial_game_state()
+        state["session_id"] = "001"
+        state["ground_truth_log"] = ["[DM]: Start"]
+        save_checkpoint(state, "001", 0, update_metadata=False)
+        state["ground_truth_log"].append("[DM]: Turn 1")
+        save_checkpoint(state, "001", 1, update_metadata=False)
+
+        # Create a fork at turn 0
+        from persistence import create_fork as _create_fork
+        from persistence import save_fork_checkpoint
+
+        fork_meta = _create_fork(state, "001", "Promote me", turn_number=0)
+        # Add a post-branch checkpoint to the fork
+        fork_state = create_initial_game_state()
+        fork_state["session_id"] = "001"
+        fork_state["ground_truth_log"] = ["[DM]: Start", "[DM]: Fork path"]
+        save_fork_checkpoint(fork_state, "001", fork_meta.fork_id, 1)
+
+        resp = await client.post(
+            f"/api/sessions/001/forks/{fork_meta.fork_id}/promote"
+        )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+
+    @pytest.mark.anyio
+    async def test_fork_metadata_response_fields(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Fork metadata response contains all expected fields."""
+        _create_test_session(temp_campaigns_dir, session_id="001")
+        _create_test_checkpoint(temp_campaigns_dir, "001", 1)
+
+        resp = await client.post(
+            "/api/sessions/001/forks",
+            json={"name": "Check fields"},
+        )
+        data = resp.json()
+        expected_fields = {
+            "fork_id",
+            "name",
+            "parent_session_id",
+            "branch_turn",
+            "created_at",
+            "updated_at",
+            "turn_count",
+        }
+        assert set(data.keys()) == expected_fields
+
+
+# =============================================================================
+# Checkpoint Endpoint Tests (Story 16-10)
+# =============================================================================
+
+
+class TestCheckpointEndpoints:
+    """Tests for checkpoint browser endpoints."""
+
+    @pytest.mark.anyio
+    async def test_list_checkpoints_empty(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Returns empty list when no checkpoints exist."""
+        _create_test_session(temp_campaigns_dir, session_id="001")
+        resp = await client.get("/api/sessions/001/checkpoints")
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    @pytest.mark.anyio
+    async def test_list_checkpoints_with_data(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Returns checkpoints sorted newest first."""
+        _create_test_session(temp_campaigns_dir, session_id="001")
+        _create_test_checkpoint(temp_campaigns_dir, "001", 1)
+        _create_test_checkpoint(temp_campaigns_dir, "001", 2)
+        _create_test_checkpoint(temp_campaigns_dir, "001", 3)
+
+        resp = await client.get("/api/sessions/001/checkpoints")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 3
+        # Newest first
+        assert data[0]["turn_number"] == 3
+        assert data[1]["turn_number"] == 2
+        assert data[2]["turn_number"] == 1
+
+    @pytest.mark.anyio
+    async def test_list_checkpoints_response_fields(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Checkpoint info contains expected fields."""
+        _create_test_session(temp_campaigns_dir, session_id="001")
+        _create_test_checkpoint(temp_campaigns_dir, "001", 1)
+
+        resp = await client.get("/api/sessions/001/checkpoints")
+        data = resp.json()
+        assert len(data) == 1
+        expected_fields = {
+            "turn_number",
+            "timestamp",
+            "brief_context",
+            "message_count",
+        }
+        assert set(data[0].keys()) == expected_fields
+
+    @pytest.mark.anyio
+    async def test_list_checkpoints_invalid_session(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Returns 400 for invalid session ID."""
+        resp = await client.get("/api/sessions/bad!id/checkpoints")
+        assert resp.status_code == 400
+
+    @pytest.mark.anyio
+    async def test_list_checkpoints_nonexistent_session(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Returns 404 for non-existent session."""
+        resp = await client.get("/api/sessions/999/checkpoints")
+        assert resp.status_code == 404
+
+    @pytest.mark.anyio
+    async def test_preview_checkpoint(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Preview returns log entries from checkpoint."""
+        _create_test_session(temp_campaigns_dir, session_id="001")
+        state = create_initial_game_state()
+        state["session_id"] = "001"
+        state["ground_truth_log"] = [
+            "[DM]: The adventure begins.",
+            "[Fighter]: I draw my sword.",
+            "[DM]: You see a dragon!",
+        ]
+        save_checkpoint(state, "001", 1, update_metadata=False)
+
+        resp = await client.get("/api/sessions/001/checkpoints/1/preview")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["turn_number"] == 1
+        assert len(data["entries"]) <= 5
+        assert any("adventure" in e.lower() for e in data["entries"])
+
+    @pytest.mark.anyio
+    async def test_preview_nonexistent_checkpoint(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Returns 404 for non-existent checkpoint."""
+        _create_test_session(temp_campaigns_dir, session_id="001")
+        resp = await client.get("/api/sessions/001/checkpoints/999/preview")
+        assert resp.status_code == 404
+
+    @pytest.mark.anyio
+    async def test_restore_checkpoint(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Restore returns 200 with turn number."""
+        _create_test_session(temp_campaigns_dir, session_id="001")
+        _create_test_checkpoint(temp_campaigns_dir, "001", 1)
+
+        resp = await client.post("/api/sessions/001/checkpoints/1/restore")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "ok"
+        assert data["turn"] == 1
+
+    @pytest.mark.anyio
+    async def test_restore_nonexistent_checkpoint(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Returns 404 for restoring a non-existent checkpoint."""
+        _create_test_session(temp_campaigns_dir, session_id="001")
+        resp = await client.post("/api/sessions/001/checkpoints/999/restore")
+        assert resp.status_code == 404
+
+
+# =============================================================================
+# Character Sheet Endpoint Tests (Story 16-10)
+# =============================================================================
+
+
+class TestCharacterSheetEndpoint:
+    """Tests for GET /api/sessions/{id}/character-sheets/{name}."""
+
+    @pytest.mark.anyio
+    async def test_character_sheet_not_found(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Returns 404 when character sheet doesn't exist."""
+        _create_test_session(temp_campaigns_dir, session_id="001")
+        _create_test_checkpoint(temp_campaigns_dir, "001", 1)
+
+        resp = await client.get(
+            "/api/sessions/001/character-sheets/nonexistent"
+        )
+        assert resp.status_code == 404
+
+    @pytest.mark.anyio
+    async def test_character_sheet_no_checkpoints(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Returns 404 when session has no checkpoints."""
+        _create_test_session(temp_campaigns_dir, session_id="001")
+
+        resp = await client.get(
+            "/api/sessions/001/character-sheets/fighter"
+        )
+        assert resp.status_code == 404
+
+    @pytest.mark.anyio
+    async def test_character_sheet_success(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Returns character sheet data when it exists."""
+        from models import CharacterSheet
+
+        _create_test_session(temp_campaigns_dir, session_id="001")
+        state = create_initial_game_state()
+        state["session_id"] = "001"
+        sheet = CharacterSheet(
+            name="Thorin",
+            race="Dwarf",
+            character_class="Fighter",
+            level=5,
+            strength=16,
+            dexterity=12,
+            constitution=14,
+            intelligence=10,
+            wisdom=13,
+            charisma=8,
+            armor_class=18,
+            hit_points_max=45,
+            hit_points_current=40,
+            hit_dice="5d10",
+            hit_dice_remaining=5,
+        )
+        state["character_sheets"] = {"fighter": sheet}
+        save_checkpoint(state, "001", 1, update_metadata=False)
+
+        resp = await client.get(
+            "/api/sessions/001/character-sheets/fighter"
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["name"] == "Thorin"
+        assert data["race"] == "Dwarf"
+        assert data["character_class"] == "Fighter"
+        assert data["level"] == 5
+        assert data["strength"] == 16
+        assert data["armor_class"] == 18
+        assert data["hit_points_current"] == 40
+        assert data["strength_modifier"] == 3
+
+    @pytest.mark.anyio
+    async def test_character_sheet_invalid_session(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Returns 400 for invalid session ID."""
+        resp = await client.get(
+            "/api/sessions/bad!id/character-sheets/fighter"
+        )
+        assert resp.status_code == 400
+
+    @pytest.mark.anyio
+    async def test_character_sheet_nonexistent_session(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Returns 404 for non-existent session."""
+        resp = await client.get(
+            "/api/sessions/999/character-sheets/fighter"
+        )
+        assert resp.status_code == 404
+
+    @pytest.mark.anyio
+    async def test_character_sheet_path_traversal(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Returns 400 for character name with path traversal."""
+        _create_test_session(temp_campaigns_dir, session_id="001")
+        _create_test_checkpoint(temp_campaigns_dir, "001", 1)
+
+        # Test with '..' in character name (no slashes so it stays in one path segment)
+        resp = await client.get(
+            "/api/sessions/001/character-sheets/..evil"
+        )
+        assert resp.status_code == 400
+
+    @pytest.mark.anyio
+    async def test_character_sheet_null_byte(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Returns 400 for character name with null byte."""
+        _create_test_session(temp_campaigns_dir, session_id="001")
+        _create_test_checkpoint(temp_campaigns_dir, "001", 1)
+
+        resp = await client.get(
+            "/api/sessions/001/character-sheets/test%00evil"
+        )
+        assert resp.status_code == 400
+
+
+# =============================================================================
+# Fork/Checkpoint Validation Tests (Story 16-10 - Review Additions)
+# =============================================================================
+
+
+class TestForkValidation:
+    """Tests for fork_id and turn parameter validation."""
+
+    @pytest.mark.anyio
+    async def test_fork_switch_invalid_fork_id(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Returns 400 for fork_id with special characters."""
+        _create_test_session(temp_campaigns_dir, session_id="001")
+        resp = await client.post("/api/sessions/001/forks/bad!fork/switch")
+        assert resp.status_code == 400
+
+    @pytest.mark.anyio
+    async def test_fork_rename_invalid_fork_id(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Returns 400 for fork_id with special characters."""
+        _create_test_session(temp_campaigns_dir, session_id="001")
+        resp = await client.put(
+            "/api/sessions/001/forks/bad!fork",
+            json={"name": "test"},
+        )
+        assert resp.status_code == 400
+
+    @pytest.mark.anyio
+    async def test_fork_delete_invalid_fork_id(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Returns 400 for fork_id with special characters."""
+        _create_test_session(temp_campaigns_dir, session_id="001")
+        resp = await client.delete("/api/sessions/001/forks/bad!fork")
+        assert resp.status_code == 400
+
+    @pytest.mark.anyio
+    async def test_checkpoint_preview_negative_turn(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Returns 400 for negative turn number."""
+        _create_test_session(temp_campaigns_dir, session_id="001")
+        resp = await client.get("/api/sessions/001/checkpoints/-1/preview")
+        assert resp.status_code == 400
+
+    @pytest.mark.anyio
+    async def test_checkpoint_restore_negative_turn(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Returns 400 for negative turn number on restore."""
+        _create_test_session(temp_campaigns_dir, session_id="001")
+        resp = await client.post("/api/sessions/001/checkpoints/-1/restore")
+        assert resp.status_code == 400

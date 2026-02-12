@@ -1,13 +1,24 @@
 <script lang="ts">
+	import { page } from '$app/stores';
 	import ModeIndicator from './ModeIndicator.svelte';
 	import GameControls from './GameControls.svelte';
 	import PartyPanel from './PartyPanel.svelte';
 	import CombatInitiative from './CombatInitiative.svelte';
 	import HumanControls from './HumanControls.svelte';
+	import WhisperPanel from './WhisperPanel.svelte';
+	import ForkPanel from './ForkPanel.svelte';
+	import StoryThreadsPanel from './StoryThreadsPanel.svelte';
+	import CheckpointBrowser from './CheckpointBrowser.svelte';
 	import ConnectionStatus from './ConnectionStatus.svelte';
-	import { uiState } from '$lib/stores';
+	import { uiState, gameState } from '$lib/stores';
 
 	let storyThreadsOpen = $state(false);
+
+	const sessionId = $derived($page.params.sessionId ?? $gameState?.session_id ?? '');
+
+	function handleCompare(forkId: string): void {
+		uiState.update((s) => ({ ...s, comparisonForkId: forkId }));
+	}
 
 	function openSettings(): void {
 		uiState.update((s) => ({ ...s, settingsOpen: true }));
@@ -31,14 +42,28 @@
 
 	<HumanControls />
 
+	<WhisperPanel />
+
 	<hr class="sidebar-divider" />
+
+	{#if sessionId}
+		<ForkPanel {sessionId} onCompare={handleCompare} />
+
+		<hr class="sidebar-divider" />
+	{/if}
 
 	<details class="story-threads" bind:open={storyThreadsOpen}>
 		<summary class="story-threads-summary">Story Threads</summary>
-		<p class="story-threads-placeholder">Coming soon...</p>
+		<StoryThreadsPanel />
 	</details>
 
 	<hr class="sidebar-divider" />
+
+	{#if sessionId}
+		<CheckpointBrowser {sessionId} />
+
+		<hr class="sidebar-divider" />
+	{/if}
 
 	<ConnectionStatus />
 
@@ -109,14 +134,6 @@
 
 	.story-threads[open] .story-threads-summary::before {
 		transform: rotate(90deg);
-	}
-
-	.story-threads-placeholder {
-		font-size: var(--text-system);
-		color: var(--text-secondary);
-		font-style: italic;
-		padding: var(--space-sm) 0;
-		padding-left: 14px;
 	}
 
 	/* Settings button */
