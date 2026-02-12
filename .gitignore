@@ -10,8 +10,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -68,3 +68,8 @@ user-settings.yaml
 # Integration test API keys (not source controlled)
 tests/integration_config.py
 test-screenshots/
+
+# Frontend (SvelteKit)
+frontend/node_modules/
+frontend/build/
+frontend/.svelte-kit/

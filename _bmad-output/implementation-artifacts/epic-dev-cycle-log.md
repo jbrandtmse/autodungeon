@@ -1551,7 +1551,7 @@ Completed in separate cycle sessions (not logged here).
 |-------|--------|-------|
 | 16-1-api-layer-foundation | ✅ done | Full Cycle |
 | 16-2-game-engine-extraction | ✅ done | Full Cycle |
-| 16-3-websocket-game-streaming | pending | - |
+| 16-3-websocket-game-streaming | ✅ done | Full Cycle |
 | 16-4-sveltekit-scaffold-theme | pending | - |
 | 16-5-narrative-panel | pending | - |
 | 16-6-sidebar-party-controls | pending | - |
@@ -1639,6 +1639,41 @@ Completed in separate cycle sessions (not logged here).
 - **LOW**: _get_turn_delay() was dead code — Wired up the helper
 - **LOW**: Timing-dependent test — Acceptable for this layer
 - **LOW**: Nudge persists on failed turns — Desired behavior
+
+### User Input Required
+- None - all issues auto-resolved
+
+---
+
+## Story: 16-3-websocket-game-streaming
+
+**Status:** ✅ Completed
+**Commit:** 7f8b168
+**Duration:** 2026-02-11
+
+### Files Touched
+- `api/websocket.py` - Full WebSocket implementation: ConnectionManager with per-session locks, WebSocket endpoint at /ws/game/{session_id}, command routing for 12 types, heartbeat ping/pong, engine event→schema conversion
+- `api/schemas.py` - 14 Pydantic v2 WebSocket message schemas (WsSessionState, WsTurnUpdate, WsAutopilotStarted/Stopped, WsError, WsCommandAck, WsPong, WsDropIn, WsReleaseControl, WsAwaitingInput, WsNudgeReceived, WsSpeedChanged, WsPaused, WsResumed)
+- `api/main.py` - WebSocket manager lifecycle in FastAPI lifespan, disconnect_all on shutdown
+- `tests/test_websocket.py` - 75 comprehensive tests (14 test classes)
+
+### Key Design Decisions
+- ConnectionManager with per-session `asyncio.Lock` and `set[WebSocket]` for thread-safe multi-client management
+- Broadcast uses `list()` snapshot copy of connection set to prevent modification during iteration
+- Engine broadcast callback wired via `engine.set_broadcast_callback()` on first client connect
+- Commands routed to GameEngine public API, responses sent as typed Pydantic schemas
+- Engine doesn't stop when last client disconnects (autopilot may be running)
+- Custom WebSocket close codes: 4000 (invalid format), 4004 (session not found)
+- `_engine_event_to_schema()` converts raw engine dicts to validated Pydantic models
+
+### Issues Auto-Resolved (Code Review)
+- **HIGH**: Race condition — disconnect() didn't acquire per-session lock — Added lock acquisition
+- **HIGH**: broadcast() iterated live set instead of snapshot copy — Changed to list(conn_set)
+- **MEDIUM**: Missing awaiting_input event in schema converter — Added case + import
+- **MEDIUM**: Silent passthrough of unknown engine events — Added logger.warning()
+- **LOW**: No message size limit — Uvicorn handles at lower level
+- **LOW**: send_personal() no error handling — Currently unused in production paths
+- **LOW**: Empty string not rejected for required fields — Engine validates downstream
 
 ### User Input Required
 - None - all issues auto-resolved

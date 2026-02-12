@@ -1,0 +1,138 @@
+/* ==========================================================================
+   autodungeon — Campfire Dark Theme (CSS Custom Properties)
+   Ported from styles/theme.css for SvelteKit frontend.
+   ========================================================================== */
+
+:root {
+  /* Background Colors */
+  --bg-primary: #1A1612;    /* Deep warm black — main canvas */
+  --bg-secondary: #2D2520;  /* Warm gray-brown — elevated surfaces */
+  --bg-message: #3D3530;    /* Message bubble background */
+
+  /* Text Colors */
+  --text-primary: #F5E6D3;  /* Warm off-white */
+  --text-secondary: #B8A896; /* Muted warm gray */
+
+  /* Accent */
+  --accent-warm: #E8A849;   /* Amber highlight */
+  --accent-warm-hover: #D49A3D; /* Amber hover state */
+
+  /* Character Identity Colors */
+  --color-dm: #D4A574;      /* DM/Narrator — warm gold */
+  --color-fighter: #C45C4A; /* Fighter — bold red */
+  --color-rogue: #6B8E6B;   /* Rogue — forest green */
+  --color-wizard: #7B68B8;  /* Wizard — mystic purple */
+  --color-cleric: #4A90A4;  /* Cleric — calm blue */
+
+  /* Semantic Colors */
+  --color-success: #6B8E6B;
+  --color-warning: #E8A849;
+  --color-error: #C45C4A;
+  --color-info: #4A90A4;
+
+  /* Font Stack */
+  --font-narrative: 'Lora', Georgia, serif;
+  --font-ui: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* Font Sizes */
+  --text-dm: 18px;          /* DM narration */
+  --text-pc: 17px;          /* PC dialogue */
+  --text-name: 14px;        /* Character names, 600 weight */
+  --text-ui: 14px;          /* UI controls */
+  --text-system: 13px;      /* System text */
+
+  /* Spacing (8px base grid) */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+
+  /* Layout */
+  --sidebar-width: 240px;
+  --max-content-width: 800px;
+  --border-radius-sm: 4px;
+  --border-radius-md: 8px;
+  --border-radius-lg: 16px;
+
+  /* Transitions */
+  --transition-fast: 0.15s ease;
+  --transition-normal: 0.2s ease-in-out;
+}
+
+/* ==========================================================================
+   Base Styles
+   ========================================================================== */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--text-ui);
+  line-height: 1.4;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ==========================================================================
+   Scrollbar Styling
+   ========================================================================== */
+
+/* Webkit (Chrome, Safari, Edge) */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+  border-radius: var(--border-radius-sm);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--text-secondary);
+  border-radius: var(--border-radius-sm);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-warm);
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--text-secondary) var(--bg-secondary);
+}
+
+/* ==========================================================================
+   Focus & Link Styles
+   ========================================================================== */
+
+:focus-visible {
+  outline: 2px solid var(--accent-warm);
+  outline-offset: 2px;
+}
+
+a {
+  color: var(--accent-warm);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
