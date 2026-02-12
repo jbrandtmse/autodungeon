@@ -136,3 +136,23 @@ a {
 a:hover {
   text-decoration: underline;
 }
+
+/* ==========================================================================
+   Narrative Inline Styles (used inside {@html} formatted content)
+   ========================================================================== */
+
+/* Dice roll notation — monospace amber highlight */
+.dice-roll {
+  font-family: var(--font-mono);
+  color: var(--accent-warm);
+  font-weight: 500;
+  background-color: rgba(232, 168, 73, 0.1);
+  padding: 0 3px;
+  border-radius: 2px;
+}
+
+/* Action text — italic roleplay actions wrapped in *asterisks* */
+.action-text {
+  font-style: italic;
+  color: var(--text-secondary);
+}

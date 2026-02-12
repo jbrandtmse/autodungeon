@@ -1552,7 +1552,7 @@ Completed in separate cycle sessions (not logged here).
 | 16-1-api-layer-foundation | ✅ done | Full Cycle |
 | 16-2-game-engine-extraction | ✅ done | Full Cycle |
 | 16-3-websocket-game-streaming | ✅ done | Full Cycle |
-| 16-4-sveltekit-scaffold-theme | pending | - |
+| 16-4-sveltekit-scaffold-theme | ✅ done | Full Cycle |
 | 16-5-narrative-panel | pending | - |
 | 16-6-sidebar-party-controls | pending | - |
 | 16-7-session-management-ui | pending | - |
@@ -1674,6 +1674,49 @@ Completed in separate cycle sessions (not logged here).
 - **LOW**: No message size limit — Uvicorn handles at lower level
 - **LOW**: send_personal() no error handling — Currently unused in production paths
 - **LOW**: Empty string not rejected for required fields — Engine validates downstream
+
+### User Input Required
+- None - all issues auto-resolved
+
+---
+
+## Story: 16-4-sveltekit-scaffold-theme
+
+**Status:** ✅ Completed
+**Commit:** d2c5e69
+**Duration:** 2026-02-11
+
+### Files Touched
+- `frontend/src/app.css` - Global CSS with 29 design tokens (colors, typography, spacing, borders, transitions)
+- `frontend/src/app.html` - HTML template with Google Fonts preconnect (Lora, Inter, JetBrains Mono), dark color scheme
+- `frontend/src/lib/types.ts` - TypeScript interfaces mirroring Python schemas (REST + 14 WebSocket event types)
+- `frontend/src/lib/api.ts` - REST API client with typed fetch wrappers for all 7 endpoints
+- `frontend/src/lib/ws.ts` - WebSocket client with auto-reconnect, exponential backoff, ping/pong keepalive, unsubscribe support
+- `frontend/src/lib/stores/` - Svelte stores (gameStore, connectionStore, uiStore)
+- `frontend/src/routes/+layout.svelte` - Root layout with 240px sidebar + main content CSS Grid
+- `frontend/src/routes/+page.svelte` - Session browser placeholder
+- `frontend/src/routes/game/[sessionId]/+page.svelte` - Game view placeholder
+- `frontend/svelte.config.js` - @sveltejs/adapter-static for SPA mode
+- `frontend/vite.config.ts` - Proxy /api and /ws to localhost:8000
+- `.gitignore` - Fixed /lib/ scope (was blocking frontend/src/lib/), added frontend build dirs
+
+### Key Design Decisions
+- All Svelte 5 runes syntax ($props, $derived, {@render children()})
+- CSS custom properties for all design tokens (no CSS framework)
+- Google Fonts via preconnect + stylesheet links for fast non-blocking load
+- WebSocket auto-reconnect with exponential backoff (1s initial, 30s max)
+- Callback unsubscribe functions to prevent memory leaks on component unmount
+- SPA mode with adapter-static and fallback index.html
+- Vite proxy handles /api and /ws routing in development
+
+### Issues Auto-Resolved (Code Review)
+- **HIGH**: Header merge bug in API client — Fixed destructure and merge ordering
+- **HIGH**: Missing WsPong/WsCommandAck TypeScript types — Added interfaces + union members
+- **MEDIUM**: Path params not URI-encoded in REST calls — Added encodeURIComponent()
+- **MEDIUM**: WebSocket URL not encoding sessionId — Added encodeURIComponent()
+- **MEDIUM**: No unsubscribe for WS callbacks (memory leak) — Return unsubscribe functions
+- **LOW**: Stale onopen after disconnect — Self-resolving edge case
+- **LOW**: WsCommand missing ping type — Internal ping handles this
 
 ### User Input Required
 - None - all issues auto-resolved
