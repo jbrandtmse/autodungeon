@@ -26,25 +26,45 @@
 	};
 
 	interface Props {
+		dmProvider: string;
+		dmModel: string;
+		dmTokenLimit: number;
 		summarizerProvider: string;
 		summarizerModel: string;
+		summarizerTokenLimit: number;
 		extractorProvider: string;
 		extractorModel: string;
+		extractorTokenLimit: number;
+		onDmProviderChange: (provider: string) => void;
+		onDmModelChange: (model: string) => void;
+		onDmTokenLimitChange: (limit: number) => void;
 		onSummarizerProviderChange: (provider: string) => void;
 		onSummarizerModelChange: (model: string) => void;
+		onSummarizerTokenLimitChange: (limit: number) => void;
 		onExtractorProviderChange: (provider: string) => void;
 		onExtractorModelChange: (model: string) => void;
+		onExtractorTokenLimitChange: (limit: number) => void;
 	}
 
 	let {
+		dmProvider,
+		dmModel,
+		dmTokenLimit,
 		summarizerProvider,
 		summarizerModel,
+		summarizerTokenLimit,
 		extractorProvider,
 		extractorModel,
+		extractorTokenLimit,
+		onDmProviderChange,
+		onDmModelChange,
+		onDmTokenLimitChange,
 		onSummarizerProviderChange,
 		onSummarizerModelChange,
+		onSummarizerTokenLimitChange,
 		onExtractorProviderChange,
 		onExtractorModelChange,
+		onExtractorTokenLimitChange,
 	}: Props = $props();
 
 	function getModelsForProvider(provider: string): string[] {
@@ -66,6 +86,14 @@
 		}
 	}
 
+	function handleTokenLimitInput(value: string, onChange: (limit: number) => void): void {
+		const num = parseInt(value, 10);
+		if (!isNaN(num) && num >= 1000) {
+			onChange(num);
+		}
+	}
+
+	let dmModels = $derived(getModelsForProvider(dmProvider));
 	let summarizerModels = $derived(getModelsForProvider(summarizerProvider));
 	let extractorModels = $derived(getModelsForProvider(extractorProvider));
 </script>
@@ -76,6 +104,60 @@
 		Select which AI provider and model powers each agent role.
 		Changes take effect on the next turn.
 	</p>
+
+	<!-- Dungeon Master -->
+	<div class="agent-row">
+		<div class="agent-info">
+			<span class="agent-name dm">Dungeon Master</span>
+			<span class="agent-help">Model used for game narration and NPC control</span>
+		</div>
+		<div class="agent-controls">
+			<select
+				class="model-select provider-select"
+				value={dmProvider}
+				onchange={(e) =>
+					handleProviderChange(
+						dmModel,
+						(e.target as HTMLSelectElement).value,
+						onDmProviderChange,
+						onDmModelChange,
+					)}
+				aria-label="DM provider"
+			>
+				{#each PROVIDERS as p}
+					<option value={p}>{PROVIDER_DISPLAY[p]}</option>
+				{/each}
+			</select>
+			<select
+				class="model-select model-name-select"
+				value={dmModel}
+				onchange={(e) => onDmModelChange((e.target as HTMLSelectElement).value)}
+				aria-label="DM model"
+			>
+				{#each dmModels as m}
+					<option value={m}>{m}</option>
+				{/each}
+				{#if !dmModels.includes(dmModel) && dmModel}
+					<option value={dmModel}>{dmModel}</option>
+				{/if}
+			</select>
+		</div>
+		<div class="token-limit-row">
+			<label class="token-label" for="dm-token-limit">Token limit</label>
+			<input
+				id="dm-token-limit"
+				type="number"
+				class="token-input"
+				min="1000"
+				step="1000"
+				value={dmTokenLimit}
+				oninput={(e) => handleTokenLimitInput((e.target as HTMLInputElement).value, onDmTokenLimitChange)}
+				aria-label="DM token limit"
+			/>
+		</div>
+	</div>
+
+	<hr class="model-divider" />
 
 	<!-- Summarizer -->
 	<div class="agent-row">
@@ -113,6 +195,19 @@
 					<option value={summarizerModel}>{summarizerModel}</option>
 				{/if}
 			</select>
+		</div>
+		<div class="token-limit-row">
+			<label class="token-label" for="summarizer-token-limit">Token limit</label>
+			<input
+				id="summarizer-token-limit"
+				type="number"
+				class="token-input"
+				min="1000"
+				step="1000"
+				value={summarizerTokenLimit}
+				oninput={(e) => handleTokenLimitInput((e.target as HTMLInputElement).value, onSummarizerTokenLimitChange)}
+				aria-label="Summarizer token limit"
+			/>
 		</div>
 	</div>
 
@@ -154,6 +249,19 @@
 					<option value={extractorModel}>{extractorModel}</option>
 				{/if}
 			</select>
+		</div>
+		<div class="token-limit-row">
+			<label class="token-label" for="extractor-token-limit">Token limit</label>
+			<input
+				id="extractor-token-limit"
+				type="number"
+				class="token-input"
+				min="1000"
+				step="1000"
+				value={extractorTokenLimit}
+				oninput={(e) => handleTokenLimitInput((e.target as HTMLInputElement).value, onExtractorTokenLimitChange)}
+				aria-label="Extractor token limit"
+			/>
 		</div>
 	</div>
 </div>
@@ -199,6 +307,10 @@
 		font-size: var(--text-ui);
 		font-weight: 600;
 		color: var(--text-primary);
+	}
+
+	.agent-name.dm {
+		color: var(--accent-warm);
 	}
 
 	.agent-name.summarizer,
@@ -251,6 +363,36 @@
 	.model-name-select {
 		flex: 1;
 		min-width: 0;
+	}
+
+	.token-limit-row {
+		display: flex;
+		align-items: center;
+		gap: var(--space-sm);
+	}
+
+	.token-label {
+		font-family: var(--font-ui);
+		font-size: 12px;
+		color: var(--text-secondary);
+		flex-shrink: 0;
+	}
+
+	.token-input {
+		width: 100px;
+		background: var(--bg-primary);
+		color: var(--text-primary);
+		border: 1px solid rgba(184, 168, 150, 0.2);
+		border-radius: var(--border-radius-sm);
+		padding: 4px 8px;
+		font-family: var(--font-mono);
+		font-size: var(--text-system);
+	}
+
+	.token-input:focus {
+		outline: 2px solid var(--accent-warm);
+		outline-offset: 1px;
+		border-color: transparent;
 	}
 
 	.model-divider {

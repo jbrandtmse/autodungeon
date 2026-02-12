@@ -10,6 +10,9 @@ export function makeGameConfig(overrides: Partial<GameConfig> = {}): GameConfig 
     party_size: 4,
     narrative_display_limit: 50,
     max_combat_rounds: 10,
+    dm_provider: 'gemini',
+    dm_model: 'gemini-1.5-flash',
+    dm_token_limit: 8000,
     ...overrides,
   };
 }

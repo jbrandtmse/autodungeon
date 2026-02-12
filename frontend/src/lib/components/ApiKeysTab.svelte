@@ -3,6 +3,8 @@
 		googleKey: string;
 		anthropicKey: string;
 		ollamaUrl: string;
+		googleKeyConfigured: boolean;
+		anthropicKeyConfigured: boolean;
 		onGoogleKeyChange: (value: string) => void;
 		onAnthropicKeyChange: (value: string) => void;
 		onOllamaUrlChange: (value: string) => void;
@@ -12,27 +14,26 @@
 		googleKey,
 		anthropicKey,
 		ollamaUrl,
+		googleKeyConfigured,
+		anthropicKeyConfigured,
 		onGoogleKeyChange,
 		onAnthropicKeyChange,
 		onOllamaUrlChange,
 	}: Props = $props();
 
-	function getStatus(value: string, isUrl: boolean = false): 'configured' | 'unconfigured' {
-		if (isUrl) {
-			return value.trim().length > 0 ? 'configured' : 'unconfigured';
-		}
-		return value.trim().length > 0 ? 'configured' : 'unconfigured';
+	function getKeyStatus(value: string, serverConfigured: boolean): 'configured' | 'unconfigured' {
+		return value.trim().length > 0 || serverConfigured ? 'configured' : 'unconfigured';
 	}
 
-	let googleStatus = $derived(getStatus(googleKey));
-	let anthropicStatus = $derived(getStatus(anthropicKey));
-	let ollamaStatus = $derived(getStatus(ollamaUrl, true));
+	let googleStatus = $derived(getKeyStatus(googleKey, googleKeyConfigured));
+	let anthropicStatus = $derived(getKeyStatus(anthropicKey, anthropicKeyConfigured));
+	let ollamaStatus = $derived(ollamaUrl.trim().length > 0 ? 'configured' : 'unconfigured');
 </script>
 
 <div class="api-keys-tab">
 	<h4 class="section-header">Provider API Keys</h4>
 	<p class="section-description">
-		API keys are stored in your browser only and are not sent to the autodungeon server.
+		API keys are saved to the server configuration file and used by the game engine.
 	</p>
 
 	<!-- Google (Gemini) -->
@@ -58,7 +59,7 @@
 			id="google-key"
 			type="password"
 			class="key-input"
-			placeholder="Enter Google API key..."
+			placeholder={googleKeyConfigured && !googleKey ? 'Enter new key to replace...' : 'Enter Google API key...'}
 			value={googleKey}
 			oninput={(e) => onGoogleKeyChange((e.target as HTMLInputElement).value)}
 			autocomplete="off"
@@ -91,7 +92,7 @@
 			id="anthropic-key"
 			type="password"
 			class="key-input"
-			placeholder="Enter Anthropic API key..."
+			placeholder={anthropicKeyConfigured && !anthropicKey ? 'Enter new key to replace...' : 'Enter Anthropic API key...'}
 			value={anthropicKey}
 			oninput={(e) => onAnthropicKeyChange((e.target as HTMLInputElement).value)}
 			autocomplete="off"

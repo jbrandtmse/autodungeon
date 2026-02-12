@@ -11,6 +11,8 @@ import type {
   CheckpointInfo,
   CheckpointPreview,
   CharacterSheetFull,
+  UserSettings,
+  UserSettingsUpdate,
 } from './types';
 
 const BASE_URL = '';  // Empty — Vite proxy handles /api routing
@@ -143,6 +145,19 @@ export async function deleteCharacter(name: string): Promise<void> {
     throw new ApiError(response.status, response.statusText, message);
   }
   // 204 No Content — no body to parse
+}
+
+// === User Settings API ===
+
+export async function getUserSettings(): Promise<UserSettings> {
+  return request<UserSettings>('/api/user-settings');
+}
+
+export async function updateUserSettings(data: UserSettingsUpdate): Promise<UserSettings> {
+  return request<UserSettings>('/api/user-settings', {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
 }
 
 // === Fork Management API (Story 16-10) ===

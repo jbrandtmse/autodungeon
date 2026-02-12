@@ -79,6 +79,15 @@ class GameConfigResponse(BaseModel):
         le=1000,
         description="Max messages to render in narrative area",
     )
+    dm_provider: str = Field(
+        default="gemini", description="DM agent LLM provider"
+    )
+    dm_model: str = Field(
+        default="gemini-1.5-flash", description="DM agent model name"
+    )
+    dm_token_limit: int = Field(
+        default=8000, ge=1, description="DM agent context token limit"
+    )
 
 
 class GameConfigUpdateRequest(BaseModel):
@@ -112,6 +121,15 @@ class GameConfigUpdateRequest(BaseModel):
         ge=10,
         le=1000,
         description="Max messages to render in narrative area",
+    )
+    dm_provider: str | None = Field(
+        default=None, description="DM agent LLM provider"
+    )
+    dm_model: str | None = Field(
+        default=None, description="DM agent model name"
+    )
+    dm_token_limit: int | None = Field(
+        default=None, ge=1, description="DM agent context token limit"
     )
 
 
@@ -421,6 +439,47 @@ class CharacterSheetResponse(BaseModel):
     # Conditions & Status
     conditions: list[str] = Field(default_factory=list)
     death_saves: DeathSavesResponse = Field(default_factory=DeathSavesResponse)
+
+
+# =============================================================================
+# User Settings Schemas
+# =============================================================================
+
+
+class UserSettingsResponse(BaseModel):
+    """Response for GET /api/user-settings. Never exposes raw API key values."""
+
+    google_api_key_configured: bool = Field(
+        default=False, description="Whether a Google API key is configured"
+    )
+    anthropic_api_key_configured: bool = Field(
+        default=False, description="Whether an Anthropic API key is configured"
+    )
+    ollama_url: str = Field(
+        default="", description="Ollama base URL (not secret)"
+    )
+    token_limit_overrides: dict[str, int] = Field(
+        default_factory=dict,
+        description="Token limit overrides keyed by agent name",
+    )
+
+
+class UserSettingsUpdateRequest(BaseModel):
+    """Request body for PUT /api/user-settings. Partial update."""
+
+    google_api_key: str | None = Field(
+        default=None, description="Google API key (empty string = clear)"
+    )
+    anthropic_api_key: str | None = Field(
+        default=None, description="Anthropic API key (empty string = clear)"
+    )
+    ollama_url: str | None = Field(
+        default=None, description="Ollama base URL (empty string = clear)"
+    )
+    token_limit_overrides: dict[str, int] | None = Field(
+        default=None,
+        description="Token limit overrides keyed by agent name",
+    )
 
 
 # =============================================================================

@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { getSessionConfig, updateSessionConfig, ApiError } from '$lib/api';
-	import type { GameConfig } from '$lib/types';
+	import { getSessionConfig, updateSessionConfig, getUserSettings, updateUserSettings, ApiError } from '$lib/api';
+	import type { GameConfig, UserSettings } from '$lib/types';
 	import ConfirmDialog from './ConfirmDialog.svelte';
 	import ApiKeysTab from './ApiKeysTab.svelte';
 	import ModelsTab from './ModelsTab.svelte';
@@ -33,21 +33,38 @@
 	// Original values (for change detection)
 	let originalConfig = $state<GameConfig | null>(null);
 
-	// Form values — API keys (stored in localStorage, not API)
+	// Form values — API keys (sent to backend, localStorage as fallback)
 	let googleKey = $state('');
 	let anthropicKey = $state('');
 	let ollamaUrl = $state('');
+
+	// Server-side configured status (from GET /api/user-settings)
+	let googleKeyConfigured = $state(false);
+	let anthropicKeyConfigured = $state(false);
 
 	// Original API key values for change detection
 	let origGoogleKey = $state('');
 	let origAnthropicKey = $state('');
 	let origOllamaUrl = $state('');
 
+	// Form values — DM config (session-specific)
+	let dmProvider = $state('gemini');
+	let dmModel = $state('gemini-1.5-flash');
+	let dmTokenLimit = $state(8000);
+
 	// Form values — Models
 	let summarizerProvider = $state('gemini');
 	let summarizerModel = $state('gemini-1.5-flash');
 	let extractorProvider = $state('gemini');
 	let extractorModel = $state('gemini-3-flash-preview');
+
+	// Form values — Token limits (global, saved to user-settings)
+	let summarizerTokenLimit = $state(4000);
+	let extractorTokenLimit = $state(4000);
+
+	// Original token limits for change detection
+	let origSummarizerTokenLimit = $state(4000);
+	let origExtractorTokenLimit = $state(4000);
 
 	// Form values — Settings
 	let combatMode = $state<'Narrative' | 'Tactical'>('Narrative');
@@ -57,15 +74,24 @@
 
 	// Change detection
 	let hasChanges = $derived.by(() => {
+		const apiKeyChanges =
+			googleKey !== origGoogleKey ||
+			anthropicKey !== origAnthropicKey ||
+			ollamaUrl !== origOllamaUrl;
+
+		const tokenLimitChanges =
+			summarizerTokenLimit !== origSummarizerTokenLimit ||
+			extractorTokenLimit !== origExtractorTokenLimit;
+
 		if (!originalConfig) {
-			// If no config loaded, check API key changes only
-			return (
-				googleKey !== origGoogleKey ||
-				anthropicKey !== origAnthropicKey ||
-				ollamaUrl !== origOllamaUrl
-			);
+			return apiKeyChanges || tokenLimitChanges;
 		}
 		return (
+			apiKeyChanges ||
+			tokenLimitChanges ||
+			dmProvider !== originalConfig.dm_provider ||
+			dmModel !== originalConfig.dm_model ||
+			dmTokenLimit !== originalConfig.dm_token_limit ||
 			summarizerProvider !== originalConfig.summarizer_provider ||
 			summarizerModel !== originalConfig.summarizer_model ||
 			extractorProvider !== originalConfig.extractor_provider ||
@@ -73,10 +99,7 @@
 			combatMode !== originalConfig.combat_mode ||
 			maxCombatRounds !== originalConfig.max_combat_rounds ||
 			partySize !== originalConfig.party_size ||
-			narrativeDisplayLimit !== originalConfig.narrative_display_limit ||
-			googleKey !== origGoogleKey ||
-			anthropicKey !== origAnthropicKey ||
-			ollamaUrl !== origOllamaUrl
+			narrativeDisplayLimit !== originalConfig.narrative_display_limit
 		);
 	});
 
@@ -93,6 +116,9 @@
 				loadingConfig = false;
 				originalConfig = null;
 				// Set defaults
+				dmProvider = 'gemini';
+				dmModel = 'gemini-1.5-flash';
+				dmTokenLimit = 8000;
 				summarizerProvider = 'gemini';
 				summarizerModel = 'gemini-1.5-flash';
 				extractorProvider = 'gemini';
@@ -105,42 +131,39 @@
 		}
 	});
 
-	function loadApiKeys(): void {
+	async function loadApiKeys(): Promise<void> {
+		// Try loading from backend first
 		try {
-			googleKey = localStorage.getItem('autodungeon_google_key') ?? '';
-			anthropicKey = localStorage.getItem('autodungeon_anthropic_key') ?? '';
-			ollamaUrl = localStorage.getItem('autodungeon_ollama_url') ?? '';
-		} catch {
-			// localStorage unavailable
-			googleKey = '';
-			anthropicKey = '';
-			ollamaUrl = '';
-		}
-		origGoogleKey = googleKey;
-		origAnthropicKey = anthropicKey;
-		origOllamaUrl = ollamaUrl;
-	}
+			const settings = await getUserSettings();
+			googleKeyConfigured = settings.google_api_key_configured;
+			anthropicKeyConfigured = settings.anthropic_api_key_configured;
+			ollamaUrl = settings.ollama_url || '';
 
-	function saveApiKeys(): void {
-		try {
-			if (googleKey.trim()) {
-				localStorage.setItem('autodungeon_google_key', googleKey.trim());
-			} else {
-				localStorage.removeItem('autodungeon_google_key');
-			}
-			if (anthropicKey.trim()) {
-				localStorage.setItem('autodungeon_anthropic_key', anthropicKey.trim());
-			} else {
-				localStorage.removeItem('autodungeon_anthropic_key');
-			}
-			if (ollamaUrl.trim()) {
-				localStorage.setItem('autodungeon_ollama_url', ollamaUrl.trim());
-			} else {
-				localStorage.removeItem('autodungeon_ollama_url');
-			}
+			// Load token limit overrides from server
+			summarizerTokenLimit = settings.token_limit_overrides?.summarizer ?? 4000;
+			extractorTokenLimit = settings.token_limit_overrides?.extractor ?? 4000;
 		} catch {
-			// localStorage unavailable
+			// Fallback to localStorage if backend unavailable
+			googleKeyConfigured = false;
+			anthropicKeyConfigured = false;
+			try {
+				ollamaUrl = localStorage.getItem('autodungeon_ollama_url') ?? '';
+			} catch {
+				ollamaUrl = '';
+			}
+			summarizerTokenLimit = 4000;
+			extractorTokenLimit = 4000;
 		}
+
+		// API key fields always start empty (we never expose raw keys)
+		googleKey = '';
+		anthropicKey = '';
+
+		origGoogleKey = '';
+		origAnthropicKey = '';
+		origOllamaUrl = ollamaUrl;
+		origSummarizerTokenLimit = summarizerTokenLimit;
+		origExtractorTokenLimit = extractorTokenLimit;
 	}
 
 	async function loadConfig(): Promise<void> {
@@ -150,6 +173,9 @@
 		try {
 			const config = await getSessionConfig(sessionId);
 			originalConfig = { ...config };
+			dmProvider = config.dm_provider;
+			dmModel = config.dm_model;
+			dmTokenLimit = config.dm_token_limit;
 			summarizerProvider = config.summarizer_provider;
 			summarizerModel = config.summarizer_model;
 			extractorProvider = config.extractor_provider;
@@ -169,15 +195,55 @@
 		saving = true;
 		saveError = null;
 
-		// Always save API keys to localStorage
-		saveApiKeys();
+		// 1. Save API keys + token limits to backend (global settings)
+		try {
+			const settingsUpdate: Record<string, unknown> = {};
 
-		// Update API key originals so change detection resets
+			// Only send API keys if user entered new values
+			if (googleKey.trim()) {
+				settingsUpdate.google_api_key = googleKey.trim();
+			}
+			if (anthropicKey.trim()) {
+				settingsUpdate.anthropic_api_key = anthropicKey.trim();
+			}
+			if (ollamaUrl !== origOllamaUrl) {
+				settingsUpdate.ollama_url = ollamaUrl.trim();
+			}
+
+			// Always send token limit overrides
+			settingsUpdate.token_limit_overrides = {
+				summarizer: summarizerTokenLimit,
+				extractor: extractorTokenLimit,
+			};
+
+			await updateUserSettings(settingsUpdate as Parameters<typeof updateUserSettings>[0]);
+		} catch (e) {
+			// Fallback: save to localStorage
+			try {
+				if (googleKey.trim()) {
+					localStorage.setItem('autodungeon_google_key', googleKey.trim());
+				}
+				if (anthropicKey.trim()) {
+					localStorage.setItem('autodungeon_anthropic_key', anthropicKey.trim());
+				}
+				if (ollamaUrl.trim()) {
+					localStorage.setItem('autodungeon_ollama_url', ollamaUrl.trim());
+				} else {
+					localStorage.removeItem('autodungeon_ollama_url');
+				}
+			} catch {
+				// localStorage unavailable too
+			}
+		}
+
+		// Update originals so change detection resets
 		origGoogleKey = googleKey;
 		origAnthropicKey = anthropicKey;
 		origOllamaUrl = ollamaUrl;
+		origSummarizerTokenLimit = summarizerTokenLimit;
+		origExtractorTokenLimit = extractorTokenLimit;
 
-		// Save session config if we have a session
+		// 2. Save session config (including DM fields) if we have a session
 		if (sessionId && originalConfig) {
 			try {
 				const updatedConfig = await updateSessionConfig(sessionId, {
@@ -189,8 +255,10 @@
 					max_combat_rounds: maxCombatRounds,
 					party_size: partySize,
 					narrative_display_limit: narrativeDisplayLimit,
+					dm_provider: dmProvider,
+					dm_model: dmModel,
+					dm_token_limit: dmTokenLimit,
 				});
-				// Update the snapshot so change detection is accurate if modal reopens
 				originalConfig = { ...updatedConfig };
 			} catch (e) {
 				saveError = e instanceof ApiError ? e.message : 'Failed to save configuration';
@@ -322,20 +390,32 @@
 							{googleKey}
 							{anthropicKey}
 							{ollamaUrl}
+							{googleKeyConfigured}
+							{anthropicKeyConfigured}
 							onGoogleKeyChange={(v) => (googleKey = v)}
 							onAnthropicKeyChange={(v) => (anthropicKey = v)}
 							onOllamaUrlChange={(v) => (ollamaUrl = v)}
 						/>
 					{:else if activeTab === 'models'}
 						<ModelsTab
+							{dmProvider}
+							{dmModel}
+							{dmTokenLimit}
 							{summarizerProvider}
 							{summarizerModel}
+							{summarizerTokenLimit}
 							{extractorProvider}
 							{extractorModel}
+							{extractorTokenLimit}
+							onDmProviderChange={(v) => (dmProvider = v)}
+							onDmModelChange={(v) => (dmModel = v)}
+							onDmTokenLimitChange={(v) => (dmTokenLimit = v)}
 							onSummarizerProviderChange={(v) => (summarizerProvider = v)}
 							onSummarizerModelChange={(v) => (summarizerModel = v)}
+							onSummarizerTokenLimitChange={(v) => (summarizerTokenLimit = v)}
 							onExtractorProviderChange={(v) => (extractorProvider = v)}
 							onExtractorModelChange={(v) => (extractorModel = v)}
+							onExtractorTokenLimitChange={(v) => (extractorTokenLimit = v)}
 						/>
 					{:else if activeTab === 'settings'}
 						<SettingsTab

@@ -30,9 +30,11 @@ from api.schemas import (
     SessionCreateRequest,
     SessionCreateResponse,
     SessionResponse,
+    UserSettingsResponse,
+    UserSettingsUpdateRequest,
 )
-from config import PROJECT_ROOT, load_character_configs
-from models import CharacterConfig, GameConfig
+from config import PROJECT_ROOT, load_character_configs, load_user_settings, save_user_settings
+from models import CharacterConfig, DMConfig, GameConfig
 from persistence import (
     _validate_session_id,
     build_comparison_data,
@@ -222,6 +224,9 @@ async def get_session_config(session_id: str) -> GameConfigResponse:
         state = load_checkpoint(session_id, latest_turn)
         if state is not None:
             game_config = state["game_config"]
+            dm_config = state.get("dm_config")
+            if dm_config is None:
+                dm_config = DMConfig()
             return GameConfigResponse(
                 combat_mode=game_config.combat_mode,
                 max_combat_rounds=game_config.max_combat_rounds,
@@ -231,10 +236,14 @@ async def get_session_config(session_id: str) -> GameConfigResponse:
                 extractor_model=game_config.extractor_model,
                 party_size=game_config.party_size,
                 narrative_display_limit=game_config.narrative_display_limit,
+                dm_provider=dm_config.provider,
+                dm_model=dm_config.model,
+                dm_token_limit=dm_config.token_limit,
             )
 
     # No checkpoint - return defaults
     defaults = GameConfig()
+    dm_defaults = DMConfig()
     return GameConfigResponse(
         combat_mode=defaults.combat_mode,
         max_combat_rounds=defaults.max_combat_rounds,
@@ -244,6 +253,9 @@ async def get_session_config(session_id: str) -> GameConfigResponse:
         extractor_model=defaults.extractor_model,
         party_size=defaults.party_size,
         narrative_display_limit=defaults.narrative_display_limit,
+        dm_provider=dm_defaults.provider,
+        dm_model=dm_defaults.model,
+        dm_token_limit=dm_defaults.token_limit,
     )
 
 
@@ -294,11 +306,15 @@ async def update_session_config(
         state["session_number"] = metadata.session_number
         latest_turn = 0
 
+    # Separate DM fields from game_config fields
+    update_data = body.model_dump(exclude_none=True)
+    dm_fields = {}
+    for key in ("dm_provider", "dm_model", "dm_token_limit"):
+        if key in update_data:
+            dm_fields[key] = update_data.pop(key)
+
     # Apply partial updates to game_config
     current_config = state["game_config"]
-    update_data = body.model_dump(exclude_none=True)
-
-    # Build new config dict from current + updates
     config_dict = current_config.model_dump()
     config_dict.update(update_data)
 
@@ -308,8 +324,28 @@ async def update_session_config(
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=str(e)) from None
 
-    # Update state and save
     state["game_config"] = new_config
+
+    # Apply DM config updates if present
+    current_dm = state.get("dm_config")
+    if current_dm is None:
+        current_dm = DMConfig()
+    dm_dict = current_dm.model_dump()
+    if "dm_provider" in dm_fields:
+        dm_dict["provider"] = dm_fields["dm_provider"]
+    if "dm_model" in dm_fields:
+        dm_dict["model"] = dm_fields["dm_model"]
+    if "dm_token_limit" in dm_fields:
+        dm_dict["token_limit"] = dm_fields["dm_token_limit"]
+
+    try:
+        new_dm = DMConfig(**dm_dict)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
+
+    state["dm_config"] = new_dm
+
+    # Save
     if latest_turn is None:
         latest_turn = 0
     save_checkpoint(state, session_id, latest_turn)
@@ -323,6 +359,110 @@ async def update_session_config(
         extractor_model=new_config.extractor_model,
         party_size=new_config.party_size,
         narrative_display_limit=new_config.narrative_display_limit,
+        dm_provider=new_dm.provider,
+        dm_model=new_dm.model,
+        dm_token_limit=new_dm.token_limit,
+    )
+
+
+# =============================================================================
+# User Settings Endpoints
+# =============================================================================
+
+
+@router.get("/user-settings", response_model=UserSettingsResponse)
+async def get_user_settings() -> UserSettingsResponse:
+    """Get user settings with API key configured status (never raw keys).
+
+    Checks both user-settings.yaml and environment variables to determine
+    whether each provider's API key is configured.
+
+    Returns:
+        User settings with boolean configured flags for API keys.
+    """
+    from config import get_config
+
+    settings = load_user_settings()
+    api_keys = settings.get("api_keys", {})
+    token_limits = settings.get("token_limit_overrides", {})
+
+    # Check env vars as fallback
+    try:
+        config = get_config()
+        google_env = bool(config.google_api_key)
+        anthropic_env = bool(config.anthropic_api_key)
+    except Exception:
+        google_env = False
+        anthropic_env = False
+
+    return UserSettingsResponse(
+        google_api_key_configured=bool(api_keys.get("google")) or google_env,
+        anthropic_api_key_configured=bool(api_keys.get("anthropic")) or anthropic_env,
+        ollama_url=str(api_keys.get("ollama", "")),
+        token_limit_overrides={k: v for k, v in token_limits.items() if isinstance(v, int)},
+    )
+
+
+@router.put("/user-settings", response_model=UserSettingsResponse)
+async def update_user_settings(body: UserSettingsUpdateRequest) -> UserSettingsResponse:
+    """Update user settings. Partial merge into user-settings.yaml.
+
+    API keys are written to the settings file so the Python backend can
+    use them via get_effective_api_key(). Raw key values are never returned.
+
+    Args:
+        body: Partial update fields.
+
+    Returns:
+        Updated user settings (with boolean configured flags, never raw keys).
+    """
+    from config import get_config
+
+    settings = load_user_settings()
+    api_keys = settings.get("api_keys", {})
+    token_limits = settings.get("token_limit_overrides", {})
+
+    # Merge API key updates
+    if body.google_api_key is not None:
+        if body.google_api_key.strip():
+            api_keys["google"] = body.google_api_key.strip()
+        else:
+            api_keys.pop("google", None)
+
+    if body.anthropic_api_key is not None:
+        if body.anthropic_api_key.strip():
+            api_keys["anthropic"] = body.anthropic_api_key.strip()
+        else:
+            api_keys.pop("anthropic", None)
+
+    if body.ollama_url is not None:
+        if body.ollama_url.strip():
+            api_keys["ollama"] = body.ollama_url.strip()
+        else:
+            api_keys.pop("ollama", None)
+
+    # Merge token limit overrides
+    if body.token_limit_overrides is not None:
+        token_limits.update(body.token_limit_overrides)
+
+    settings["api_keys"] = api_keys
+    settings["token_limit_overrides"] = token_limits
+    save_user_settings(settings)
+
+    # Build response (never return raw keys)
+    try:
+        config = get_config()
+        google_env = bool(config.google_api_key)
+        anthropic_env = bool(config.anthropic_api_key)
+    except Exception:
+        google_env = False
+        anthropic_env = False
+
+    return UserSettingsResponse(
+        google_api_key_configured=bool(api_keys.get("google")) or google_env,
+        anthropic_api_key_configured=bool(api_keys.get("anthropic")) or anthropic_env,
+        ollama_url=str(api_keys.get("ollama", "")),
+        token_limit_overrides={k: v for k, v in token_limits.items() if isinstance(v, int)},
     )
 
 

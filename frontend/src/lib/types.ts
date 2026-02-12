@@ -26,6 +26,23 @@ export interface GameConfig {
   party_size: number;
   narrative_display_limit: number;
   max_combat_rounds: number;
+  dm_provider: string;
+  dm_model: string;
+  dm_token_limit: number;
+}
+
+export interface UserSettings {
+  google_api_key_configured: boolean;
+  anthropic_api_key_configured: boolean;
+  ollama_url: string;
+  token_limit_overrides: Record<string, number>;
+}
+
+export interface UserSettingsUpdate {
+  google_api_key?: string;
+  anthropic_api_key?: string;
+  ollama_url?: string;
+  token_limit_overrides?: Record<string, number>;
 }
 
 export interface Character {

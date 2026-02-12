@@ -17,6 +17,7 @@ from httpx import ASGITransport, AsyncClient
 
 from api.main import app
 from models import (
+    DMConfig,
     GameConfig,
     SessionMetadata,
     create_initial_game_state,
@@ -520,6 +521,9 @@ class TestSessionConfigGetEndpoint:
             "extractor_model",
             "party_size",
             "narrative_display_limit",
+            "dm_provider",
+            "dm_model",
+            "dm_token_limit",
         }
         assert set(data.keys()) == expected_fields
 
@@ -1879,3 +1883,255 @@ class TestForkValidation:
         _create_test_session(temp_campaigns_dir, session_id="001")
         resp = await client.post("/api/sessions/001/checkpoints/-1/restore")
         assert resp.status_code == 400
+
+
+# =============================================================================
+# User Settings Endpoint Tests
+# =============================================================================
+
+
+class TestUserSettingsEndpoint:
+    """Tests for GET/PUT /api/user-settings."""
+
+    @pytest.mark.anyio
+    async def test_get_user_settings_empty(
+        self, client: AsyncClient, tmp_path: Path
+    ) -> None:
+        """Returns unconfigured state when no settings file exists."""
+        with (
+            patch("api.routes.load_user_settings", return_value={}),
+            patch("config.get_config") as mock_config,
+        ):
+            mock_config.return_value.google_api_key = None
+            mock_config.return_value.anthropic_api_key = None
+            resp = await client.get("/api/user-settings")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["google_api_key_configured"] is False
+        assert data["anthropic_api_key_configured"] is False
+        assert data["ollama_url"] == ""
+        assert data["token_limit_overrides"] == {}
+
+    @pytest.mark.anyio
+    async def test_get_user_settings_with_keys(
+        self, client: AsyncClient
+    ) -> None:
+        """Returns configured status when keys exist in settings."""
+        settings = {
+            "api_keys": {"google": "test-key-123", "anthropic": "sk-ant-test"},
+            "token_limit_overrides": {"summarizer": 6000},
+        }
+        with (
+            patch("api.routes.load_user_settings", return_value=settings),
+            patch("config.get_config") as mock_config,
+        ):
+            mock_config.return_value.google_api_key = None
+            mock_config.return_value.anthropic_api_key = None
+            resp = await client.get("/api/user-settings")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["google_api_key_configured"] is True
+        assert data["anthropic_api_key_configured"] is True
+        assert data["token_limit_overrides"] == {"summarizer": 6000}
+
+    @pytest.mark.anyio
+    async def test_get_settings_never_returns_raw_keys(
+        self, client: AsyncClient
+    ) -> None:
+        """GET /api/user-settings never includes raw API key values."""
+        settings = {
+            "api_keys": {"google": "AIza-secret-key", "anthropic": "sk-ant-secret"},
+        }
+        with (
+            patch("api.routes.load_user_settings", return_value=settings),
+            patch("config.get_config") as mock_config,
+        ):
+            mock_config.return_value.google_api_key = None
+            mock_config.return_value.anthropic_api_key = None
+            resp = await client.get("/api/user-settings")
+
+        data = resp.json()
+        response_text = str(data)
+        assert "AIza-secret-key" not in response_text
+        assert "sk-ant-secret" not in response_text
+
+    @pytest.mark.anyio
+    async def test_put_api_keys(self, client: AsyncClient) -> None:
+        """PUT /api/user-settings persists API keys."""
+        saved_settings: dict = {}
+
+        def mock_save(settings: dict) -> None:
+            saved_settings.update(settings)
+
+        with (
+            patch("api.routes.load_user_settings", return_value={}),
+            patch("api.routes.save_user_settings", side_effect=mock_save),
+            patch("config.get_config") as mock_config,
+        ):
+            mock_config.return_value.google_api_key = None
+            mock_config.return_value.anthropic_api_key = None
+            resp = await client.put(
+                "/api/user-settings",
+                json={
+                    "google_api_key": "new-google-key",
+                    "anthropic_api_key": "new-anthropic-key",
+                },
+            )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["google_api_key_configured"] is True
+        assert data["anthropic_api_key_configured"] is True
+        # Verify saved to settings file
+        assert saved_settings["api_keys"]["google"] == "new-google-key"
+        assert saved_settings["api_keys"]["anthropic"] == "new-anthropic-key"
+
+    @pytest.mark.anyio
+    async def test_put_token_limits(self, client: AsyncClient) -> None:
+        """PUT /api/user-settings persists token limit overrides."""
+        saved_settings: dict = {}
+
+        def mock_save(settings: dict) -> None:
+            saved_settings.update(settings)
+
+        with (
+            patch("api.routes.load_user_settings", return_value={}),
+            patch("api.routes.save_user_settings", side_effect=mock_save),
+            patch("config.get_config") as mock_config,
+        ):
+            mock_config.return_value.google_api_key = None
+            mock_config.return_value.anthropic_api_key = None
+            resp = await client.put(
+                "/api/user-settings",
+                json={"token_limit_overrides": {"summarizer": 8000, "extractor": 6000}},
+            )
+
+        assert resp.status_code == 200
+        assert saved_settings["token_limit_overrides"] == {
+            "summarizer": 8000,
+            "extractor": 6000,
+        }
+
+    @pytest.mark.anyio
+    async def test_put_clear_api_key(self, client: AsyncClient) -> None:
+        """Sending empty string clears an API key."""
+        saved_settings: dict = {}
+        existing = {"api_keys": {"google": "old-key"}, "token_limit_overrides": {}}
+
+        def mock_save(settings: dict) -> None:
+            saved_settings.update(settings)
+
+        with (
+            patch("api.routes.load_user_settings", return_value=existing),
+            patch("api.routes.save_user_settings", side_effect=mock_save),
+            patch("config.get_config") as mock_config,
+        ):
+            mock_config.return_value.google_api_key = None
+            mock_config.return_value.anthropic_api_key = None
+            resp = await client.put(
+                "/api/user-settings",
+                json={"google_api_key": ""},
+            )
+
+        assert resp.status_code == 200
+        assert "google" not in saved_settings.get("api_keys", {})
+
+
+# =============================================================================
+# DM Config in Session Config Tests
+# =============================================================================
+
+
+class TestDmConfigInSessionConfig:
+    """Tests for DM config fields in session config endpoints."""
+
+    @pytest.mark.anyio
+    async def test_get_config_includes_dm_fields(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """GET /api/sessions/{id}/config includes dm_provider, dm_model, dm_token_limit."""
+        _create_test_session(temp_campaigns_dir, session_id="001")
+
+        resp = await client.get("/api/sessions/001/config")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "dm_provider" in data
+        assert "dm_model" in data
+        assert "dm_token_limit" in data
+        # Check defaults
+        assert data["dm_provider"] == "gemini"
+        assert data["dm_model"] == "gemini-1.5-flash"
+        assert data["dm_token_limit"] == 8000
+
+    @pytest.mark.anyio
+    async def test_get_config_dm_from_checkpoint(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """GET returns DM config from checkpoint when available."""
+        _create_test_session(temp_campaigns_dir, session_id="001")
+
+        # Create checkpoint with custom DM config
+        state = create_initial_game_state()
+        state["session_id"] = "001"
+        state["dm_config"] = DMConfig(
+            provider="claude", model="claude-3-5-sonnet-20241022", token_limit=16000
+        )
+        save_checkpoint(state, "001", 1, update_metadata=False)
+
+        resp = await client.get("/api/sessions/001/config")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["dm_provider"] == "claude"
+        assert data["dm_model"] == "claude-3-5-sonnet-20241022"
+        assert data["dm_token_limit"] == 16000
+
+    @pytest.mark.anyio
+    async def test_update_dm_config(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """PUT /api/sessions/{id}/config updates DM fields."""
+        _create_test_session(temp_campaigns_dir, session_id="001")
+
+        resp = await client.put(
+            "/api/sessions/001/config",
+            json={
+                "dm_provider": "claude",
+                "dm_model": "claude-3-5-sonnet-20241022",
+                "dm_token_limit": 16000,
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["dm_provider"] == "claude"
+        assert data["dm_model"] == "claude-3-5-sonnet-20241022"
+        assert data["dm_token_limit"] == 16000
+
+        # Verify it persisted
+        resp2 = await client.get("/api/sessions/001/config")
+        data2 = resp2.json()
+        assert data2["dm_provider"] == "claude"
+        assert data2["dm_token_limit"] == 16000
+
+    @pytest.mark.anyio
+    async def test_update_dm_without_affecting_game_config(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Updating DM fields doesn't change game_config fields."""
+        _create_test_session(temp_campaigns_dir, session_id="001")
+
+        # Set a non-default game config value first
+        await client.put(
+            "/api/sessions/001/config",
+            json={"combat_mode": "Tactical"},
+        )
+
+        # Now update DM config
+        resp = await client.put(
+            "/api/sessions/001/config",
+            json={"dm_provider": "ollama"},
+        )
+        data = resp.json()
+        assert data["combat_mode"] == "Tactical"
+        assert data["dm_provider"] == "ollama"
