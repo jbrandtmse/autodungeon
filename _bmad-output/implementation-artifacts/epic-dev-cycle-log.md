@@ -1557,7 +1557,7 @@ Completed in separate cycle sessions (not logged here).
 | 16-6-sidebar-party-controls | ✅ done | Full Cycle |
 | 16-7-session-management-ui | ✅ done | Full Cycle |
 | 16-8-settings-configuration-ui | ✅ done | Full Cycle |
-| 16-9-character-creation-library | pending | - |
+| 16-9-character-creation-library | ✅ done | Full Cycle |
 | 16-10-advanced-features-ui | pending | - |
 | 16-11-frontend-testing | pending | - |
 | 16-12-cutover-cleanup | pending | - |
@@ -1755,6 +1755,126 @@ Completed in separate cycle sessions (not logged here).
 - **MEDIUM**: NarrativePanel duplicates narrativeStore logic — Import from narrativeStore instead
 - **LOW**: smooth scroll-behavior conflicts with pagination
 - **LOW**: getCharInfo not memoized in each loop
+
+### User Input Required
+- None - all issues auto-resolved
+
+---
+
+## Story: 16-6-sidebar-party-controls
+
+**Status:** ✅ Completed
+**Commit:** 3d88c99
+**Duration:** 2026-02-11
+
+### Files Touched
+- `frontend/src/lib/components/Sidebar.svelte` - Root composition component
+- `frontend/src/lib/components/ModeIndicator.svelte` - Watch/Play/Paused with pulse animations
+- `frontend/src/lib/components/GameControls.svelte` - Autopilot/Turn/Pause/Speed controls
+- `frontend/src/lib/components/CharacterCard.svelte` - Character cards with HP bar, status badges
+- `frontend/src/lib/components/PartyPanel.svelte` - Character card container
+- `frontend/src/lib/components/HumanControls.svelte` - Action/Nudge input areas
+- `frontend/src/lib/components/CombatInitiative.svelte` - Combat round/initiative display
+- `frontend/src/lib/components/ConnectionStatus.svelte` - WebSocket status badge
+
+### Issues Auto-Resolved (Code Review)
+- **HIGH**: HP bar division-by-zero when hp.max === 0 — Added guard
+- **HIGH**: Dead Space handler blocking page scrolling — Removed entirely
+- **HIGH**: isThinking permanently stuck true after turn_update — Removed premature isThinking.set(true)
+- **MEDIUM**: ContentEditable guard missing on keyboard shortcut — Added check
+- **MEDIUM**: Hamburger icon sizing — Fixed SVG dimensions
+- **MEDIUM**: Dead CSS selectors — Removed unused rules
+
+### User Input Required
+- None - all issues auto-resolved
+
+---
+
+## Story: 16-7-session-management-ui
+
+**Status:** ✅ Completed
+**Commit:** f28d011
+**Duration:** 2026-02-11
+
+### Files Touched
+- `frontend/src/lib/components/SessionCard.svelte` - Session card with Roman numeral title
+- `frontend/src/lib/components/ConfirmDialog.svelte` - Reusable modal with focus trap
+- `frontend/src/routes/+page.svelte` - Full session browser with CRUD, search, loading states
+- `frontend/src/lib/format.ts` - Roman numeral conversion, date formatting
+- `frontend/src/lib/api.ts` - deleteSession() endpoint
+- `api/routes.py` - DELETE /api/sessions/{id} endpoint
+- `tests/test_api.py` - 5 new DELETE tests (51 total)
+
+### Issues Auto-Resolved (Code Review)
+- **HIGH**: TOCTOU race in DELETE session — Check delete_session() return value
+- **MEDIUM**: Timer not cleaned on component unmount — Added onDestroy cleanup
+- **MEDIUM**: Error shown in confirm dialog message — Fixed wording
+- **LOW**: Missing session count in empty state
+
+### User Input Required
+- None - all issues auto-resolved
+
+---
+
+## Story: 16-8-settings-configuration-ui
+
+**Status:** ✅ Completed
+**Commit:** 343317b
+**Duration:** 2026-02-11
+
+### Files Touched
+- `frontend/src/lib/components/SettingsModal.svelte` - Tabbed settings modal with change detection
+- `frontend/src/lib/components/ApiKeysTab.svelte` - API key entry with mask/status
+- `frontend/src/lib/components/ModelsTab.svelte` - Per-agent model selection
+- `frontend/src/lib/components/SettingsTab.svelte` - Context limits and display settings
+- `frontend/src/routes/+layout.svelte` - SettingsModal integration
+
+### Issues Auto-Resolved (Code Review)
+- **HIGH**: No focus trap in SettingsModal — Added Tab/Shift+Tab wrapping
+- **HIGH**: No initial focus on modal open — Added autofocus to first tab
+- **HIGH**: Number inputs allow NaN — Added restoreOnBlur utility
+- **MEDIUM**: Stale originalConfig on reopen — Reset on mount
+- **MEDIUM**: Duplicate escape handler — Consolidated with modal close
+- **MEDIUM**: Missing keyboard nav for tabs — Added arrow key support
+- **LOW**: Tab order not persisted — Acceptable for settings
+
+### User Input Required
+- None - all issues auto-resolved
+
+---
+
+## Story: 16-9-character-creation-library
+
+**Status:** ✅ Completed
+**Commit:** 594476e
+**Duration:** 2026-02-11
+
+### Files Touched
+- `frontend/src/lib/components/CharacterLibrary.svelte` - Browse/search/delete characters
+- `frontend/src/lib/components/CharacterDetail.svelte` - View character details
+- `frontend/src/lib/components/CharacterCreator.svelte` - Create/edit character wizard
+- `frontend/src/routes/characters/+page.svelte` - Character library page
+- `frontend/src/routes/+layout.svelte` - Characters nav link
+- `frontend/src/lib/api.ts` - createCharacter(), updateCharacter(), deleteCharacter()
+- `frontend/src/lib/types.ts` - CharacterCreateRequest, CharacterUpdateRequest, backstory field
+- `api/routes.py` - POST/PUT/DELETE /api/characters endpoints
+- `api/schemas.py` - CharacterDetailResponse (backstory), CharacterCreateRequest, CharacterUpdateRequest
+- `tests/test_api.py` - 18 new character CRUD tests (72 total)
+
+### Key Design Decisions
+- Three-view state machine: library (browse) → detail (view) → creator (create/edit)
+- Preset characters read-only, library characters fully editable
+- API validates character names for filesystem safety
+- Atomic file operations for rename (write new → unlink old)
+- Backstory field added to character detail response
+
+### Issues Auto-Resolved (Code Review)
+- **HIGH**: Non-atomic file rename in update_character — Split write/unlink with cleanup
+- **HIGH**: Filename collision allows silent overwrite — Added filesystem exists() check
+- **MEDIUM**: Missing backstory field in CharacterDetailResponse — Added to schema + types
+- **MEDIUM**: Wizard allows invalid tokenLimit values — Added validation
+- **MEDIUM**: Wizard allows empty model name — Added non-empty check
+- **LOW**: Character list not sorted — Alphabetical sort added
 
 ### User Input Required
 - None - all issues auto-resolved
