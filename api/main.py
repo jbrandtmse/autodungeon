@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.routes import router as api_router
 from api.schemas import HealthResponse
+from api.websocket import manager as ws_manager
 from api.websocket import router as ws_router
 
 
@@ -32,7 +33,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.config = get_config()
     app.state.engines = {}  # session_id -> GameEngine
     yield
-    # Shutdown: gracefully stop each engine session
+    # Shutdown: close all WebSocket connections first
+    await ws_manager.disconnect_all()
+    # Then gracefully stop each engine session
     for engine in list(app.state.engines.values()):
         try:
             await engine.stop_session()

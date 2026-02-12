@@ -1550,7 +1550,7 @@ Completed in separate cycle sessions (not logged here).
 | Story | Status | Phase |
 |-------|--------|-------|
 | 16-1-api-layer-foundation | ✅ done | Full Cycle |
-| 16-2-game-engine-extraction | pending | - |
+| 16-2-game-engine-extraction | ✅ done | Full Cycle |
 | 16-3-websocket-game-streaming | pending | - |
 | 16-4-sveltekit-scaffold-theme | pending | - |
 | 16-5-narrative-panel | pending | - |
@@ -1597,6 +1597,48 @@ Completed in separate cycle sessions (not logged here).
 - **MEDIUM**: create_session had no error handling for filesystem failures → Added try/except
 - **MEDIUM**: list_sessions had no error handling for filesystem failures → Added try/except
 - **MEDIUM**: Test had vacuous assertion accepting both 201 and 422 → Strengthened to assert 201 specifically
+
+### User Input Required
+- None - all issues auto-resolved
+
+---
+
+## Story: 16-2-game-engine-extraction
+
+**Status:** ✅ Completed
+**Commit:** d05b839
+**Duration:** 2026-02-11
+
+### Files Touched
+- `api/engine.py` - Full GameEngine class (~650 lines): session lifecycle, async turn execution, autopilot as asyncio.Task, human intervention, broadcast callbacks, session_id validation
+- `models.py` - 3 new GameState fields: human_pending_action, pending_nudge, pending_human_whisper
+- `graph.py` - Decoupled human_intervention_node() from st.session_state (dual-read pattern)
+- `agents.py` - Decoupled nudge/whisper reads with dual-read pattern
+- `app.py` - Dual-write in 3 handler functions for backward compatibility
+- `persistence.py` - Serialize/deserialize 3 new GameState fields
+- `api/dependencies.py` - Updated type hints, get_or_create_engine()
+- `api/main.py` - Updated lifespan shutdown for engine registry
+- `tests/test_engine.py` - 102 comprehensive tests (93 initial + 9 from code review)
+
+### Key Design Decisions
+- GameEngine manages session lifecycle entirely without Streamlit imports
+- Turn execution via asyncio.to_thread() wrapping synchronous run_single_round()
+- Autopilot as asyncio.Task with configurable speed delays
+- Broadcast callback pattern for future WebSocket subscribers (Story 16-3)
+- Dual-read pattern: state dict first, st.session_state fallback for backward compat
+- Dual-write in app.py handlers to keep both systems in sync during migration
+- Session ID validation in constructor (defense-in-depth against path traversal)
+- Character validation in drop_in() (must exist in turn queue, cannot be "dm")
+
+### Issues Auto-Resolved (Code Review)
+- **HIGH**: Duplicate autopilot_stopped broadcast in drop_in() — Added _reason param to stop_autopilot(), single event emitted
+- **HIGH**: No session_id validation in GameEngine constructor (path traversal risk) — Added alphanumeric + hyphen + underscore validation
+- **MEDIUM**: drop_in() accepted non-existent characters — Added validation against turn queue
+- **MEDIUM**: _autopilot_loop() lacked catch-all exception handler — Added except Exception with error broadcast
+- **MEDIUM**: No validation docs in get_or_create_engine() — Added docstring
+- **LOW**: _get_turn_delay() was dead code — Wired up the helper
+- **LOW**: Timing-dependent test — Acceptable for this layer
+- **LOW**: Nudge persists on failed turns — Desired behavior
 
 ### User Input Required
 - None - all issues auto-resolved

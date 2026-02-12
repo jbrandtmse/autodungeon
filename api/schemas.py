@@ -1,12 +1,13 @@
-"""API request/response schemas for the autodungeon REST API.
+"""API request/response schemas for the autodungeon REST + WebSocket API.
 
-These Pydantic v2 models define the HTTP API contract (request/response shapes).
-They are separate from the game engine models in models.py.
+These Pydantic v2 models define the HTTP API contract (request/response shapes)
+and the WebSocket message protocol. They are separate from the game engine
+models in models.py.
 """
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -138,3 +139,104 @@ class ErrorResponse(BaseModel):
     """Standard error response."""
 
     detail: str = Field(..., description="Error description")
+
+
+# =============================================================================
+# WebSocket Server-to-Client Messages
+# =============================================================================
+
+
+class WsSessionState(BaseModel):
+    """Full game state snapshot sent on connection and state changes."""
+
+    type: Literal["session_state"] = "session_state"
+    state: dict[str, Any] = Field(..., description="Full state snapshot")
+
+
+class WsTurnUpdate(BaseModel):
+    """Turn completion event with updated state."""
+
+    type: Literal["turn_update"] = "turn_update"
+    turn: int = Field(..., description="Turn number")
+    agent: str = Field(..., description="Agent that acted")
+    content: str = Field(..., description="Turn content text")
+    state: dict[str, Any] = Field(..., description="Updated state snapshot")
+
+
+class WsAutopilotStarted(BaseModel):
+    """Autopilot has started running."""
+
+    type: Literal["autopilot_started"] = "autopilot_started"
+
+
+class WsAutopilotStopped(BaseModel):
+    """Autopilot has stopped."""
+
+    type: Literal["autopilot_stopped"] = "autopilot_stopped"
+    reason: str = Field(..., description="Why autopilot stopped")
+
+
+class WsError(BaseModel):
+    """Error event from the engine or WebSocket handler."""
+
+    type: Literal["error"] = "error"
+    message: str = Field(..., description="Error description")
+    recoverable: bool = Field(True, description="Whether the error is recoverable")
+
+
+class WsDropIn(BaseModel):
+    """Human has taken control of a character."""
+
+    type: Literal["drop_in"] = "drop_in"
+    character: str = Field(..., description="Character name")
+
+
+class WsReleaseControl(BaseModel):
+    """Human has released character control."""
+
+    type: Literal["release_control"] = "release_control"
+
+
+class WsAwaitingInput(BaseModel):
+    """Engine is waiting for human player input."""
+
+    type: Literal["awaiting_input"] = "awaiting_input"
+    character: str = Field(..., description="Character awaiting input")
+
+
+class WsNudgeReceived(BaseModel):
+    """Nudge suggestion was received by the engine."""
+
+    type: Literal["nudge_received"] = "nudge_received"
+
+
+class WsSpeedChanged(BaseModel):
+    """Autopilot speed has been changed."""
+
+    type: Literal["speed_changed"] = "speed_changed"
+    speed: str = Field(..., description="New speed setting")
+
+
+class WsPaused(BaseModel):
+    """Autopilot has been paused."""
+
+    type: Literal["paused"] = "paused"
+
+
+class WsResumed(BaseModel):
+    """Autopilot has been resumed."""
+
+    type: Literal["resumed"] = "resumed"
+
+
+class WsPong(BaseModel):
+    """Pong response to client ping."""
+
+    type: Literal["pong"] = "pong"
+
+
+class WsCommandAck(BaseModel):
+    """Acknowledgment that a command was received and processed."""
+
+    type: Literal["command_ack"] = "command_ack"
+    command: str = Field(..., description="The command type that was acknowledged")
