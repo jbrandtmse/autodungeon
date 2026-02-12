@@ -210,8 +210,9 @@ def route_to_next_agent(state: GameState) -> str:
 def human_intervention_node(state: GameState) -> GameState:
     """Process human input and add to game log.
 
-    Reads the pending human action from Streamlit session state,
-    formats it as a log entry with character attribution, and adds
+    Reads the pending human action from the GameState dict first,
+    falling back to Streamlit session state for backward compatibility.
+    Formats it as a log entry with character attribution, and adds
     to ground_truth_log. Also updates the character's agent memory
     for consistency with PC turn behavior.
 
@@ -226,8 +227,6 @@ def human_intervention_node(state: GameState) -> GameState:
     """
     from datetime import UTC, datetime
 
-    import streamlit as st
-
     from models import AgentMemory, TranscriptEntry
     from persistence import (
         append_transcript_entry,
@@ -235,8 +234,15 @@ def human_intervention_node(state: GameState) -> GameState:
         save_fork_checkpoint,
     )
 
-    # Get pending action from session state
-    pending_action = st.session_state.get("human_pending_action")
+    # Get pending action from state dict first, fall back to st.session_state
+    pending_action = state.get("human_pending_action")
+    if pending_action is None:
+        try:
+            import streamlit as st
+
+            pending_action = st.session_state.get("human_pending_action")
+        except (ImportError, AttributeError):
+            pass
 
     if not pending_action:
         # No action submitted yet - return state unchanged
@@ -270,16 +276,23 @@ def human_intervention_node(state: GameState) -> GameState:
     memory_entry = f"{char_name}: {pending_action}"
     new_memories[controlled].short_term_buffer.append(memory_entry)
 
-    # Clear the pending action from session state
-    st.session_state["human_pending_action"] = None
-
     # Build updated state (includes combat_state passthrough for Story 15-3)
+    # Clear the pending action in state dict
     updated_state: GameState = {
         **state,
         "ground_truth_log": new_log,
         "agent_memories": new_memories,
         "combat_state": state.get("combat_state", CombatState()),
+        "human_pending_action": None,
     }
+
+    # Also clear from st.session_state for backward compatibility
+    try:
+        import streamlit as st
+
+        st.session_state["human_pending_action"] = None
+    except (ImportError, AttributeError, KeyError):
+        pass
 
     # Get session_id and turn_number for persistence
     session_id = updated_state.get("session_id", "001")

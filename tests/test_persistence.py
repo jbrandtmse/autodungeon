@@ -115,6 +115,9 @@ def sample_game_state() -> GameState:
         callback_log=CallbackLog(),
         active_fork_id=None,
         combat_state=CombatState(),
+        human_pending_action=None,
+        pending_nudge=None,
+        pending_human_whisper=None,
     )
 
 
@@ -233,6 +236,9 @@ class TestGameStateSerialization:
             "callback_log",  # Story 11.4: Callback Detection
             "active_fork_id",  # Story 12.1: Fork Creation
             "combat_state",  # Story 15.1: Combat State Model
+            "human_pending_action",  # Story 16.2: Game Engine Extraction
+            "pending_nudge",  # Story 16.2: Game Engine Extraction
+            "pending_human_whisper",  # Story 16.2: Game Engine Extraction
         }
         assert set(data.keys()) == expected_keys
 

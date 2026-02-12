@@ -1549,7 +1549,7 @@ Completed in separate cycle sessions (not logged here).
 
 | Story | Status | Phase |
 |-------|--------|-------|
-| 16-1-api-layer-foundation | pending | - |
+| 16-1-api-layer-foundation | ✅ done | Full Cycle |
 | 16-2-game-engine-extraction | pending | - |
 | 16-3-websocket-game-streaming | pending | - |
 | 16-4-sveltekit-scaffold-theme | pending | - |
@@ -1561,6 +1561,45 @@ Completed in separate cycle sessions (not logged here).
 | 16-10-advanced-features-ui | pending | - |
 | 16-11-frontend-testing | pending | - |
 | 16-12-cutover-cleanup | pending | - |
+
+---
+
+## Story: 16-1-api-layer-foundation
+
+**Status:** ✅ Completed
+**Commit:** d5256f1
+**Duration:** 2026-02-11
+
+### Files Touched
+- `api/__init__.py` - Package init
+- `api/main.py` - FastAPI app with CORS, lifespan, health check, OpenAPI
+- `api/routes.py` - REST endpoints: sessions CRUD, config get/put, characters list/detail
+- `api/schemas.py` - Pydantic v2 request/response models (9 schema classes)
+- `api/dependencies.py` - Shared FastAPI dependency injection
+- `api/engine.py` - GameEngine stub for Story 16-2
+- `api/websocket.py` - WebSocket stub for Story 16-3
+- `tests/test_api.py` - 46 comprehensive async tests (9 test classes)
+- `tests/conftest.py` - anyio_backend fixture for asyncio-only
+- `pyproject.toml` - Added fastapi, uvicorn, httpx, anyio dependencies
+
+### Key Design Decisions
+- FastAPI lifespan context manager for startup/shutdown lifecycle
+- CORS configured for SvelteKit dev (localhost:5173, 4173, 8501)
+- Session operations delegate to existing persistence.py functions
+- Character listing combines preset (config/characters/) and library (config/characters/library/)
+- Path traversal validation on all session_id parameters
+- Pydantic v2 schemas with proper validators (party_size 1-10, narrative_display_limit 10-1000)
+- GameEngine and WebSocket are stubs — implemented in Stories 16-2 and 16-3
+
+### Issues Auto-Resolved (Code Review)
+- **HIGH**: Unhandled exceptions in character endpoints leaked tracebacks → Added try/except with graceful degradation
+- **HIGH**: `assert` used for control flow in config PUT → Replaced with runtime fallback
+- **MEDIUM**: create_session had no error handling for filesystem failures → Added try/except
+- **MEDIUM**: list_sessions had no error handling for filesystem failures → Added try/except
+- **MEDIUM**: Test had vacuous assertion accepting both 201 and 422 → Strengthened to assert 201 specifically
+
+### User Input Required
+- None - all issues auto-resolved
 
 ---
 

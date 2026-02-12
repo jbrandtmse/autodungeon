@@ -3719,6 +3719,10 @@ def handle_nudge_submit(nudge: str) -> None:
     if sanitized:
         st.session_state["pending_nudge"] = sanitized
         st.session_state["nudge_submitted"] = True
+        # Story 16.2: Dual-write to GameState for API engine compatibility
+        game = st.session_state.get("game")
+        if game:
+            game["pending_nudge"] = sanitized
 
 
 def handle_human_whisper_submit(whisper_text: str) -> None:
@@ -3746,6 +3750,9 @@ def handle_human_whisper_submit(whisper_text: str) -> None:
 
         # Create whisper for history tracking
         game: GameState | None = st.session_state.get("game")
+        # Story 16.2: Dual-write to GameState for API engine compatibility
+        if game:
+            game["pending_human_whisper"] = sanitized
         if game:
             current_turn = len(game.get("ground_truth_log", []))
             whisper = create_whisper(
@@ -3780,6 +3787,10 @@ def handle_human_action_submit(action: str) -> None:
 
     if sanitized:
         st.session_state["human_pending_action"] = sanitized
+        # Story 16.2: Dual-write to GameState for API engine compatibility
+        game = st.session_state.get("game")
+        if game:
+            game["human_pending_action"] = sanitized
 
 
 # =============================================================================

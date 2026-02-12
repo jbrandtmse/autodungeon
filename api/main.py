@@ -25,14 +25,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Application lifespan manager.
 
     Startup: Load config and initialize empty engine registry.
-    Shutdown: Cleanup engine instances.
+    Shutdown: Gracefully stop all active engine sessions.
     """
     from config import get_config
 
     app.state.config = get_config()
-    app.state.engines = {}  # session_id -> GameEngine (populated by Story 16-2)
+    app.state.engines = {}  # session_id -> GameEngine
     yield
-    # Shutdown: cleanup engines
+    # Shutdown: gracefully stop each engine session
+    for engine in list(app.state.engines.values()):
+        try:
+            await engine.stop_session()
+        except Exception:
+            pass  # Best-effort cleanup
     app.state.engines.clear()
 
 

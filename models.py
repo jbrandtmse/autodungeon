@@ -1871,6 +1871,9 @@ class GameState(TypedDict):
     callback_log: "CallbackLog"  # Story 11.4: Detected callback log
     active_fork_id: str | None  # Story 12.1: None = main timeline
     combat_state: CombatState  # Story 15.1: Combat encounter tracking
+    human_pending_action: str | None  # Story 16.2: For human_intervention_node
+    pending_nudge: str | None  # Story 16.2: For DM context injection
+    pending_human_whisper: str | None  # Story 16.2: For DM whisper context
 
 
 class MessageSegment(BaseModel):
@@ -2594,6 +2597,9 @@ def create_initial_game_state() -> GameState:
         callback_log=CallbackLog(),
         active_fork_id=None,
         combat_state=CombatState(),
+        human_pending_action=None,
+        pending_nudge=None,
+        pending_human_whisper=None,
     )
 
 
@@ -2706,6 +2712,9 @@ def populate_game_state(
         callback_log=CallbackLog(),
         active_fork_id=None,
         combat_state=CombatState(),
+        human_pending_action=None,
+        pending_nudge=None,
+        pending_human_whisper=None,
     )
 
 

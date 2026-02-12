@@ -260,6 +260,10 @@ def serialize_game_state(state: GameState) -> str:
         "active_fork_id": state.get("active_fork_id", None),
         # Story 15.1: Combat state persistence
         "combat_state": state.get("combat_state", CombatState()).model_dump(),
+        # Story 16.2: Game Engine Extraction - human/nudge/whisper state
+        "human_pending_action": state.get("human_pending_action", None),
+        "pending_nudge": state.get("pending_nudge", None),
+        "pending_human_whisper": state.get("pending_human_whisper", None),
     }
     return json.dumps(serializable, indent=2)
 
@@ -375,6 +379,10 @@ def deserialize_game_state(json_str: str) -> GameState:
         callback_log=callback_log,
         active_fork_id=data.get("active_fork_id", None),
         combat_state=combat_state,
+        # Story 16.2: Game Engine Extraction - backward compatible
+        human_pending_action=data.get("human_pending_action", None),
+        pending_nudge=data.get("pending_nudge", None),
+        pending_human_whisper=data.get("pending_human_whisper", None),
     )
 
 

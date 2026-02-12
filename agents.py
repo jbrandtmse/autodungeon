@@ -1368,43 +1368,42 @@ def _build_dm_context(state: GameState) -> str:
             context_parts.append(callback_context)
 
     # Player nudge/suggestion (Story 3.4 - Nudge System)
-    # Note: We access Streamlit session_state here because the nudge is UI-specific
-    # state that doesn't belong in GameState (per architecture decisions).
-    try:
-        import streamlit as st
+    # Story 16.2: Read from state dict first, fall back to st.session_state
+    pending_nudge = state.get("pending_nudge")
+    if pending_nudge is None:
+        try:
+            import streamlit as st
 
-        pending_nudge = st.session_state.get("pending_nudge")
-        if pending_nudge:
-            # Sanitize nudge to prevent any injection issues
-            sanitized_nudge = str(pending_nudge).strip()
-            if sanitized_nudge:
-                context_parts.append(
-                    f"## Player Suggestion\nThe player offers this thought: {sanitized_nudge}"
-                )
-    except (ImportError, AttributeError):
-        # Streamlit not available or session_state not initialized
-        # (e.g., in tests without mocking)
-        pass
+            pending_nudge = st.session_state.get("pending_nudge")
+        except (ImportError, AttributeError):
+            pass
+    if pending_nudge:
+        # Sanitize nudge to prevent any injection issues
+        sanitized_nudge = str(pending_nudge).strip()
+        if sanitized_nudge:
+            context_parts.append(
+                f"## Player Suggestion\nThe player offers this thought: {sanitized_nudge}"
+            )
 
     # Player whisper (Story 10.4 - Human Whisper to DM)
-    # Similar to nudge but for private questions/secrets - uses different format
-    try:
-        import streamlit as st
+    # Story 16.2: Read from state dict first, fall back to st.session_state
+    pending_whisper = state.get("pending_human_whisper")
+    if pending_whisper is None:
+        try:
+            import streamlit as st
 
-        pending_whisper = st.session_state.get("pending_human_whisper")
-        if pending_whisper:
-            # Sanitize whisper to prevent any injection/format issues
-            sanitized_whisper = str(pending_whisper).strip()
-            # Escape quotes to prevent format breaking in LLM context
-            sanitized_whisper = sanitized_whisper.replace('"', "'")
-            if sanitized_whisper:
-                context_parts.append(
-                    f'## Player Whisper\nThe human player privately asks: "{sanitized_whisper}"'
-                )
-    except (ImportError, AttributeError):
-        # Streamlit not available or session_state not initialized
-        # (e.g., in tests without mocking)
-        pass
+            pending_whisper = st.session_state.get("pending_human_whisper")
+        except (ImportError, AttributeError):
+            pass
+    if pending_whisper:
+        # Sanitize whisper to prevent any injection/format issues
+        sanitized_whisper = str(pending_whisper).strip()
+        # Escape quotes to prevent format breaking in LLM context
+        sanitized_whisper = sanitized_whisper.replace('"', "'")
+        if sanitized_whisper:
+            context_parts.append(
+                f'## Player Whisper\nThe human player privately asks: "{sanitized_whisper}"'
+            )
 
     return "\n\n".join(context_parts)
 
@@ -1711,25 +1710,23 @@ def dm_turn(state: GameState) -> GameState:
     dm_config = state["dm_config"]
 
     # Clear nudge after reading (single-use) - Story 3.4
-    # Note: We access Streamlit session_state here because the nudge is UI-specific
-    # state that doesn't belong in GameState (per architecture decisions).
+    # Story 16.2: Clear from state dict AND st.session_state
+    state["pending_nudge"] = None  # type: ignore[literal-required]
     try:
         import streamlit as st
 
         st.session_state["pending_nudge"] = None
     except (ImportError, AttributeError, KeyError):
-        # Streamlit not available, session_state not initialized,
-        # or pending_nudge key doesn't exist (e.g., in tests without mocking)
         pass
 
     # Clear human whisper after reading (single-use) - Story 10.4
+    # Story 16.2: Clear from state dict AND st.session_state
+    state["pending_human_whisper"] = None  # type: ignore[literal-required]
     try:
         import streamlit as st
 
         st.session_state["pending_human_whisper"] = None
     except (ImportError, AttributeError, KeyError):
-        # Streamlit not available, session_state not initialized,
-        # or key doesn't exist (e.g., in tests without mocking)
         pass
 
     # Wrap agent creation and invocation in try/except for error handling (Story 4.5)
