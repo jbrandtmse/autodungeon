@@ -581,3 +581,66 @@ class WsCommandAck(BaseModel):
 
     type: Literal["command_ack"] = "command_ack"
     command: str = Field(..., description="The command type that was acknowledged")
+
+
+# =============================================================================
+# Model Listing Schema
+# =============================================================================
+
+
+class ModelListResponse(BaseModel):
+    """Response for GET /api/models/{provider}."""
+
+    provider: str = Field(..., description="Provider name")
+    models: list[str] = Field(default_factory=list, description="Available model IDs")
+    source: Literal["api", "fallback"] = Field(
+        ..., description="Whether models came from live API or static fallback"
+    )
+    error: str | None = Field(
+        default=None, description="Error message if API call failed"
+    )
+
+
+# =============================================================================
+# Module Discovery Schemas
+# =============================================================================
+
+
+class ModuleInfoResponse(BaseModel):
+    """Single D&D module from LLM discovery."""
+
+    number: int = Field(..., ge=1, description="Module number for ordering")
+    name: str = Field(..., description="Module name (e.g., 'Curse of Strahd')")
+    description: str = Field(..., description="Brief module description")
+    setting: str = Field(default="", description="Campaign setting")
+    level_range: str = Field(default="", description="Recommended level range")
+
+
+class ModuleDiscoveryResponse(BaseModel):
+    """Response for POST /api/modules/discover."""
+
+    modules: list[ModuleInfoResponse] = Field(
+        default_factory=list, description="Discovered modules"
+    )
+    provider: str = Field(..., description="LLM provider used")
+    model: str = Field(..., description="Model used")
+    source: Literal["llm", "error"] = Field(
+        ..., description="Whether modules came from LLM or an error occurred"
+    )
+    error: str | None = Field(
+        default=None, description="Error message if discovery failed"
+    )
+
+
+class SessionStartRequest(BaseModel):
+    """Request body for starting a session with setup config."""
+
+    selected_module: ModuleInfoResponse | None = Field(
+        default=None, description="Selected adventure module (None for freeform)"
+    )
+    selected_characters: list[str] | None = Field(
+        default=None, description="Character names to include in party"
+    )
+    adventure_name: str = Field(
+        default="", description="Optional adventure name"
+    )

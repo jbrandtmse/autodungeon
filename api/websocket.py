@@ -431,17 +431,25 @@ async def game_websocket(websocket: WebSocket, session_id: str) -> None:
     # 2. Accept the WebSocket connection
     await websocket.accept()
 
-    # 3. Look up engine from app state
+    # 3. Look up engine from app state, auto-create if missing
     engines: dict[str, GameEngine] = websocket.app.state.engines
     if session_id not in engines:
-        await websocket.send_json(
-            WsError(
-                message=f"Session '{session_id}' not found",
-                recoverable=False,
-            ).model_dump()
-        )
-        await websocket.close(code=4004, reason="Session not found")
-        return
+        try:
+            engine = GameEngine(session_id)
+            engines[session_id] = engine
+            await engine.start_session()  # Loads from checkpoint or creates default
+        except Exception as e:
+            logger.warning(
+                "Failed to auto-create engine for session %s: %s", session_id, e
+            )
+            await websocket.send_json(
+                WsError(
+                    message=f"Failed to load session '{session_id}': {e}",
+                    recoverable=False,
+                ).model_dump()
+            )
+            await websocket.close(code=4004, reason="Session not found")
+            return
 
     engine = engines[session_id]
 

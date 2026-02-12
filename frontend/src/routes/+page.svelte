@@ -49,7 +49,7 @@
 			const result = await createSession(newSessionName.trim() || undefined);
 			newSessionName = '';
 			showCreateForm = false;
-			goto(`/game/${encodeURIComponent(result.session_id)}`);
+			goto(`/setup/${encodeURIComponent(result.session_id)}`);
 		} catch (e) {
 			createError = e instanceof ApiError ? e.message : 'Failed to create session';
 		} finally {

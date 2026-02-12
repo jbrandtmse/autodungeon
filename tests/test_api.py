@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Generator
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import yaml
@@ -1266,6 +1266,161 @@ class TestDeleteCharacterEndpoint:
 
 
 # =============================================================================
+# Model Listing Endpoint Tests
+# =============================================================================
+
+
+class TestModelListEndpoint:
+    """Tests for GET /api/models/{provider}."""
+
+    @pytest.mark.anyio
+    async def test_list_models_invalid_provider(self, client: AsyncClient) -> None:
+        """Returns 400 for an unsupported provider."""
+        resp = await client.get("/api/models/openai")
+        assert resp.status_code == 400
+        assert "Invalid provider" in resp.json()["detail"]
+
+    @pytest.mark.anyio
+    async def test_list_models_fallback_on_error(self, client: AsyncClient) -> None:
+        """Returns fallback models when API call fails."""
+        from api.routes import _model_cache
+
+        _model_cache.clear()
+
+        # Mock the fetch function to simulate API failure
+        with patch(
+            "api.routes._fetch_models_from_api",
+            side_effect=ValueError("No API key configured"),
+        ):
+            resp = await client.get("/api/models/gemini")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["provider"] == "gemini"
+        assert data["source"] == "fallback"
+        assert len(data["models"]) > 0
+        assert data["error"] is not None  # Error message present
+
+    @pytest.mark.anyio
+    async def test_list_models_claude_normalized(self, client: AsyncClient) -> None:
+        """Provider 'claude' is accepted and normalized to 'anthropic'."""
+        from api.routes import _model_cache
+
+        _model_cache.clear()
+
+        resp = await client.get("/api/models/claude")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["provider"] == "anthropic"
+        assert len(data["models"]) > 0
+
+    @pytest.mark.anyio
+    async def test_list_models_cache_hit(self, client: AsyncClient) -> None:
+        """Second call uses cache (same result, no error change)."""
+        from api.routes import _model_cache
+
+        _model_cache.clear()
+
+        resp1 = await client.get("/api/models/anthropic")
+        assert resp1.status_code == 200
+        resp2 = await client.get("/api/models/anthropic")
+        assert resp2.status_code == 200
+        # Both should return same data
+        assert resp1.json()["models"] == resp2.json()["models"]
+
+
+# =============================================================================
+# Preset Character Model Config Tests
+# =============================================================================
+
+
+class TestPresetCharacterModelConfig:
+    """Tests for updating preset character LLM config via PUT /api/characters/{name}."""
+
+    @pytest.mark.anyio
+    async def test_update_preset_model_succeeds(
+        self, client: AsyncClient, temp_characters_dir: Path
+    ) -> None:
+        """PUT with provider/model/token_limit succeeds for preset characters."""
+        resp = await client.put(
+            "/api/characters/shadowmere",
+            json={"provider": "gemini", "model": "gemini-2.0-flash", "token_limit": 8000},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["provider"] == "gemini"
+        assert data["model"] == "gemini-2.0-flash"
+        assert data["token_limit"] == 8000
+        assert data["source"] == "preset"
+
+    @pytest.mark.anyio
+    async def test_update_preset_name_rejected(
+        self, client: AsyncClient, temp_characters_dir: Path
+    ) -> None:
+        """PUT with name field returns 403 for preset characters."""
+        resp = await client.put(
+            "/api/characters/shadowmere",
+            json={"name": "NewName"},
+        )
+        assert resp.status_code == 403
+        assert "name" in resp.json()["detail"].lower()
+
+    @pytest.mark.anyio
+    async def test_update_preset_personality_rejected(
+        self, client: AsyncClient, temp_characters_dir: Path
+    ) -> None:
+        """PUT with personality field returns 403 for preset characters."""
+        resp = await client.put(
+            "/api/characters/shadowmere",
+            json={"personality": "New personality"},
+        )
+        assert resp.status_code == 403
+        assert "personality" in resp.json()["detail"].lower()
+
+    @pytest.mark.anyio
+    async def test_update_preset_partial_model(
+        self, client: AsyncClient, temp_characters_dir: Path
+    ) -> None:
+        """PUT with just model field succeeds for preset characters."""
+        resp = await client.put(
+            "/api/characters/shadowmere",
+            json={"model": "claude-sonnet-4-20250514"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["model"] == "claude-sonnet-4-20250514"
+
+    @pytest.mark.anyio
+    async def test_get_preset_reflects_update(
+        self, client: AsyncClient, temp_characters_dir: Path
+    ) -> None:
+        """GET returns updated values after PUT on preset."""
+        # Update
+        resp = await client.put(
+            "/api/characters/shadowmere",
+            json={"provider": "gemini", "model": "gemini-2.0-flash"},
+        )
+        assert resp.status_code == 200
+
+        # Verify via GET
+        resp = await client.get("/api/characters/shadowmere")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["provider"] == "gemini"
+        assert data["model"] == "gemini-2.0-flash"
+
+    @pytest.mark.anyio
+    async def test_update_preset_mixed_fields_rejected(
+        self, client: AsyncClient, temp_characters_dir: Path
+    ) -> None:
+        """PUT with both allowed and disallowed fields returns 403."""
+        resp = await client.put(
+            "/api/characters/shadowmere",
+            json={"model": "gemini-2.0-flash", "backstory": "A new story"},
+        )
+        assert resp.status_code == 403
+        assert "backstory" in resp.json()["detail"].lower()
+
+
+# =============================================================================
 # Fork Endpoint Tests (Story 16-10)
 # =============================================================================
 
@@ -2135,3 +2290,211 @@ class TestDmConfigInSessionConfig:
         data = resp.json()
         assert data["combat_mode"] == "Tactical"
         assert data["dm_provider"] == "ollama"
+
+
+# =============================================================================
+# Module Discovery Tests
+# =============================================================================
+
+
+class TestModuleDiscovery:
+    """Tests for POST /api/modules/discover."""
+
+    @pytest.mark.anyio
+    async def test_discover_modules_success(
+        self, client: AsyncClient
+    ) -> None:
+        """Module discovery returns modules from mocked LLM."""
+        from models import ModuleDiscoveryResult, ModuleInfo
+
+        mock_result = ModuleDiscoveryResult(
+            modules=[
+                ModuleInfo(
+                    number=1,
+                    name="Curse of Strahd",
+                    description="Gothic horror adventure in Ravenloft.",
+                    setting="Ravenloft",
+                    level_range="1-10",
+                ),
+                ModuleInfo(
+                    number=2,
+                    name="Lost Mine of Phandelver",
+                    description="Classic starter adventure.",
+                    setting="Forgotten Realms",
+                    level_range="1-5",
+                ),
+            ],
+            provider="gemini",
+            model="gemini-1.5-flash",
+            timestamp="2026-01-01T00:00:00Z",
+            retry_count=0,
+        )
+
+        with patch("api.routes.asyncio.to_thread", return_value=mock_result):
+            resp = await client.post("/api/modules/discover")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["source"] == "llm"
+        assert len(data["modules"]) == 2
+        assert data["modules"][0]["name"] == "Curse of Strahd"
+        assert data["modules"][1]["level_range"] == "1-5"
+        assert data["provider"] == "gemini"
+        assert data["error"] is None
+
+    @pytest.mark.anyio
+    async def test_discover_modules_llm_error(
+        self, client: AsyncClient
+    ) -> None:
+        """Module discovery returns source='error' on LLM failure."""
+        from agents import LLMError
+
+        with patch(
+            "api.routes.asyncio.to_thread",
+            side_effect=LLMError(
+                provider="gemini",
+                agent="dm",
+                error_type="api_error",
+                original_error=RuntimeError("Connection refused"),
+            ),
+        ):
+            resp = await client.post("/api/modules/discover")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["source"] == "error"
+        assert len(data["modules"]) == 0
+        assert data["error"] is not None
+
+    @pytest.mark.anyio
+    async def test_discover_modules_config_error(
+        self, client: AsyncClient
+    ) -> None:
+        """Module discovery returns error when DM config fails to load."""
+        with patch(
+            "config.load_dm_config",
+            side_effect=ValueError("Missing dm.yaml"),
+        ):
+            resp = await client.post("/api/modules/discover")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["source"] == "error"
+        assert "DM config" in data["error"]
+
+
+# =============================================================================
+# Session Start Tests
+# =============================================================================
+
+
+class TestSessionStart:
+    """Tests for POST /api/sessions/{session_id}/start."""
+
+    @pytest.fixture(autouse=True)
+    def _ensure_engines(self) -> Generator[None, None, None]:
+        """Ensure app.state.engines exists for session start tests."""
+        if not hasattr(app.state, "engines"):
+            app.state.engines = {}
+        original = dict(app.state.engines)
+        yield
+        app.state.engines = original
+
+    @pytest.mark.anyio
+    async def test_start_session_success(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Starting a session creates an engine and returns success."""
+        _create_test_session(temp_campaigns_dir, "001")
+
+        with patch("api.engine.GameEngine") as MockEngine:
+            mock_engine = MockEngine.return_value
+            mock_engine.state = None
+            mock_engine.start_session = AsyncMock()
+
+            resp = await client.post("/api/sessions/001/start")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "started"
+        assert data["session_id"] == "001"
+        mock_engine.start_session.assert_called_once()
+
+    @pytest.mark.anyio
+    async def test_start_session_with_module(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Starting a session passes module info through to engine."""
+        _create_test_session(temp_campaigns_dir, "001")
+
+        with patch("api.engine.GameEngine") as MockEngine:
+            mock_engine = MockEngine.return_value
+            mock_engine.state = None
+            mock_engine.start_session = AsyncMock()
+
+            resp = await client.post(
+                "/api/sessions/001/start",
+                json={
+                    "selected_module": {
+                        "number": 1,
+                        "name": "Curse of Strahd",
+                        "description": "Gothic horror.",
+                        "setting": "Ravenloft",
+                        "level_range": "1-10",
+                    }
+                },
+            )
+
+        assert resp.status_code == 200
+        call_kwargs = mock_engine.start_session.call_args[1]
+        assert call_kwargs["selected_module"] is not None
+        assert call_kwargs["selected_module"].name == "Curse of Strahd"
+
+    @pytest.mark.anyio
+    async def test_start_session_with_characters(
+        self,
+        client: AsyncClient,
+        temp_campaigns_dir: Path,
+        temp_characters_dir: Path,
+    ) -> None:
+        """Starting a session filters party to selected characters."""
+        _create_test_session(temp_campaigns_dir, "001")
+
+        with patch("api.engine.GameEngine") as MockEngine:
+            mock_engine = MockEngine.return_value
+            mock_engine.state = None
+            mock_engine.start_session = AsyncMock()
+
+            resp = await client.post(
+                "/api/sessions/001/start",
+                json={"selected_characters": ["Shadowmere"]},
+            )
+
+        assert resp.status_code == 200
+        call_kwargs = mock_engine.start_session.call_args[1]
+        assert call_kwargs["characters_override"] is not None
+        assert "shadowmere" in call_kwargs["characters_override"]
+
+    @pytest.mark.anyio
+    async def test_start_session_already_started(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Starting an already-started session returns 409."""
+        _create_test_session(temp_campaigns_dir, "001")
+
+        # Create a mock engine that has state (already started)
+        mock_engine = AsyncMock()
+        mock_engine.state = create_initial_game_state()
+        app.state.engines["001"] = mock_engine
+
+        resp = await client.post("/api/sessions/001/start")
+        assert resp.status_code == 409
+        assert "already started" in resp.json()["detail"]
+
+    @pytest.mark.anyio
+    async def test_start_session_invalid_session(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Starting a non-existent session returns 404."""
+        resp = await client.post("/api/sessions/999/start")
+        assert resp.status_code == 404

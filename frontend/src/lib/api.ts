@@ -6,6 +6,7 @@ import type {
   CharacterDetail,
   CharacterCreateRequest,
   CharacterUpdateRequest,
+  ModelListResult,
   ForkMetadata,
   ComparisonData,
   CheckpointInfo,
@@ -13,6 +14,8 @@ import type {
   CharacterSheetFull,
   UserSettings,
   UserSettingsUpdate,
+  ModuleDiscoveryResponse,
+  SessionStartConfig,
 } from './types';
 
 const BASE_URL = '';  // Empty — Vite proxy handles /api routing
@@ -147,6 +150,15 @@ export async function deleteCharacter(name: string): Promise<void> {
   // 204 No Content — no body to parse
 }
 
+// === Model Listing API ===
+
+export async function getModels(provider: string): Promise<ModelListResult> {
+  return request<ModelListResult>(`/api/models/${encodeURIComponent(provider)}`);
+}
+
+// Re-export for modelUtils
+export type { ModelListResult };
+
 // === User Settings API ===
 
 export async function getUserSettings(): Promise<UserSettings> {
@@ -276,5 +288,24 @@ export async function getCharacterSheet(
 ): Promise<CharacterSheetFull> {
   return request<CharacterSheetFull>(
     `/api/sessions/${encodeURIComponent(sessionId)}/character-sheets/${encodeURIComponent(name)}`,
+  );
+}
+
+// === Module Discovery & Session Start API ===
+
+export async function discoverModules(): Promise<ModuleDiscoveryResponse> {
+  return request<ModuleDiscoveryResponse>('/api/modules/discover', { method: 'POST' });
+}
+
+export async function startSession(
+  sessionId: string,
+  config: SessionStartConfig,
+): Promise<{ status: string; session_id: string }> {
+  return request<{ status: string; session_id: string }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/start`,
+    {
+      method: 'POST',
+      body: JSON.stringify(config),
+    },
   );
 }

@@ -82,6 +82,13 @@ export interface CharacterUpdateRequest {
   token_limit?: number;
 }
 
+export interface ModelListResult {
+  provider: string;
+  models: string[];
+  source: 'api' | 'fallback';
+  error: string | null;
+}
+
 export interface AgentMemory {
   long_term_summary: string;
   short_term_buffer: string[];
@@ -326,6 +333,30 @@ export interface ComparisonData {
   branch_turn: number;
   left: ComparisonTimeline;
   right: ComparisonTimeline;
+}
+
+// === Module Discovery Types ===
+
+export interface ModuleInfo {
+  number: number;
+  name: string;
+  description: string;
+  setting: string;
+  level_range: string;
+}
+
+export interface ModuleDiscoveryResponse {
+  modules: ModuleInfo[];
+  provider: string;
+  model: string;
+  source: 'llm' | 'error';
+  error: string | null;
+}
+
+export interface SessionStartConfig {
+  selected_module?: ModuleInfo | null;
+  selected_characters?: string[] | null;
+  adventure_name?: string;
 }
 
 // === Whisper Types (Story 16-10) ===

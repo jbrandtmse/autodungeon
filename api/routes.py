@@ -7,8 +7,13 @@ and models.py without modifying them.
 
 from __future__ import annotations
 
+import asyncio
+import logging
+import time
+from pathlib import Path
+
 import yaml
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import ValidationError
 
 from api.schemas import (
@@ -27,13 +32,22 @@ from api.schemas import (
     ForkRenameRequest,
     GameConfigResponse,
     GameConfigUpdateRequest,
+    ModelListResponse,
+    ModuleDiscoveryResponse,
+    ModuleInfoResponse,
     SessionCreateRequest,
     SessionCreateResponse,
     SessionResponse,
+    SessionStartRequest,
     UserSettingsResponse,
     UserSettingsUpdateRequest,
 )
-from config import PROJECT_ROOT, load_character_configs, load_user_settings, save_user_settings
+from config import (
+    PROJECT_ROOT,
+    load_character_configs,
+    load_user_settings,
+    save_user_settings,
+)
 from models import CharacterConfig, DMConfig, GameConfig
 from persistence import (
     _validate_session_id,
@@ -54,7 +68,35 @@ from persistence import (
     save_checkpoint,
 )
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api")
+
+# =============================================================================
+# Model Listing Cache
+# =============================================================================
+
+_model_cache: dict[str, tuple[list[str], str, float]] = {}  # provider -> (models, source, ts)
+_CACHE_TTL = 60.0
+
+FALLBACK_MODELS: dict[str, list[str]] = {
+    "gemini": [
+        "gemini-3-flash-preview",
+        "gemini-2.0-flash",
+        "gemini-1.5-pro",
+        "gemini-2.5-flash-preview-05-20",
+        "gemini-2.5-pro-preview-05-06",
+        "gemini-3-pro-preview",
+    ],
+    "anthropic": [
+        "claude-sonnet-4-20250514",
+        "claude-3-5-sonnet-20241022",
+        "claude-3-haiku-20240307",
+    ],
+    "ollama": ["llama3", "mistral", "phi3", "qwen3:14b"],
+}
+
+_VALID_PROVIDERS = {"gemini", "anthropic", "claude", "ollama"}
 
 
 # =============================================================================
@@ -183,6 +225,178 @@ async def delete_session_endpoint(session_id: str) -> None:
 
     if not deleted:
         raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
+
+
+# =============================================================================
+# Module Discovery Endpoint
+# =============================================================================
+
+
+@router.post("/modules/discover", response_model=ModuleDiscoveryResponse)
+async def discover_modules_endpoint() -> ModuleDiscoveryResponse:
+    """Discover available D&D modules via LLM query.
+
+    Calls the DM's configured LLM to generate a list of known D&D
+    modules/adventures. This is a potentially slow operation (5-15s)
+    as it involves an LLM API call.
+
+    Returns:
+        Module discovery results with list of modules.
+    """
+    from agents import LLMError, discover_modules
+    from config import load_dm_config
+
+    try:
+        dm_config = load_dm_config()
+    except (ValueError, OSError) as e:
+        return ModuleDiscoveryResponse(
+            modules=[],
+            provider="unknown",
+            model="unknown",
+            source="error",
+            error=f"Failed to load DM config: {e}",
+        )
+
+    try:
+        result = await asyncio.to_thread(discover_modules, dm_config)
+    except LLMError as e:
+        return ModuleDiscoveryResponse(
+            modules=[],
+            provider=dm_config.provider,
+            model=dm_config.model,
+            source="error",
+            error=str(e),
+        )
+    except Exception as e:
+        logger.exception("Unexpected error during module discovery")
+        return ModuleDiscoveryResponse(
+            modules=[],
+            provider=dm_config.provider,
+            model=dm_config.model,
+            source="error",
+            error=f"Module discovery failed: {e}",
+        )
+
+    return ModuleDiscoveryResponse(
+        modules=[
+            ModuleInfoResponse(
+                number=m.number,
+                name=m.name,
+                description=m.description,
+                setting=m.setting,
+                level_range=m.level_range,
+            )
+            for m in result.modules
+        ],
+        provider=result.provider,
+        model=result.model,
+        source="llm",
+    )
+
+
+# =============================================================================
+# Session Start Endpoint
+# =============================================================================
+
+
+@router.post("/sessions/{session_id}/start")
+async def start_session_endpoint(
+    session_id: str, request: Request, body: SessionStartRequest | None = None
+) -> dict[str, str]:
+    """Start a session with optional setup configuration.
+
+    Creates a GameEngine, registers it in app state, and calls
+    start_session() with the provided module and character selections.
+
+    Args:
+        session_id: Session ID to start.
+        request: FastAPI request (for accessing app.state.engines).
+        body: Optional setup configuration (module, characters, name).
+
+    Returns:
+        Status dict with session_id.
+
+    Raises:
+        HTTPException: 404 if session not found, 409 if already started.
+    """
+    from api.engine import GameEngine
+
+    try:
+        _validate_session_id(session_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=400, detail=f"Invalid session ID: {session_id}"
+        ) from None
+
+    metadata = load_session_metadata(session_id)
+    if metadata is None:
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
+
+    engines: dict[str, GameEngine] = request.app.state.engines
+
+    # Check if engine already has state (already started)
+    if session_id in engines and engines[session_id].state is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Session '{session_id}' is already started",
+        )
+
+    body = body or SessionStartRequest()
+
+    # Build characters_override from selected character names
+    characters_override: dict[str, object] | None = None
+    if body.selected_characters:
+        try:
+            all_presets = load_character_configs()
+        except (ValueError, OSError):
+            all_presets = {}
+
+        all_library = _load_library_characters()
+
+        # Merge preset + library, keyed by lowercase name
+        all_chars = {**all_presets, **all_library}
+
+        # Filter to selected names
+        selected = {}
+        for name in body.selected_characters:
+            key = name.lower()
+            if key in all_chars:
+                selected[key] = all_chars[key]
+
+        if selected:
+            characters_override = selected  # type: ignore[assignment]
+
+    # Convert ModuleInfoResponse to models.ModuleInfo if provided
+    selected_module = None
+    if body.selected_module:
+        from models import ModuleInfo
+
+        selected_module = ModuleInfo(
+            number=body.selected_module.number,
+            name=body.selected_module.name,
+            description=body.selected_module.description,
+            setting=body.selected_module.setting,
+            level_range=body.selected_module.level_range,
+        )
+
+    # Create engine and start session
+    engine = GameEngine(session_id)
+    engines[session_id] = engine
+
+    try:
+        await engine.start_session(
+            characters_override=characters_override,
+            selected_module=selected_module,
+        )
+    except Exception as e:
+        # Clean up on failure
+        engines.pop(session_id, None)
+        logger.exception("Failed to start session %s", session_id)
+        raise HTTPException(
+            status_code=500, detail=f"Failed to start session: {e}"
+        ) from None
+
+    return {"status": "started", "session_id": session_id}
 
 
 # =============================================================================
@@ -467,6 +681,135 @@ async def update_user_settings(body: UserSettingsUpdateRequest) -> UserSettingsR
 
 
 # =============================================================================
+# Model Listing Endpoint
+# =============================================================================
+
+
+def _normalize_provider(provider: str) -> str:
+    """Normalize provider name: 'claude' -> 'anthropic'."""
+    return "anthropic" if provider.lower() == "claude" else provider.lower()
+
+
+def _get_api_key_for_provider(provider: str) -> str | None:
+    """Get API key for a provider from user-settings or env vars."""
+    from config import get_config
+
+    normalized = _normalize_provider(provider)
+    settings = load_user_settings()
+    api_keys = settings.get("api_keys", {})
+
+    # Check user-settings first
+    if normalized == "gemini" and api_keys.get("google"):
+        return str(api_keys["google"])
+    if normalized == "anthropic" and api_keys.get("anthropic"):
+        return str(api_keys["anthropic"])
+    if normalized == "ollama":
+        return api_keys.get("ollama", "http://localhost:11434")
+
+    # Fall back to env vars
+    try:
+        config = get_config()
+        if normalized == "gemini":
+            return config.google_api_key or None
+        if normalized == "anthropic":
+            return config.anthropic_api_key or None
+        if normalized == "ollama":
+            return config.ollama_base_url or "http://localhost:11434"
+    except Exception:
+        pass
+
+    return None
+
+
+def _fetch_models_from_api(provider: str) -> list[str]:
+    """Fetch available models from a provider's API. Raises on failure."""
+    normalized = _normalize_provider(provider)
+    api_key = _get_api_key_for_provider(provider)
+
+    if normalized == "gemini":
+        if not api_key:
+            raise ValueError("No Google API key configured")
+        import google.generativeai as genai
+
+        genai.configure(api_key=api_key)
+        models = []
+        for m in genai.list_models():
+            if "generateContent" in (m.supported_generation_methods or []):
+                # Model name is like 'models/gemini-1.5-flash' — extract the ID
+                model_id = m.name.replace("models/", "") if m.name else ""
+                if model_id:
+                    models.append(model_id)
+        return sorted(models)
+
+    if normalized == "anthropic":
+        if not api_key:
+            raise ValueError("No Anthropic API key configured")
+        import anthropic
+
+        client = anthropic.Anthropic(api_key=api_key)
+        result = client.models.list()
+        models = [m.id for m in result.data]
+        return sorted(models)
+
+    if normalized == "ollama":
+        import httpx
+
+        base_url = api_key or "http://localhost:11434"
+        resp = httpx.get(f"{base_url}/api/tags", timeout=5.0)
+        resp.raise_for_status()
+        data = resp.json()
+        return [m["name"] for m in data.get("models", [])]
+
+    raise ValueError(f"Unsupported provider: {provider}")
+
+
+@router.get("/models/{provider}", response_model=ModelListResponse)
+async def list_models(provider: str) -> ModelListResponse:
+    """List available models for a provider.
+
+    Queries the provider's API for available models, with an in-memory
+    cache (60s TTL). Falls back to a static list if the API call fails.
+
+    Args:
+        provider: Provider name (gemini, anthropic, claude, ollama).
+
+    Returns:
+        Model list with source indicator.
+    """
+    if provider.lower() not in _VALID_PROVIDERS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid provider: {provider}. Must be one of: {', '.join(sorted(_VALID_PROVIDERS))}",
+        )
+
+    normalized = _normalize_provider(provider)
+
+    # Check cache
+    if normalized in _model_cache:
+        models, source, ts = _model_cache[normalized]
+        if time.time() - ts < _CACHE_TTL:
+            return ModelListResponse(
+                provider=normalized, models=models, source=source, error=None
+            )
+
+    # Try live API
+    try:
+        models = _fetch_models_from_api(provider)
+        _model_cache[normalized] = (models, "api", time.time())
+        return ModelListResponse(
+            provider=normalized, models=models, source="api", error=None
+        )
+    except Exception as e:
+        error_msg = str(e)
+        logger.warning("Failed to fetch models for %s: %s", normalized, error_msg)
+        fallback = FALLBACK_MODELS.get(normalized, [])
+        _model_cache[normalized] = (fallback, "fallback", time.time())
+        return ModelListResponse(
+            provider=normalized, models=fallback, source="fallback", error=error_msg
+        )
+
+
+# =============================================================================
 # Character Endpoints
 # =============================================================================
 
@@ -692,6 +1035,93 @@ def _is_preset_character(name: str) -> bool:
     return name.lower() in preset_configs
 
 
+def _find_preset_yaml(name: str) -> Path | None:
+    """Locate the preset YAML file for a character by name.
+
+    Args:
+        name: Character name (case-insensitive).
+
+    Returns:
+        Path to the YAML file, or None if not found.
+    """
+
+    chars_dir = PROJECT_ROOT / "config" / "characters"
+    if not chars_dir.exists():
+        return None
+
+    lookup = name.lower()
+    for yaml_file in chars_dir.glob("*.yaml"):
+        if yaml_file.name == "dm.yaml":
+            continue
+        try:
+            with open(yaml_file, encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+        except yaml.YAMLError:
+            continue
+        if data and data.get("name", "").lower() == lookup:
+            return yaml_file
+
+    return None
+
+
+async def _update_preset_character(
+    name: str, update_data: dict[str, object]
+) -> CharacterDetailResponse:
+    """Update LLM config fields on a preset character.
+
+    Args:
+        name: Character name (case-insensitive).
+        update_data: Dict with provider/model/token_limit fields.
+
+    Returns:
+        Updated character detail response.
+
+    Raises:
+        HTTPException: 404 if YAML file not found, 500 on write error.
+    """
+    yaml_file = _find_preset_yaml(name)
+    if yaml_file is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Preset character file for '{name}' not found",
+        )
+
+    try:
+        with open(yaml_file, encoding="utf-8") as f:
+            file_data = yaml.safe_load(f) or {}
+    except yaml.YAMLError as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to read character file: {e}"
+        ) from None
+
+    # Apply allowed updates
+    for key, value in update_data.items():
+        file_data[key] = value
+
+    try:
+        with open(yaml_file, "w", encoding="utf-8") as f:
+            yaml.safe_dump(file_data, f, default_flow_style=False, allow_unicode=True)
+    except OSError as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to update character: {e}"
+        ) from None
+
+    # Map YAML 'class' to character_class
+    char_class = file_data.get("character_class", file_data.get("class", ""))
+
+    return CharacterDetailResponse(
+        name=file_data.get("name", name),
+        character_class=char_class,
+        personality=file_data.get("personality", ""),
+        color=file_data.get("color", "#808080"),
+        provider=file_data.get("provider", "gemini"),
+        model=file_data.get("model", ""),
+        source="preset",
+        token_limit=file_data.get("token_limit", 4000),
+        backstory=str(file_data.get("backstory", "")),
+    )
+
+
 @router.post("/characters", response_model=CharacterDetailResponse, status_code=201)
 async def create_character(body: CharacterCreateRequest) -> CharacterDetailResponse:
     """Create a new custom character and save to the library.
@@ -807,12 +1237,23 @@ async def update_character(
 
     lookup = name.lower()
 
-    # Reject updates to presets
+    # Preset characters: only allow LLM config fields
     if _is_preset_character(name):
-        raise HTTPException(
-            status_code=403,
-            detail="Preset characters cannot be modified",
-        )
+        _PRESET_ALLOWED_FIELDS = {"provider", "model", "token_limit"}
+        update_data = body.model_dump(exclude_none=True)
+        disallowed = set(update_data.keys()) - _PRESET_ALLOWED_FIELDS
+        if disallowed:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Cannot modify {', '.join(sorted(disallowed))} on preset characters. "
+                f"Only {', '.join(sorted(_PRESET_ALLOWED_FIELDS))} can be changed.",
+            )
+        if not update_data:
+            raise HTTPException(
+                status_code=400,
+                detail="No fields to update",
+            )
+        return await _update_preset_character(name, update_data)
 
     # Find existing library character
     library_dir = PROJECT_ROOT / "config" / "characters" / "library"
