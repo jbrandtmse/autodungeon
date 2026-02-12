@@ -1554,7 +1554,7 @@ Completed in separate cycle sessions (not logged here).
 | 16-3-websocket-game-streaming | ✅ done | Full Cycle |
 | 16-4-sveltekit-scaffold-theme | ✅ done | Full Cycle |
 | 16-5-narrative-panel | ✅ done | Full Cycle |
-| 16-6-sidebar-party-controls | pending | - |
+| 16-6-sidebar-party-controls | ✅ done | Full Cycle |
 | 16-7-session-management-ui | pending | - |
 | 16-8-settings-configuration-ui | pending | - |
 | 16-9-character-creation-library | pending | - |

@@ -25,6 +25,7 @@ from models import CharacterConfig, GameConfig
 from persistence import (
     _validate_session_id,
     create_new_session,
+    delete_session,
     get_latest_checkpoint,
     list_sessions_with_metadata,
     load_checkpoint,
@@ -128,6 +129,39 @@ async def get_session(session_id: str) -> SessionResponse:
         character_names=metadata.character_names,
         turn_count=metadata.turn_count,
     )
+
+
+@router.delete("/sessions/{session_id}", status_code=204)
+async def delete_session_endpoint(session_id: str) -> None:
+    """Delete a session and all its data.
+
+    Args:
+        session_id: Session ID string (e.g., "001").
+
+    Raises:
+        HTTPException: 400 for invalid session ID, 404 if not found,
+            500 if deletion fails.
+    """
+    try:
+        _validate_session_id(session_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=400, detail=f"Invalid session ID: {session_id}"
+        ) from None
+
+    metadata = load_session_metadata(session_id)
+    if metadata is None:
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
+
+    try:
+        deleted = delete_session(session_id)
+    except OSError as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to delete session: {e}"
+        ) from None
+
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
 
 
 # =============================================================================

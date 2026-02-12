@@ -62,6 +62,24 @@ export async function getSession(sessionId: string): Promise<Session> {
   return request<Session>(`/api/sessions/${encodeURIComponent(sessionId)}`);
 }
 
+export async function deleteSession(sessionId: string): Promise<void> {
+  const response = await fetch(`${BASE_URL}/api/sessions/${encodeURIComponent(sessionId)}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    let message: string;
+    try {
+      const json = JSON.parse(body);
+      message = json.detail || json.message || body;
+    } catch {
+      message = body || response.statusText;
+    }
+    throw new ApiError(response.status, response.statusText, message);
+  }
+  // 204 No Content — no body to parse
+}
+
 export async function getSessionConfig(sessionId: string): Promise<GameConfig> {
   return request<GameConfig>(`/api/sessions/${encodeURIComponent(sessionId)}/config`);
 }

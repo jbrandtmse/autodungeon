@@ -197,8 +197,8 @@ development_status:
   16-3-websocket-game-streaming: done
   16-4-sveltekit-scaffold-theme: done
   16-5-narrative-panel: done
-  16-6-sidebar-party-controls: review
-  16-7-session-management-ui: backlog
+  16-6-sidebar-party-controls: done
+  16-7-session-management-ui: review
   16-8-settings-configuration-ui: backlog
   16-9-character-creation-library: backlog
   16-10-advanced-features-ui: backlog

@@ -14,7 +14,7 @@
 <div class="app-layout" class:sidebar-collapsed={!$uiState.sidebarOpen}>
 	<aside class="sidebar" class:open={$uiState.sidebarOpen}>
 		<div class="sidebar-header">
-			<h1 class="app-title">autodungeon</h1>
+			<a href="/" class="app-title">autodungeon</a>
 		</div>
 		<nav class="sidebar-nav">
 			<Sidebar />
@@ -71,6 +71,14 @@
 		font-weight: 600;
 		color: var(--color-dm);
 		letter-spacing: 0.05em;
+		text-decoration: none;
+		display: block;
+		transition: opacity var(--transition-fast);
+	}
+
+	.app-title:hover {
+		text-decoration: none;
+		opacity: 0.85;
 	}
 
 	.sidebar-nav {

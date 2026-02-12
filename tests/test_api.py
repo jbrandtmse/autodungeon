@@ -361,6 +361,93 @@ class TestSessionDetailEndpoint:
 
 
 # =============================================================================
+# Session Delete Endpoint Tests
+# =============================================================================
+
+
+class TestSessionDeleteEndpoint:
+    """Tests for DELETE /api/sessions/{session_id}."""
+
+    @pytest.mark.anyio
+    async def test_delete_existing_session(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Deleting an existing session returns 204 and removes it."""
+        _create_test_session(
+            temp_campaigns_dir,
+            session_id="001",
+            session_number=1,
+            name="Doomed Session",
+        )
+
+        resp = await client.delete("/api/sessions/001")
+        assert resp.status_code == 204
+        assert resp.content == b""
+
+        # Verify it no longer appears in the session list
+        list_resp = await client.get("/api/sessions")
+        assert list_resp.status_code == 200
+        assert list_resp.json() == []
+
+    @pytest.mark.anyio
+    async def test_delete_nonexistent_session(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Deleting a non-existent session returns 404."""
+        resp = await client.delete("/api/sessions/999")
+        assert resp.status_code == 404
+        assert "not found" in resp.json()["detail"].lower()
+
+    @pytest.mark.anyio
+    async def test_delete_invalid_session_id(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Deleting with an invalid session ID returns 400."""
+        resp = await client.delete("/api/sessions/bad!id")
+        assert resp.status_code == 400
+        assert "Invalid session ID" in resp.json()["detail"]
+
+    @pytest.mark.anyio
+    async def test_delete_session_with_checkpoints(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Deleting a session with checkpoints removes everything."""
+        _create_test_session(
+            temp_campaigns_dir,
+            session_id="001",
+            session_number=1,
+            name="Session with data",
+        )
+        _create_test_checkpoint(temp_campaigns_dir, "001", 1)
+        _create_test_checkpoint(temp_campaigns_dir, "001", 2)
+
+        resp = await client.delete("/api/sessions/001")
+        assert resp.status_code == 204
+
+        # Verify session is gone
+        get_resp = await client.get("/api/sessions/001")
+        assert get_resp.status_code == 404
+
+    @pytest.mark.anyio
+    async def test_delete_session_idempotent_check(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """Deleting the same session twice returns 404 on the second call."""
+        _create_test_session(
+            temp_campaigns_dir,
+            session_id="001",
+            session_number=1,
+            name="Once deleted",
+        )
+
+        resp1 = await client.delete("/api/sessions/001")
+        assert resp1.status_code == 204
+
+        resp2 = await client.delete("/api/sessions/001")
+        assert resp2.status_code == 404
+
+
+# =============================================================================
 # Session Config Get Endpoint Tests
 # =============================================================================
 
