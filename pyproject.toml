@@ -26,6 +26,9 @@ dependencies = [
     "pydantic-settings>=2.0.0",
     "pyyaml>=6.0.0",
     "python-dotenv>=1.0.0",
+    "fastapi>=0.128.8",
+    "uvicorn[standard]>=0.40.0",
+    "httpx>=0.28.1",
 ]
 
 [project.optional-dependencies]
@@ -95,4 +98,10 @@ addopts = "-v --tb=short"
 markers = [
     "integration: tests that make real LLM API calls (may incur costs)",
     "slow: tests that take a long time to run (multiple LLM calls)",
+]
+
+[dependency-groups]
+dev = [
+    "anyio>=4.12.1",
+    "pytest-anyio>=0.0.0",
 ]

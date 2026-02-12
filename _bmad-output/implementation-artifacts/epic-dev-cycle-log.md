@@ -1533,6 +1533,37 @@ Completed in separate cycle sessions (not logged here).
 
 ---
 
+# Epic 16 - UI Framework Migration (FastAPI + SvelteKit)
+
+**Project:** autodungeon
+**Epic:** 16 - UI Framework Migration — FastAPI + SvelteKit
+**Started:** 2026-02-11
+
+**Goal:** Migrate the UI from Streamlit to a client-server architecture with FastAPI backend API and SvelteKit frontend, eliminating the rerun-model architectural mismatch that kills autopilot on widget interaction.
+
+**User Outcome:** "I can watch the D&D game stream in real-time, adjust speed, drop in to control characters, and interact with the UI — all without interrupting the game engine."
+
+**Trigger:** Sprint Change Proposal 2026-02-11 — Streamlit retired after Session IV confirmed fundamental architectural incompatibility.
+
+## Cycle Overview
+
+| Story | Status | Phase |
+|-------|--------|-------|
+| 16-1-api-layer-foundation | pending | - |
+| 16-2-game-engine-extraction | pending | - |
+| 16-3-websocket-game-streaming | pending | - |
+| 16-4-sveltekit-scaffold-theme | pending | - |
+| 16-5-narrative-panel | pending | - |
+| 16-6-sidebar-party-controls | pending | - |
+| 16-7-session-management-ui | pending | - |
+| 16-8-settings-configuration-ui | pending | - |
+| 16-9-character-creation-library | pending | - |
+| 16-10-advanced-features-ui | pending | - |
+| 16-11-frontend-testing | pending | - |
+| 16-12-cutover-cleanup | pending | - |
+
+---
+
 # Epic 15: Combat Initiative System - Development Cycle
 
 **Date:** 2026-02-10

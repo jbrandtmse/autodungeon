@@ -6,6 +6,12 @@ from unittest.mock import patch
 import pytest
 
 
+@pytest.fixture(scope="module")
+def anyio_backend() -> str:
+    """Force anyio tests to use asyncio only (trio not installed)."""
+    return "asyncio"
+
+
 @pytest.fixture(autouse=True)
 def reset_config_singleton() -> Generator[None, None, None]:
     """Reset the config singleton before each test.

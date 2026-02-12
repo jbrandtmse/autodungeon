@@ -1,4 +1,4 @@
-# generated: 2026-01-25
+# generated: 2026-02-11
 # project: autodungeon
 # project_key: autodungeon
 # tracking_system: file-system
@@ -33,7 +33,7 @@
 # - SM typically creates next story after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
-generated: 2026-01-25
+generated: 2026-02-11
 project: autodungeon
 project_key: autodungeon
 tracking_system: file-system
@@ -185,3 +185,22 @@ development_status:
   15-4-dm-bookend-npc-turns: done
   15-5-combat-ui-indicators: done
   15-6-combat-end-conditions: done
+
+  # ===========================================
+  # v2.0 UI FRAMEWORK MIGRATION
+  # ===========================================
+
+  # Epic 16: UI Framework Migration — FastAPI + SvelteKit (12 stories)
+  epic-16: in-progress
+  16-1-api-layer-foundation: review
+  16-2-game-engine-extraction: backlog
+  16-3-websocket-game-streaming: backlog
+  16-4-sveltekit-scaffold-theme: backlog
+  16-5-narrative-panel: backlog
+  16-6-sidebar-party-controls: backlog
+  16-7-session-management-ui: backlog
+  16-8-settings-configuration-ui: backlog
+  16-9-character-creation-library: backlog
+  16-10-advanced-features-ui: backlog
+  16-11-frontend-testing: backlog
+  16-12-cutover-cleanup: backlog
