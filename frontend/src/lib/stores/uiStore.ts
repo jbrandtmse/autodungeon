@@ -5,6 +5,7 @@ export interface UiState {
   selectedCharacter: string | null;
   uiMode: 'watch' | 'play';
   autoScroll: boolean;
+  settingsOpen: boolean;
 }
 
 export const uiState = writable<UiState>({
@@ -12,4 +13,5 @@ export const uiState = writable<UiState>({
   selectedCharacter: null,
   uiMode: 'watch',
   autoScroll: true,
+  settingsOpen: false,
 });

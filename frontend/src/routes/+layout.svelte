@@ -1,13 +1,21 @@
 <script lang="ts">
 	import '../app.css';
 	import type { Snippet } from 'svelte';
+	import { page } from '$app/stores';
 	import Sidebar from '$lib/components/Sidebar.svelte';
+	import SettingsModal from '$lib/components/SettingsModal.svelte';
 	import { uiState } from '$lib/stores';
 
 	let { children }: { children: Snippet } = $props();
 
+	const sessionId = $derived($page.params.sessionId ?? null);
+
 	function toggleSidebar(): void {
 		uiState.update((s) => ({ ...s, sidebarOpen: !s.sidebarOpen }));
+	}
+
+	function closeSettings(): void {
+		uiState.update((s) => ({ ...s, settingsOpen: false }));
 	}
 </script>
 
@@ -44,6 +52,12 @@
 		{@render children()}
 	</main>
 </div>
+
+<SettingsModal
+	open={$uiState.settingsOpen}
+	{sessionId}
+	onClose={closeSettings}
+/>
 
 <style>
 	.app-layout {
