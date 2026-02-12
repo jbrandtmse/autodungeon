@@ -1559,7 +1559,7 @@ Completed in separate cycle sessions (not logged here).
 | 16-8-settings-configuration-ui | ✅ done | Full Cycle |
 | 16-9-character-creation-library | ✅ done | Full Cycle |
 | 16-10-advanced-features-ui | ✅ done | Full Cycle |
-| 16-11-frontend-testing | pending | - |
+| 16-11-frontend-testing | ✅ done | Full Cycle |
 | 16-12-cutover-cleanup | pending | - |
 
 ---
@@ -1917,6 +1917,47 @@ Completed in separate cycle sessions (not logged here).
 
 ### User Input Required
 - None - all issues auto-resolved
+
+---
+
+## Story: 16-11-frontend-testing
+
+**Status:** ✅ Completed
+**Commit:** 9bb2a91
+**Duration:** 2026-02-11
+
+### Files Touched
+- `frontend/package.json` - Added vitest, @testing-library/svelte, @testing-library/jest-dom, jsdom devDeps + test scripts
+- `frontend/vite.config.ts` - Added svelteTesting() plugin, test config block with jsdom env
+- `frontend/src/tests/setup.ts` - Global test setup (jest-dom matchers)
+- `frontend/src/tests/fixtures.ts` - makeGameState(), makeSession(), makeGameConfig() factories
+- `frontend/src/lib/stores/gameStore.test.ts` - 20 tests (handleServerMessage for all event types, resetStores)
+- `frontend/src/lib/stores/connectionStore.test.ts` - 4 tests
+- `frontend/src/lib/stores/uiStore.test.ts` - 3 tests
+- `frontend/src/lib/stores/narrativeStore.test.ts` - 5 tests
+- `frontend/src/lib/narrative.test.ts` - 28 tests (parser, sanitizer, formatters)
+- `frontend/src/lib/format.test.ts` - 14 tests (toRomanNumeral, formatSessionDate)
+- `frontend/src/lib/api.test.ts` - 11 tests (mocked fetch for all API functions)
+- `frontend/src/lib/ws.test.ts` - 9 tests (mocked WebSocket, connect/send/disconnect/callbacks)
+- `frontend/src/lib/components/NarrativeMessage.test.ts` - 5 tests
+- `frontend/src/lib/components/SessionCard.test.ts` - 5 tests
+- `frontend/src/lib/components/ConfirmDialog.test.ts` - 6 tests
+- `frontend/src/lib/components/CharacterCard.test.ts` - 5 tests
+
+### Key Design Decisions
+- Vitest 4.0.18 with jsdom environment (SvelteKit standard)
+- @testing-library/svelte 5.3.1 for component rendering with Svelte 5 runes
+- svelteTesting() Vite plugin for proper Svelte component test compilation
+- Shared fixtures with factory functions for consistent test data
+- 115 tests total across 12 test files (~11s runtime)
+- Store tests cover all WebSocket event types and state transitions
+- Component tests verify rendering, user interactions, and accessibility
+
+### Issues Auto-Resolved
+- None — testing story, no code review performed
+
+### User Input Required
+- None
 
 ---
 
