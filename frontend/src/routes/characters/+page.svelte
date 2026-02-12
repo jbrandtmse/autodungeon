@@ -133,6 +133,12 @@
 		viewMode = selectedCharacter ? 'detail' : 'library';
 	}
 
+	async function handleModelConfigSaved(updated: CharacterDetail): Promise<void> {
+		selectedCharacter = updated;
+		showSuccess(`${updated.name} model config updated`);
+		await loadCharacters();
+	}
+
 	function handleBackToLibrary(): void {
 		selectedCharacter = null;
 		viewMode = 'library';
@@ -182,6 +188,7 @@
 			onBack={handleBackToLibrary}
 			onEdit={handleEdit}
 			onDelete={handleDeleteRequest}
+			onModelConfigSaved={handleModelConfigSaved}
 		/>
 	{:else if viewMode === 'create'}
 		<CharacterCreator

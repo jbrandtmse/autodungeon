@@ -1,5 +1,12 @@
 <script lang="ts">
-	import type { CharacterDetail } from '$lib/types';
+	import type { CharacterDetail, CharacterUpdateRequest } from '$lib/types';
+	import { updateCharacter, ApiError } from '$lib/api';
+	import {
+		PROVIDERS,
+		PROVIDER_DISPLAY,
+		fetchModelsForProvider,
+		getFallbackModels,
+	} from '$lib/modelUtils';
 
 	/**
 	 * Full character detail view with edit/delete actions.
@@ -11,11 +18,71 @@
 		onBack: () => void;
 		onEdit: (character: CharacterDetail) => void;
 		onDelete: (character: CharacterDetail) => void;
+		onModelConfigSaved?: (updated: CharacterDetail) => void;
 	}
 
-	let { character, onBack, onEdit, onDelete }: Props = $props();
+	let { character, onBack, onEdit, onDelete, onModelConfigSaved }: Props = $props();
 
 	let isPreset = $derived(character.source === 'preset');
+
+	// Preset model configuration state
+	let configuring = $state(false);
+	let configSaving = $state(false);
+	let configError = $state<string | null>(null);
+	let configProvider = $state(character.provider);
+	let configModel = $state(character.model);
+	let configTokenLimit = $state(character.token_limit);
+	let configModels = $state<string[]>(getFallbackModels(character.provider));
+	let configModelsLoading = $state(false);
+
+	function openConfigForm(): void {
+		configProvider = character.provider;
+		configModel = character.model;
+		configTokenLimit = character.token_limit;
+		configError = null;
+		configuring = true;
+		loadConfigModels(character.provider);
+	}
+
+	async function loadConfigModels(provider: string): Promise<void> {
+		configModelsLoading = true;
+		try {
+			const result = await fetchModelsForProvider(provider);
+			configModels = result.models;
+		} catch {
+			configModels = getFallbackModels(provider);
+		} finally {
+			configModelsLoading = false;
+		}
+	}
+
+	function handleConfigProviderChange(newProvider: string): void {
+		configProvider = newProvider;
+		loadConfigModels(newProvider).then(() => {
+			if (!configModels.includes(configModel)) {
+				configModel = configModels[0] ?? '';
+			}
+		});
+	}
+
+	async function saveModelConfig(): Promise<void> {
+		configSaving = true;
+		configError = null;
+		try {
+			const data: CharacterUpdateRequest = {
+				provider: configProvider,
+				model: configModel,
+				token_limit: configTokenLimit,
+			};
+			const updated = await updateCharacter(character.name, data);
+			configuring = false;
+			onModelConfigSaved?.(updated);
+		} catch (e) {
+			configError = e instanceof ApiError ? e.message : 'Failed to save model config';
+		} finally {
+			configSaving = false;
+		}
+	}
 
 	function classColor(characterClass: string): string {
 		const classMap: Record<string, string> = {
@@ -116,8 +183,26 @@
 	</div>
 
 	<!-- Actions -->
-	{#if !isPreset}
-		<div class="detail-actions">
+	<div class="detail-actions">
+		{#if isPreset}
+			<button class="btn btn-secondary" onclick={openConfigForm} disabled={configuring}>
+				<svg
+					viewBox="0 0 24 24"
+					width="14"
+					height="14"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+					aria-hidden="true"
+				>
+					<circle cx="12" cy="12" r="3" />
+					<path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+				</svg>
+				Configure Model
+			</button>
+		{:else}
 			<button class="btn btn-secondary" onclick={() => onEdit(character)}>
 				<svg
 					viewBox="0 0 24 24"
@@ -154,6 +239,81 @@
 				</svg>
 				Delete Character
 			</button>
+		{/if}
+	</div>
+
+	<!-- Preset model config form -->
+	{#if configuring}
+		<div class="config-form">
+			<h3 class="config-form-title">Configure Model</h3>
+
+			<div class="config-form-field">
+				<label class="config-form-label" for="config-provider">Provider</label>
+				<select
+					id="config-provider"
+					class="config-form-select"
+					value={configProvider}
+					onchange={(e) => handleConfigProviderChange((e.target as HTMLSelectElement).value)}
+					disabled={configSaving}
+				>
+					{#each PROVIDERS as p}
+						<option value={p}>{PROVIDER_DISPLAY[p]}</option>
+					{/each}
+				</select>
+			</div>
+
+			<div class="config-form-field">
+				<label class="config-form-label" for="config-model">
+					Model {configModelsLoading ? '(loading...)' : ''}
+				</label>
+				<select
+					id="config-model"
+					class="config-form-select"
+					bind:value={configModel}
+					disabled={configSaving || configModelsLoading}
+				>
+					{#each configModels as m}
+						<option value={m}>{m}</option>
+					{/each}
+					{#if !configModels.includes(configModel) && configModel}
+						<option value={configModel}>{configModel} (current)</option>
+					{/if}
+				</select>
+			</div>
+
+			<div class="config-form-field">
+				<label class="config-form-label" for="config-token-limit">Token Limit</label>
+				<input
+					id="config-token-limit"
+					type="number"
+					class="config-form-input"
+					bind:value={configTokenLimit}
+					min={1}
+					max={128000}
+					disabled={configSaving}
+				/>
+			</div>
+
+			{#if configError}
+				<p class="config-form-error" role="alert">{configError}</p>
+			{/if}
+
+			<div class="config-form-actions">
+				<button
+					class="btn btn-secondary"
+					onclick={() => { configuring = false; configError = null; }}
+					disabled={configSaving}
+				>
+					Cancel
+				</button>
+				<button
+					class="btn btn-primary"
+					onclick={saveModelConfig}
+					disabled={configSaving || !configModel}
+				>
+					{configSaving ? 'Saving...' : 'Save'}
+				</button>
+			</div>
 		</div>
 	{/if}
 </div>
@@ -376,6 +536,94 @@
 
 	.btn-danger:hover {
 		background: rgba(196, 92, 74, 0.1);
+	}
+
+	.btn-primary {
+		background: var(--accent-warm);
+		color: var(--bg-primary);
+	}
+
+	.btn-primary:hover:not(:disabled) {
+		background: var(--accent-warm-hover);
+	}
+
+	.btn:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	/* Config form */
+	.config-form {
+		background: var(--bg-secondary);
+		border-radius: var(--border-radius-md);
+		padding: var(--space-lg);
+		margin-top: var(--space-md);
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-md);
+	}
+
+	.config-form-title {
+		font-family: var(--font-ui);
+		font-size: 15px;
+		font-weight: 600;
+		color: var(--text-primary);
+		margin: 0;
+	}
+
+	.config-form-field {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-xs);
+	}
+
+	.config-form-label {
+		font-family: var(--font-ui);
+		font-size: var(--text-system);
+		font-weight: 600;
+		color: var(--text-secondary);
+	}
+
+	.config-form-select,
+	.config-form-input {
+		width: 100%;
+		background: var(--bg-primary);
+		color: var(--text-primary);
+		border: 1px solid rgba(184, 168, 150, 0.2);
+		border-radius: var(--border-radius-sm);
+		padding: 6px 8px;
+		font-family: var(--font-ui);
+		font-size: var(--text-ui);
+	}
+
+	.config-form-select:focus,
+	.config-form-input:focus {
+		outline: 2px solid var(--accent-warm);
+		outline-offset: 1px;
+		border-color: transparent;
+	}
+
+	.config-form-select:disabled,
+	.config-form-input:disabled {
+		opacity: 0.5;
+	}
+
+	.config-form-input {
+		width: 120px;
+		font-family: var(--font-mono);
+	}
+
+	.config-form-error {
+		font-family: var(--font-ui);
+		font-size: var(--text-system);
+		color: var(--color-error);
+		margin: 0;
+	}
+
+	.config-form-actions {
+		display: flex;
+		gap: var(--space-sm);
+		justify-content: flex-end;
 	}
 
 	/* Responsive */

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { getSessionConfig, updateSessionConfig, getUserSettings, updateUserSettings, ApiError } from '$lib/api';
 	import type { GameConfig, UserSettings } from '$lib/types';
+	import { clearModelCache } from '$lib/modelUtils';
 	import ConfirmDialog from './ConfirmDialog.svelte';
 	import ApiKeysTab from './ApiKeysTab.svelte';
 	import ModelsTab from './ModelsTab.svelte';
@@ -235,6 +236,9 @@
 				// localStorage unavailable too
 			}
 		}
+
+		// Clear model cache so dropdowns refetch with new API keys
+		clearModelCache();
 
 		// Update originals so change detection resets
 		origGoogleKey = googleKey;

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { CharacterDetail, CharacterCreateRequest } from '$lib/types';
+	import { fetchModelsForProvider, getFallbackModels } from '$lib/modelUtils';
 
 	/**
 	 * Character creation/editing wizard — multi-step form.
@@ -77,6 +78,26 @@
 	let tokenLimit = $state(initTokenLimit);
 
 	let isEditMode = $derived(editCharacter !== null);
+	let useCustomModel = $state(false);
+	let availableModels = $state<string[]>(getFallbackModels(provider));
+	let modelsLoading = $state(false);
+
+	async function loadModelsForProvider(prov: string): Promise<void> {
+		modelsLoading = true;
+		try {
+			const result = await fetchModelsForProvider(prov);
+			availableModels = result.models;
+		} catch {
+			availableModels = getFallbackModels(prov);
+		} finally {
+			modelsLoading = false;
+		}
+	}
+
+	// Fetch models when provider changes
+	$effect(() => {
+		loadModelsForProvider(provider);
+	});
 
 	// Validation
 	let nameError = $derived.by(() => {
@@ -278,16 +299,38 @@
 			</div>
 
 			<div class="form-section">
-				<label class="form-label" for="char-model">Model Name</label>
-				<input
-					id="char-model"
-					type="text"
-					class="form-input"
-					class:error={!!modelError && model.length === 0}
-					placeholder="e.g., gemini-1.5-flash, claude-3-haiku-20240307"
-					bind:value={model}
-					disabled={saving}
-				/>
+				<label class="form-label" for="char-model">
+					Model {modelsLoading ? '(loading...)' : ''}
+				</label>
+				{#if useCustomModel}
+					<input
+						id="char-model"
+						type="text"
+						class="form-input"
+						class:error={!!modelError && model.length === 0}
+						placeholder="e.g., gemini-1.5-flash"
+						bind:value={model}
+						disabled={saving}
+					/>
+				{:else}
+					<select
+						id="char-model"
+						class="form-select"
+						bind:value={model}
+						disabled={saving || modelsLoading}
+					>
+						{#each availableModels as m (m)}
+							<option value={m}>{m}</option>
+						{/each}
+						{#if !availableModels.includes(model) && model}
+							<option value={model}>{model} (current)</option>
+						{/if}
+					</select>
+				{/if}
+				<label class="custom-model-toggle">
+					<input type="checkbox" bind:checked={useCustomModel} />
+					<span class="toggle-label">Custom model name</span>
+				</label>
 				{#if modelError && model.length === 0}
 					<p class="field-error">{modelError}</p>
 				{/if}
@@ -672,6 +715,24 @@
 	}
 
 	/* Color input */
+	.custom-model-toggle {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		margin-top: var(--space-xs);
+		cursor: pointer;
+	}
+
+	.custom-model-toggle input[type='checkbox'] {
+		accent-color: var(--accent-warm);
+	}
+
+	.toggle-label {
+		font-family: var(--font-ui);
+		font-size: var(--text-system);
+		color: var(--text-secondary);
+	}
+
 	.color-input-wrapper {
 		display: flex;
 		align-items: center;

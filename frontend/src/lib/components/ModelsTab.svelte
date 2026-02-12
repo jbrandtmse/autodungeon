@@ -1,29 +1,10 @@
 <script lang="ts">
-	const PROVIDERS = ['gemini', 'anthropic', 'ollama'] as const;
-	type Provider = (typeof PROVIDERS)[number];
-
-	const PROVIDER_DISPLAY: Record<Provider, string> = {
-		gemini: 'Gemini',
-		anthropic: 'Claude',
-		ollama: 'Ollama',
-	};
-
-	const MODELS_BY_PROVIDER: Record<Provider, string[]> = {
-		gemini: [
-			'gemini-3-flash-preview',
-			'gemini-1.5-pro',
-			'gemini-2.0-flash',
-			'gemini-2.5-flash-preview-05-20',
-			'gemini-2.5-pro-preview-05-06',
-			'gemini-3-pro-preview',
-		],
-		anthropic: [
-			'claude-3-haiku-20240307',
-			'claude-3-5-sonnet-20241022',
-			'claude-sonnet-4-20250514',
-		],
-		ollama: ['llama3', 'mistral', 'phi3'],
-	};
+	import {
+		PROVIDERS,
+		PROVIDER_DISPLAY,
+		fetchModelsForProvider,
+		getFallbackModels,
+	} from '$lib/modelUtils';
 
 	interface Props {
 		dmProvider: string;
@@ -67,10 +48,38 @@
 		onExtractorTokenLimitChange,
 	}: Props = $props();
 
-	function getModelsForProvider(provider: string): string[] {
-		const p = provider.toLowerCase() as Provider;
-		return MODELS_BY_PROVIDER[p] ?? MODELS_BY_PROVIDER.gemini;
+	// Dynamic model state per provider
+	let loadedModels = $state<Record<string, string[]>>({});
+	let loadingProviders = $state<Record<string, boolean>>({});
+
+	async function loadModels(provider: string): Promise<void> {
+		if (loadingProviders[provider]) return;
+		loadingProviders[provider] = true;
+		try {
+			const result = await fetchModelsForProvider(provider);
+			loadedModels[provider] = result.models;
+		} catch {
+			loadedModels[provider] = getFallbackModels(provider);
+		} finally {
+			loadingProviders[provider] = false;
+		}
 	}
+
+	function getModelsForProvider(provider: string): string[] {
+		const p = provider.toLowerCase();
+		return loadedModels[p] ?? getFallbackModels(p);
+	}
+
+	// Fetch models when providers change
+	$effect(() => {
+		loadModels(dmProvider.toLowerCase());
+	});
+	$effect(() => {
+		loadModels(summarizerProvider.toLowerCase());
+	});
+	$effect(() => {
+		loadModels(extractorProvider.toLowerCase());
+	});
 
 	function handleProviderChange(
 		currentModel: string,
@@ -79,11 +88,13 @@
 		onModelChange: (m: string) => void,
 	): void {
 		onProviderChange(newProvider);
-		const models = getModelsForProvider(newProvider);
-		// Reset model to first available if current model not in new provider's list
-		if (!models.includes(currentModel)) {
-			onModelChange(models[0] ?? '');
-		}
+		// Trigger fetch for the new provider
+		loadModels(newProvider.toLowerCase()).then(() => {
+			const models = getModelsForProvider(newProvider);
+			if (!models.includes(currentModel)) {
+				onModelChange(models[0] ?? '');
+			}
+		});
 	}
 
 	function handleTokenLimitInput(value: string, onChange: (limit: number) => void): void {
