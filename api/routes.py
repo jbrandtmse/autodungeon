@@ -12,8 +12,10 @@ from fastapi import APIRouter, HTTPException
 from pydantic import ValidationError
 
 from api.schemas import (
+    CharacterCreateRequest,
     CharacterDetailResponse,
     CharacterResponse,
+    CharacterUpdateRequest,
     GameConfigResponse,
     GameConfigUpdateRequest,
     SessionCreateRequest,
@@ -348,6 +350,31 @@ def _load_library_characters() -> dict[str, CharacterConfig]:
     return configs
 
 
+def _load_library_backstory(name_lower: str) -> str:
+    """Load the backstory field from a library character's YAML file.
+
+    Args:
+        name_lower: Lowercased character name to look up.
+
+    Returns:
+        Backstory string, or empty string if not found.
+    """
+    library_dir = PROJECT_ROOT / "config" / "characters" / "library"
+    if not library_dir.exists():
+        return ""
+
+    for yaml_file in library_dir.glob("*.yaml"):
+        try:
+            with open(yaml_file, encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+        except yaml.YAMLError:
+            continue
+        if data and data.get("name", "").lower() == name_lower:
+            return str(data.get("backstory", ""))
+
+    return ""
+
+
 @router.get("/characters", response_model=list[CharacterResponse])
 async def list_characters() -> list[CharacterResponse]:
     """List all available characters from presets and library.
@@ -436,6 +463,7 @@ async def get_character(name: str) -> CharacterDetailResponse:
     library_configs = _load_library_characters()
     if lookup in library_configs:
         config = library_configs[lookup]
+        backstory = _load_library_backstory(lookup)
         return CharacterDetailResponse(
             name=config.name,
             character_class=config.character_class,
@@ -445,6 +473,374 @@ async def get_character(name: str) -> CharacterDetailResponse:
             model=config.model,
             source="library",
             token_limit=config.token_limit,
+            backstory=backstory,
         )
 
     raise HTTPException(status_code=404, detail=f"Character '{name}' not found")
+
+
+# =============================================================================
+# Character Mutation Endpoints
+# =============================================================================
+
+
+def _sanitize_character_name(name: str) -> str:
+    """Sanitize a character name for use as a YAML filename.
+
+    Validates against path traversal and produces a safe filename.
+
+    Args:
+        name: Raw character name.
+
+    Returns:
+        Sanitized lowercase filename stem (without extension).
+
+    Raises:
+        HTTPException: 400 if name contains dangerous characters.
+    """
+    # Reject path traversal patterns
+    if any(c in name for c in ("/", "\\", "\x00")) or ".." in name:
+        raise HTTPException(
+            status_code=400,
+            detail="Character name contains invalid characters",
+        )
+
+    # Build safe filename: lowercase, spaces to hyphens, strip non-alnum/hyphen
+    safe = name.strip().lower().replace(" ", "-")
+    safe = "".join(c for c in safe if c.isalnum() or c == "-")
+    safe = safe.strip("-")
+
+    if not safe:
+        raise HTTPException(
+            status_code=400,
+            detail="Character name must contain at least one alphanumeric character",
+        )
+
+    return safe
+
+
+def _is_preset_character(name: str) -> bool:
+    """Check if a character name matches a preset character.
+
+    Args:
+        name: Character name (case-insensitive).
+
+    Returns:
+        True if the character is a preset.
+    """
+    try:
+        preset_configs = load_character_configs()
+    except (ValueError, OSError):
+        preset_configs = {}
+    return name.lower() in preset_configs
+
+
+@router.post("/characters", response_model=CharacterDetailResponse, status_code=201)
+async def create_character(body: CharacterCreateRequest) -> CharacterDetailResponse:
+    """Create a new custom character and save to the library.
+
+    Args:
+        body: Character creation data.
+
+    Returns:
+        Created character details with 201 status.
+
+    Raises:
+        HTTPException: 400 for invalid name, 409 if name already exists.
+    """
+    safe_filename = _sanitize_character_name(body.name)
+    library_dir = PROJECT_ROOT / "config" / "characters" / "library"
+    library_dir.mkdir(parents=True, exist_ok=True)
+
+    # Check for name collision with presets
+    if _is_preset_character(body.name):
+        raise HTTPException(
+            status_code=409,
+            detail=f"A preset character named '{body.name}' already exists",
+        )
+
+    # Check for name collision with existing library characters
+    library_configs = _load_library_characters()
+    if body.name.lower() in library_configs:
+        raise HTTPException(
+            status_code=409,
+            detail=f"A library character named '{body.name}' already exists",
+        )
+
+    # Check for filename collision (different names can sanitize to the same filename)
+    filepath = library_dir / f"{safe_filename}.yaml"
+    if filepath.exists():
+        raise HTTPException(
+            status_code=409,
+            detail=f"A character file '{safe_filename}.yaml' already exists",
+        )
+
+    # Validate through CharacterConfig model
+    try:
+        config = CharacterConfig(
+            name=body.name,
+            character_class=body.character_class,
+            personality=body.personality or f"A {body.character_class} adventurer.",
+            color=body.color,
+            provider=body.provider,
+            model=body.model,
+            token_limit=body.token_limit,
+        )
+    except (ValidationError, ValueError) as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
+
+    # Build YAML data — use 'class' key for file compatibility
+    yaml_data: dict[str, object] = {
+        "name": config.name,
+        "class": config.character_class,
+        "personality": config.personality,
+        "color": config.color,
+        "provider": config.provider,
+        "model": config.model,
+        "token_limit": config.token_limit,
+    }
+    if body.backstory:
+        yaml_data["backstory"] = body.backstory
+
+    try:
+        with open(filepath, "w", encoding="utf-8") as f:
+            yaml.safe_dump(yaml_data, f, default_flow_style=False, allow_unicode=True)
+    except OSError as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to save character: {e}"
+        ) from None
+
+    return CharacterDetailResponse(
+        name=config.name,
+        character_class=config.character_class,
+        personality=config.personality,
+        color=config.color,
+        provider=config.provider,
+        model=config.model,
+        source="library",
+        token_limit=config.token_limit,
+        backstory=body.backstory or "",
+    )
+
+
+@router.put("/characters/{name}", response_model=CharacterDetailResponse)
+async def update_character(
+    name: str, body: CharacterUpdateRequest
+) -> CharacterDetailResponse:
+    """Update an existing library character.
+
+    Only library characters can be updated; presets are read-only.
+
+    Args:
+        name: Character name (case-insensitive lookup).
+        body: Partial update fields.
+
+    Returns:
+        Updated character details.
+
+    Raises:
+        HTTPException: 400 for path traversal, 403 for presets, 404 if not found.
+    """
+    # Validate the path parameter
+    if any(c in name for c in ("/", "\\", "\x00")) or ".." in name:
+        raise HTTPException(
+            status_code=400,
+            detail="Character name contains invalid characters",
+        )
+
+    lookup = name.lower()
+
+    # Reject updates to presets
+    if _is_preset_character(name):
+        raise HTTPException(
+            status_code=403,
+            detail="Preset characters cannot be modified",
+        )
+
+    # Find existing library character
+    library_dir = PROJECT_ROOT / "config" / "characters" / "library"
+    library_configs = _load_library_characters()
+
+    if lookup not in library_configs:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Library character '{name}' not found",
+        )
+
+    existing = library_configs[lookup]
+
+    # Apply partial updates
+    update_data = body.model_dump(exclude_none=True)
+    merged = {
+        "name": update_data.get("name", existing.name),
+        "character_class": update_data.get("character_class", existing.character_class),
+        "personality": update_data.get("personality", existing.personality),
+        "color": update_data.get("color", existing.color),
+        "provider": update_data.get("provider", existing.provider),
+        "model": update_data.get("model", existing.model),
+        "token_limit": update_data.get("token_limit", existing.token_limit),
+    }
+
+    # Validate through CharacterConfig
+    try:
+        config = CharacterConfig(**merged)
+    except (ValidationError, ValueError) as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
+
+    # If name changed, check for collisions
+    if config.name.lower() != lookup:
+        if _is_preset_character(config.name):
+            raise HTTPException(
+                status_code=409,
+                detail=f"A preset character named '{config.name}' already exists",
+            )
+        if config.name.lower() in library_configs:
+            raise HTTPException(
+                status_code=409,
+                detail=f"A library character named '{config.name}' already exists",
+            )
+
+    # Find the existing YAML file
+    existing_file = None
+    for yaml_file in library_dir.glob("*.yaml"):
+        try:
+            with open(yaml_file, encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+        except yaml.YAMLError:
+            continue
+        if data and data.get("name", "").lower() == lookup:
+            existing_file = yaml_file
+            break
+
+    if existing_file is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Library character file for '{name}' not found",
+        )
+
+    # Read existing file data to preserve extra fields (abilities, skills, etc.)
+    try:
+        with open(existing_file, encoding="utf-8") as f:
+            file_data = yaml.safe_load(f) or {}
+    except yaml.YAMLError:
+        file_data = {}
+
+    # Update the standard fields
+    file_data["name"] = config.name
+    file_data["class"] = config.character_class
+    file_data["personality"] = config.personality
+    file_data["color"] = config.color
+    file_data["provider"] = config.provider
+    file_data["model"] = config.model
+    file_data["token_limit"] = config.token_limit
+
+    # Remove 'character_class' key if present (we use 'class' in YAML)
+    file_data.pop("character_class", None)
+
+    # Handle backstory
+    if body.backstory is not None:
+        if body.backstory:
+            file_data["backstory"] = body.backstory
+        else:
+            file_data.pop("backstory", None)
+
+    # If name changed, use a new filename
+    if config.name.lower() != lookup:
+        new_safe = _sanitize_character_name(config.name)
+        new_file = library_dir / f"{new_safe}.yaml"
+        try:
+            with open(new_file, "w", encoding="utf-8") as f:
+                yaml.safe_dump(
+                    file_data, f, default_flow_style=False, allow_unicode=True
+                )
+        except OSError as e:
+            raise HTTPException(
+                status_code=500, detail=f"Failed to update character: {e}"
+            ) from None
+        try:
+            existing_file.unlink()
+        except OSError:
+            # Clean up the new file to avoid duplicates
+            new_file.unlink(missing_ok=True)
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to remove old character file after rename",
+            ) from None
+    else:
+        try:
+            with open(existing_file, "w", encoding="utf-8") as f:
+                yaml.safe_dump(
+                    file_data, f, default_flow_style=False, allow_unicode=True
+                )
+        except OSError as e:
+            raise HTTPException(
+                status_code=500, detail=f"Failed to update character: {e}"
+            ) from None
+
+    return CharacterDetailResponse(
+        name=config.name,
+        character_class=config.character_class,
+        personality=config.personality,
+        color=config.color,
+        provider=config.provider,
+        model=config.model,
+        source="library",
+        token_limit=config.token_limit,
+        backstory=str(file_data.get("backstory", "")),
+    )
+
+
+@router.delete("/characters/{name}", status_code=204)
+async def delete_character(name: str) -> None:
+    """Delete a library character.
+
+    Only library characters can be deleted; presets are protected.
+
+    Args:
+        name: Character name (case-insensitive lookup).
+
+    Raises:
+        HTTPException: 400 for path traversal, 403 for presets, 404 if not found.
+    """
+    # Validate the path parameter
+    if any(c in name for c in ("/", "\\", "\x00")) or ".." in name:
+        raise HTTPException(
+            status_code=400,
+            detail="Character name contains invalid characters",
+        )
+
+    # Reject deletion of presets
+    if _is_preset_character(name):
+        raise HTTPException(
+            status_code=403,
+            detail="Preset characters cannot be deleted",
+        )
+
+    lookup = name.lower()
+    library_dir = PROJECT_ROOT / "config" / "characters" / "library"
+
+    # Find the YAML file
+    found_file = None
+    if library_dir.exists():
+        for yaml_file in library_dir.glob("*.yaml"):
+            try:
+                with open(yaml_file, encoding="utf-8") as f:
+                    data = yaml.safe_load(f)
+            except yaml.YAMLError:
+                continue
+            if data and data.get("name", "").lower() == lookup:
+                found_file = yaml_file
+                break
+
+    if found_file is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Library character '{name}' not found",
+        )
+
+    try:
+        found_file.unlink()
+    except OSError as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to delete character: {e}"
+        ) from None

@@ -133,6 +133,49 @@ class CharacterDetailResponse(CharacterResponse):
     """Response for character detail endpoint, extends CharacterResponse."""
 
     token_limit: int = Field(..., ge=1, description="Context limit for character")
+    backstory: str = Field(default="", description="Character backstory")
+
+
+class CharacterCreateRequest(BaseModel):
+    """Request body for creating a new library character."""
+
+    name: str = Field(..., min_length=1, max_length=50, description="Character name")
+    character_class: str = Field(
+        ..., min_length=1, max_length=50, description="D&D class (e.g., Fighter, Rogue)"
+    )
+    personality: str = Field(
+        default="", max_length=2000, description="Personality traits"
+    )
+    backstory: str = Field(
+        default="", max_length=5000, description="Character backstory"
+    )
+    color: str = Field(default="#808080", description="Hex color for UI")
+    provider: str = Field(default="gemini", description="LLM provider")
+    model: str = Field(default="gemini-1.5-flash", description="Model name")
+    token_limit: int = Field(default=4000, ge=1, description="Context token limit")
+
+
+class CharacterUpdateRequest(BaseModel):
+    """Request body for updating a library character. All fields optional for partial update."""
+
+    name: str | None = Field(
+        default=None, min_length=1, max_length=50, description="Character name"
+    )
+    character_class: str | None = Field(
+        default=None, min_length=1, max_length=50, description="D&D class"
+    )
+    personality: str | None = Field(
+        default=None, max_length=2000, description="Personality traits"
+    )
+    backstory: str | None = Field(
+        default=None, max_length=5000, description="Character backstory"
+    )
+    color: str | None = Field(default=None, description="Hex color for UI")
+    provider: str | None = Field(default=None, description="LLM provider")
+    model: str | None = Field(default=None, description="Model name")
+    token_limit: int | None = Field(
+        default=None, ge=1, description="Context token limit"
+    )
 
 
 class ErrorResponse(BaseModel):

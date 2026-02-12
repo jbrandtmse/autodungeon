@@ -4,6 +4,8 @@ import type {
   GameConfig,
   Character,
   CharacterDetail,
+  CharacterCreateRequest,
+  CharacterUpdateRequest,
 } from './types';
 
 const BASE_URL = '';  // Empty — Vite proxy handles /api routing
@@ -101,4 +103,39 @@ export async function getCharacters(): Promise<Character[]> {
 
 export async function getCharacter(name: string): Promise<CharacterDetail> {
   return request<CharacterDetail>(`/api/characters/${encodeURIComponent(name)}`);
+}
+
+export async function createCharacter(data: CharacterCreateRequest): Promise<CharacterDetail> {
+  return request<CharacterDetail>('/api/characters', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateCharacter(
+  name: string,
+  data: CharacterUpdateRequest,
+): Promise<CharacterDetail> {
+  return request<CharacterDetail>(`/api/characters/${encodeURIComponent(name)}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteCharacter(name: string): Promise<void> {
+  const response = await fetch(`${BASE_URL}/api/characters/${encodeURIComponent(name)}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    let message: string;
+    try {
+      const json = JSON.parse(body);
+      message = json.detail || json.message || body;
+    } catch {
+      message = body || response.statusText;
+    }
+    throw new ApiError(response.status, response.statusText, message);
+  }
+  // 204 No Content — no body to parse
 }

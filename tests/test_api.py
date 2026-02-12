@@ -78,6 +78,15 @@ def temp_characters_dir(tmp_path: Path) -> Generator[Path, None, None]:
         "provider": "claude",
         "model": "claude-3-haiku-20240307",
         "token_limit": 4000,
+        "abilities": {
+            "strength": 8,
+            "intelligence": 15,
+            "dexterity": 16,
+            "charisma": 10,
+            "wisdom": 13,
+            "constitution": 12,
+        },
+        "skills": ["History", "Arcana"],
     }
     (library_dir / "eden.yaml").write_text(yaml.safe_dump(lib_data), encoding="utf-8")
 
@@ -791,7 +800,7 @@ class TestCharacterDetailEndpoint:
     async def test_get_character_detail_fields(
         self, client: AsyncClient, temp_characters_dir: Path
     ) -> None:
-        """Character detail includes token_limit field."""
+        """Character detail includes token_limit and backstory fields."""
         resp = await client.get("/api/characters/shadowmere")
         data = resp.json()
         expected_fields = {
@@ -803,6 +812,7 @@ class TestCharacterDetailEndpoint:
             "model",
             "source",
             "token_limit",
+            "backstory",
         }
         assert set(data.keys()) == expected_fields
 
@@ -935,3 +945,317 @@ class TestOpenAPI:
         assert "/api/sessions/{session_id}/config" in paths
         assert "/api/characters" in paths
         assert "/api/characters/{name}" in paths
+
+
+# =============================================================================
+# Character Creation Endpoint Tests (Story 16-9)
+# =============================================================================
+
+
+class TestCreateCharacterEndpoint:
+    """Tests for POST /api/characters."""
+
+    @pytest.mark.anyio
+    async def test_create_character_success(
+        self, client: AsyncClient, temp_characters_dir: Path
+    ) -> None:
+        """Creates a new library character and returns 201."""
+        body = {
+            "name": "Gandalf",
+            "character_class": "Wizard",
+            "personality": "Wise and mysterious",
+            "color": "#7B68B8",
+            "provider": "gemini",
+            "model": "gemini-1.5-flash",
+        }
+        resp = await client.post("/api/characters", json=body)
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["name"] == "Gandalf"
+        assert data["character_class"] == "Wizard"
+        assert data["source"] == "library"
+        assert data["token_limit"] == 4000  # default
+
+    @pytest.mark.anyio
+    async def test_create_character_file_written(
+        self, client: AsyncClient, temp_characters_dir: Path
+    ) -> None:
+        """Character YAML file is created in library directory."""
+        body = {
+            "name": "Aria",
+            "character_class": "Bard",
+            "color": "#D4A574",
+        }
+        resp = await client.post("/api/characters", json=body)
+        assert resp.status_code == 201
+
+        # Check file exists
+        library_dir = temp_characters_dir / "library"
+        yaml_files = list(library_dir.glob("aria*.yaml"))
+        assert len(yaml_files) == 1
+
+        # Check file content
+        content = yaml.safe_load(yaml_files[0].read_text(encoding="utf-8"))
+        assert content["name"] == "Aria"
+        assert content["class"] == "Bard"
+
+    @pytest.mark.anyio
+    async def test_create_character_name_required(
+        self, client: AsyncClient, temp_characters_dir: Path
+    ) -> None:
+        """Returns 422 when name is missing."""
+        body = {"character_class": "Fighter", "color": "#C45C4A"}
+        resp = await client.post("/api/characters", json=body)
+        assert resp.status_code == 422
+
+    @pytest.mark.anyio
+    async def test_create_character_class_required(
+        self, client: AsyncClient, temp_characters_dir: Path
+    ) -> None:
+        """Returns 422 when class is missing."""
+        body = {"name": "Test", "color": "#C45C4A"}
+        resp = await client.post("/api/characters", json=body)
+        assert resp.status_code == 422
+
+    @pytest.mark.anyio
+    async def test_create_character_duplicate_name(
+        self, client: AsyncClient, temp_characters_dir: Path
+    ) -> None:
+        """Returns 409 when name already exists in library."""
+        resp = await client.post(
+            "/api/characters",
+            json={
+                "name": "Eden",
+                "character_class": "Warlock",
+                "color": "#4B0082",
+            },
+        )
+        assert resp.status_code == 409
+        assert "already exists" in resp.json()["detail"].lower()
+
+    @pytest.mark.anyio
+    async def test_create_character_preset_name_conflict(
+        self, client: AsyncClient, temp_characters_dir: Path
+    ) -> None:
+        """Returns 409 when name conflicts with preset character."""
+        resp = await client.post(
+            "/api/characters",
+            json={
+                "name": "Shadowmere",
+                "character_class": "Rogue",
+                "color": "#6B8E6B",
+            },
+        )
+        assert resp.status_code == 409
+        assert "preset" in resp.json()["detail"].lower()
+
+    @pytest.mark.anyio
+    async def test_create_character_path_traversal(
+        self, client: AsyncClient, temp_characters_dir: Path
+    ) -> None:
+        """Rejects names with path traversal patterns."""
+        for bad_name in ["../evil", "foo/bar", "test\\hack", "a\x00b"]:
+            resp = await client.post(
+                "/api/characters",
+                json={
+                    "name": bad_name,
+                    "character_class": "Fighter",
+                    "color": "#C45C4A",
+                },
+            )
+            assert resp.status_code == 400, f"Expected 400 for name={bad_name!r}"
+
+    @pytest.mark.anyio
+    async def test_create_character_invalid_color(
+        self, client: AsyncClient, temp_characters_dir: Path
+    ) -> None:
+        """Returns 422 for invalid hex color."""
+        resp = await client.post(
+            "/api/characters",
+            json={
+                "name": "BadColor",
+                "character_class": "Fighter",
+                "color": "not-a-color",
+            },
+        )
+        assert resp.status_code == 422
+
+    @pytest.mark.anyio
+    async def test_create_character_with_backstory(
+        self, client: AsyncClient, temp_characters_dir: Path
+    ) -> None:
+        """Backstory is saved to the YAML file."""
+        body = {
+            "name": "Lore",
+            "character_class": "Cleric",
+            "backstory": "A long story...",
+            "color": "#4A90A4",
+        }
+        resp = await client.post("/api/characters", json=body)
+        assert resp.status_code == 201
+
+        library_dir = temp_characters_dir / "library"
+        yaml_file = list(library_dir.glob("lore*.yaml"))[0]
+        content = yaml.safe_load(yaml_file.read_text(encoding="utf-8"))
+        assert content["backstory"] == "A long story..."
+
+
+# =============================================================================
+# Character Update Endpoint Tests (Story 16-9)
+# =============================================================================
+
+
+class TestUpdateCharacterEndpoint:
+    """Tests for PUT /api/characters/{name}."""
+
+    @pytest.mark.anyio
+    async def test_update_character_success(
+        self, client: AsyncClient, temp_characters_dir: Path
+    ) -> None:
+        """Updates a library character's personality."""
+        resp = await client.put(
+            "/api/characters/eden",
+            json={"personality": "Updated personality"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["name"] == "Eden"
+        assert data["personality"] == "Updated personality"
+        assert data["source"] == "library"
+
+    @pytest.mark.anyio
+    async def test_update_character_partial(
+        self, client: AsyncClient, temp_characters_dir: Path
+    ) -> None:
+        """Only updates provided fields, preserves others."""
+        resp = await client.put(
+            "/api/characters/eden",
+            json={"color": "#FF0000"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["color"] == "#FF0000"
+        assert data["character_class"] == "Warlock"  # unchanged
+        assert data["name"] == "Eden"  # unchanged
+
+    @pytest.mark.anyio
+    async def test_update_preset_forbidden(
+        self, client: AsyncClient, temp_characters_dir: Path
+    ) -> None:
+        """Returns 403 when trying to update a preset character."""
+        resp = await client.put(
+            "/api/characters/shadowmere",
+            json={"personality": "Hacked"},
+        )
+        assert resp.status_code == 403
+        assert "preset" in resp.json()["detail"].lower()
+
+    @pytest.mark.anyio
+    async def test_update_nonexistent_character(
+        self, client: AsyncClient, temp_characters_dir: Path
+    ) -> None:
+        """Returns 404 for a character that doesn't exist."""
+        resp = await client.put(
+            "/api/characters/doesnotexist",
+            json={"personality": "New"},
+        )
+        assert resp.status_code == 404
+
+    @pytest.mark.anyio
+    async def test_update_path_traversal(
+        self, client: AsyncClient, temp_characters_dir: Path
+    ) -> None:
+        """Rejects path traversal in name parameter."""
+        resp = await client.put(
+            "/api/characters/..%2Fevil",
+            json={"personality": "Hacked"},
+        )
+        assert resp.status_code in (400, 404)
+
+    @pytest.mark.anyio
+    async def test_update_character_invalid_color(
+        self, client: AsyncClient, temp_characters_dir: Path
+    ) -> None:
+        """Returns 422 for invalid hex color on update."""
+        resp = await client.put(
+            "/api/characters/eden",
+            json={"color": "bad"},
+        )
+        assert resp.status_code == 422
+
+    @pytest.mark.anyio
+    async def test_update_preserves_extra_fields(
+        self, client: AsyncClient, temp_characters_dir: Path
+    ) -> None:
+        """Extra YAML fields (abilities, skills) are preserved on update."""
+        resp = await client.put(
+            "/api/characters/eden",
+            json={"personality": "Still mysterious"},
+        )
+        assert resp.status_code == 200
+
+        # Check the file still has abilities/skills
+        library_dir = temp_characters_dir / "library"
+        yaml_file = list(library_dir.glob("eden*.yaml"))[0]
+        content = yaml.safe_load(yaml_file.read_text(encoding="utf-8"))
+        assert "abilities" in content
+        assert "skills" in content
+
+
+# =============================================================================
+# Character Delete Endpoint Tests (Story 16-9)
+# =============================================================================
+
+
+class TestDeleteCharacterEndpoint:
+    """Tests for DELETE /api/characters/{name}."""
+
+    @pytest.mark.anyio
+    async def test_delete_character_success(
+        self, client: AsyncClient, temp_characters_dir: Path
+    ) -> None:
+        """Deletes a library character and returns 204."""
+        # Verify Eden exists first
+        resp = await client.get("/api/characters/eden")
+        assert resp.status_code == 200
+
+        # Delete
+        resp = await client.delete("/api/characters/eden")
+        assert resp.status_code == 204
+
+        # Verify gone
+        resp = await client.get("/api/characters/eden")
+        assert resp.status_code == 404
+
+    @pytest.mark.anyio
+    async def test_delete_preset_forbidden(
+        self, client: AsyncClient, temp_characters_dir: Path
+    ) -> None:
+        """Returns 403 when trying to delete a preset character."""
+        resp = await client.delete("/api/characters/shadowmere")
+        assert resp.status_code == 403
+        assert "preset" in resp.json()["detail"].lower()
+
+    @pytest.mark.anyio
+    async def test_delete_nonexistent_character(
+        self, client: AsyncClient, temp_characters_dir: Path
+    ) -> None:
+        """Returns 404 for a character that doesn't exist."""
+        resp = await client.delete("/api/characters/doesnotexist")
+        assert resp.status_code == 404
+
+    @pytest.mark.anyio
+    async def test_delete_path_traversal(
+        self, client: AsyncClient, temp_characters_dir: Path
+    ) -> None:
+        """Rejects path traversal in name parameter."""
+        resp = await client.delete("/api/characters/..%2Fevil")
+        assert resp.status_code in (400, 404)
+
+    @pytest.mark.anyio
+    async def test_delete_case_insensitive(
+        self, client: AsyncClient, temp_characters_dir: Path
+    ) -> None:
+        """Delete is case-insensitive."""
+        resp = await client.delete("/api/characters/Eden")
+        assert resp.status_code == 204

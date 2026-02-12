@@ -1556,7 +1556,7 @@ Completed in separate cycle sessions (not logged here).
 | 16-5-narrative-panel | ✅ done | Full Cycle |
 | 16-6-sidebar-party-controls | ✅ done | Full Cycle |
 | 16-7-session-management-ui | ✅ done | Full Cycle |
-| 16-8-settings-configuration-ui | pending | - |
+| 16-8-settings-configuration-ui | ✅ done | Full Cycle |
 | 16-9-character-creation-library | pending | - |
 | 16-10-advanced-features-ui | pending | - |
 | 16-11-frontend-testing | pending | - |

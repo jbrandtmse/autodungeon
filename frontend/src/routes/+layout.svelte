@@ -24,6 +24,11 @@
 		<div class="sidebar-header">
 			<a href="/" class="app-title">autodungeon</a>
 		</div>
+		<nav class="sidebar-top-nav" aria-label="Main navigation">
+			<a href="/" class="nav-link" class:active={$page.url.pathname === '/'}>Adventures</a>
+			<a href="/characters" class="nav-link" class:active={$page.url.pathname === '/characters'}>Characters</a>
+		</nav>
+		<hr class="sidebar-divider" />
 		<nav class="sidebar-nav">
 			<Sidebar />
 		</nav>
@@ -93,6 +98,49 @@
 	.app-title:hover {
 		text-decoration: none;
 		opacity: 0.85;
+	}
+
+	.sidebar-top-nav {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		margin-bottom: var(--space-sm);
+	}
+
+	.nav-link {
+		font-family: var(--font-ui);
+		font-size: var(--text-ui);
+		font-weight: 500;
+		color: var(--text-secondary);
+		text-decoration: none;
+		padding: var(--space-xs) var(--space-sm);
+		border-radius: var(--border-radius-sm);
+		transition:
+			background var(--transition-fast),
+			color var(--transition-fast);
+	}
+
+	.nav-link:hover {
+		background: var(--bg-message);
+		color: var(--text-primary);
+		text-decoration: none;
+	}
+
+	.nav-link.active {
+		background: rgba(232, 168, 73, 0.1);
+		color: var(--accent-warm);
+		font-weight: 600;
+	}
+
+	.nav-link:focus-visible {
+		outline: 2px solid var(--accent-warm);
+		outline-offset: 2px;
+	}
+
+	.sidebar-divider {
+		border: none;
+		border-top: 1px solid rgba(184, 168, 150, 0.15);
+		margin: var(--space-sm) 0;
 	}
 
 	.sidebar-nav {

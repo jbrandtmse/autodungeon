@@ -40,6 +40,29 @@ export interface Character {
 
 export interface CharacterDetail extends Character {
   token_limit: number;
+  backstory: string;
+}
+
+export interface CharacterCreateRequest {
+  name: string;
+  character_class: string;
+  personality?: string;
+  backstory?: string;
+  color?: string;
+  provider?: string;
+  model?: string;
+  token_limit?: number;
+}
+
+export interface CharacterUpdateRequest {
+  name?: string;
+  character_class?: string;
+  personality?: string;
+  backstory?: string;
+  color?: string;
+  provider?: string;
+  model?: string;
+  token_limit?: number;
 }
 
 export interface AgentMemory {
