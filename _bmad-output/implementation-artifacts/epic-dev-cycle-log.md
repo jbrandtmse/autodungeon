@@ -1560,7 +1560,7 @@ Completed in separate cycle sessions (not logged here).
 | 16-9-character-creation-library | ✅ done | Full Cycle |
 | 16-10-advanced-features-ui | ✅ done | Full Cycle |
 | 16-11-frontend-testing | ✅ done | Full Cycle |
-| 16-12-cutover-cleanup | pending | - |
+| 16-12-cutover-cleanup | ✅ done | Full Cycle |
 
 ---
 
@@ -1958,6 +1958,73 @@ Completed in separate cycle sessions (not logged here).
 
 ### User Input Required
 - None
+
+---
+
+## Story: 16-12-cutover-cleanup
+
+**Status:** ✅ Completed
+**Commit:** a36a00b
+**Duration:** 2026-02-12
+
+### Files Touched
+- `README.md` - Updated tech stack table, Getting Started section, Epic Progress table, Project Structure, Development commands
+- `CLAUDE.md` - Updated tech stack, commands, project structure, UI Testing, Configuration, status
+- `dev.sh` (NEW) - Bash startup script with prerequisite checks, dual server launch, signal trapping
+- `dev.ps1` (NEW) - PowerShell equivalent startup script
+- `.env.example` - Added SvelteKit proxy comment section
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` - epic-16: done, 16-12: done
+
+### Key Design Decisions
+- Documentation-only story — zero game engine file modifications (AC6 verified)
+- Bash dev.sh falls back to `python -m uvicorn` when uvicorn binary not on PATH
+- PowerShell dev.ps1 uses Start-Process with try/finally for cleanup
+- Streamlit preserved as "Legacy Mode" subsection, not removed
+
+### Issues Auto-Resolved
+- None — documentation/tooling story, no code review
+
+### User Input Required
+- None
+
+---
+
+# Epic 16 - Cycle Complete
+
+**Completion Time:** 2026-02-12
+**Total Stories Processed:** 12
+**Epic Status:** ✅ DONE
+
+## Overall Statistics
+- Total files touched: 80+ unique files across api/, frontend/, tests/, config
+- Total design decisions: 50+
+- Total issues auto-resolved: 60+ (across 10 code reviews)
+- Total user interventions: 0
+
+## Stories Completed This Cycle
+| Story | Tests Added | Issues Fixed |
+|-------|-------------|--------------|
+| 16-1-api-layer-foundation | 46 | 5 |
+| 16-2-game-engine-extraction | 102 | 8 |
+| 16-3-websocket-game-streaming | 75 | 7 |
+| 16-4-sveltekit-scaffold-theme | 0 | 7 |
+| 16-5-narrative-panel | 0 | 7 |
+| 16-6-sidebar-party-controls | 0 | 6 |
+| 16-7-session-management-ui | 5 | 4 |
+| 16-8-settings-configuration-ui | 0 | 7 |
+| 16-9-character-creation-library | 18 | 6 |
+| 16-10-advanced-features-ui | 40 | 7 |
+| 16-11-frontend-testing | 115 | 0 |
+| 16-12-cutover-cleanup | 0 | 0 |
+
+**Total Python Tests:** 112 API + existing suite
+**Total Frontend Tests:** 115 (Vitest)
+**Architecture:** FastAPI (REST + WebSocket) + SvelteKit (Svelte 5 runes) + Streamlit (legacy)
+
+## Recommendations
+- Run epic retrospective: `/bmad-bmm-retrospective`
+- Consider E2E integration tests between frontend and backend
+- Production deployment planning (SvelteKit adapter, reverse proxy config)
 
 ---
 
