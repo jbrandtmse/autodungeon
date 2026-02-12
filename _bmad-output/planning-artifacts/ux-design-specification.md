@@ -8,6 +8,10 @@ inputDocuments:
   - 'planning-artifacts/epics-v1.1.md'
 date: 2026-01-24
 lastUpdated: 2026-02-01
+lastEdited: '2026-02-11'
+editHistory:
+  - date: '2026-02-11'
+    changes: 'UI framework migration: Streamlit → SvelteKit. Updated design system, component strategy, consistency patterns, responsive design. All visual design tokens preserved. Per Sprint Change Proposal 2026-02-11.'
 author: Developer
 project: autodungeon
 version: '1.1'
@@ -100,7 +104,7 @@ The transition points (Watch→Drop-In and Play→Drop-Out) are where autodungeo
 
 | Aspect | Decision |
 |--------|----------|
-| **Primary Platform** | Desktop web browser (Streamlit served locally) |
+| **Primary Platform** | Desktop web browser (FastAPI + SvelteKit served locally) |
 | **Input Method** | Mouse/keyboard primary, touch-friendly as enhancement |
 | **Deployment Model** | Self-hosted - user clones repo, configures API keys, runs locally |
 | **Mobile Support** | Nice-to-have for MVP, minimum 375px viewport when implemented |
@@ -363,19 +367,22 @@ autodungeon draws inspiration from leading AI conversation interfaces, each offe
 
 ### Design System Choice
 
-**Selected Approach:** Streamlit Native + Heavy Custom CSS Theming
+**Selected Approach:** SvelteKit + Scoped Component Styling
 
-Streamlit provides the application framework while custom CSS transforms the visual experience from "data dashboard" to "campfire storytelling." This approach balances development speed with the unique aesthetic autodungeon requires.
+SvelteKit provides the application framework with scoped CSS per component, reactive stores for state management, and event-driven architecture that eliminates the Streamlit rerun-model limitations. The campfire aesthetic is built with full control from the start — no framework CSS to override.
+
+*Previous approach (Streamlit Native + Heavy Custom CSS) was deprecated due to architectural incompatibility with the real-time game engine. See Sprint Change Proposal 2026-02-11.*
 
 ### Rationale for Selection
 
 | Factor | Decision Driver |
 |--------|-----------------|
-| **Solo Developer** | Streamlit handles complex state/reactivity; focus custom work where it matters |
-| **Passion Project** | Don't over-engineer; ship fast, iterate based on feel |
-| **Unique Aesthetic Need** | Stock Streamlit looks like a dashboard; heavy CSS theming transforms it |
-| **Narrative-First Product** | The story display is THE product; that's where customization investment goes |
-| **Evening Use Case** | Dark mode essential; warm tones required; Streamlit supports custom theming |
+| **Solo Developer** | SvelteKit's simpler mental model (no VDOM) reduces cognitive load; scoped styles eliminate CSS debugging |
+| **Real-time Game Engine** | Event-driven architecture — UI controls never interrupt autopilot or background game processes |
+| **Unique Aesthetic Need** | Full CSS control from the start — no framework styles to override, scoped per component |
+| **Narrative-First Product** | Surgical DOM updates for streaming text; virtual scrolling for long sessions |
+| **Evening Use Case** | Dark mode first; warm campfire tones via CSS custom properties |
+| **Long Sessions** | WebSocket auto-reconnect survives 12+ hour sessions without UI degradation |
 
 ### Implementation Approach
 
@@ -383,41 +390,42 @@ Streamlit provides the application framework while custom CSS transforms the vis
 
 | Layer | Technology | Purpose |
 |-------|------------|---------|
-| **Application Shell** | Streamlit Native | Layout, state management, reactivity, sidebar |
-| **Visual Theme** | config.toml + CSS | Colors, typography, spacing, dark mode |
-| **Narrative Display** | Custom CSS via st.markdown | Message bubbles, character styling, animations |
-| **Special Components** | st.components (if needed) | Any truly custom interactive elements |
+| **Application Shell** | SvelteKit (routes, layout) | Page routing, layout structure, SSR/hydration |
+| **State Management** | Svelte Stores | Reactive stores (gameStore, uiStore, configStore) decoupled from rendering |
+| **Real-time** | WebSocket (ws.ts) | Persistent connection for game state streaming + bidirectional control commands |
+| **Visual Theme** | Scoped CSS + CSS Custom Properties | Per-component styling with global theme tokens in app.css |
+| **Narrative Display** | NarrativePanel.svelte | Virtual scrolling, character-colored messages, auto-scroll |
 
 **Development Strategy:**
 
-1. Start with Streamlit's native components for all functionality
-2. Apply custom theme via config.toml for base colors and fonts
-3. Inject custom CSS for narrative area styling
-4. Define character colors as CSS variables for consistency
-5. Iterate on visual polish after core functionality works
+1. Define CSS custom properties (theme tokens) in `app.css` for colors, fonts, spacing
+2. Build layout shell with SvelteKit routes (+layout.svelte, +page.svelte)
+3. Create WebSocket client (ws.ts) with auto-reconnect and message protocol
+4. Build reactive stores that subscribe to WebSocket stream
+5. Build components with scoped CSS — styles co-located with component logic
 
 ### Customization Strategy
 
-**Heavy Customization (Soul of the Experience):**
+**Full Control (Soul of the Experience):**
 
-| Element | Customization |
+| Element | Implementation |
 |---------|---------------|
-| **Narrative Display** | Dark background, warm tones, generous spacing, message bubbles with character colors |
-| **Character Identity** | Color-coded borders/accents, portrait display area, distinct DM narrator styling |
-| **Typography** | Readable fonts optimized for extended narrative reading; clear hierarchy |
-| **Color Palette** | Campfire warmth: deep browns, amber, soft orange accents, parchment highlights |
-| **Drop-In Controls** | Inviting button styling, subtle hover/glow states, always accessible |
-| **Mode Indicators** | Clear visual distinction between Watch Mode and Play Mode |
+| **Narrative Display** | `NarrativePanel.svelte` — dark background, warm tones, character-colored message blocks, virtual scrolling |
+| **Character Identity** | Character color passed as CSS variable per message; distinct DM narrator styling |
+| **Typography** | Lora for narrative, Inter for UI, JetBrains Mono for dice — loaded via @font-face |
+| **Color Palette** | Campfire warmth: CSS custom properties for all theme colors |
+| **Drop-In Controls** | `PartyPanel.svelte` — inviting button styling, hover glow, always accessible in sidebar |
+| **Mode Indicators** | Reactive store-driven; clear visual distinction between Watch and Play modes |
 
-**Keep Native (Don't Fight Streamlit):**
+**SvelteKit Native (Leverage the Framework):**
 
 | Element | Rationale |
 |---------|-----------|
-| **Sidebar** | Streamlit's sidebar is well-designed for configuration/settings |
-| **Form Inputs** | Native inputs with color theming; no need to rebuild |
-| **Layout System** | Streamlit's columns and containers work well |
-| **Session State** | Streamlit's state management is robust and well-tested |
-| **Basic Navigation** | Use Streamlit patterns for page/view management |
+| **Routing** | SvelteKit's file-based routing for pages (home, session, settings, characters) |
+| **Form Handling** | SvelteKit form actions + HTML form elements with theme styling |
+| **Layout System** | CSS Grid/Flexbox in layout components — full control, no framework constraints |
+| **State Management** | Svelte writable/derived stores — reactive, decoupled from DOM |
+| **Transitions** | Svelte transition directives (fade, slide, fly) for smooth UI state changes |
 
 **Theme Direction:**
 
@@ -805,7 +813,7 @@ Based on PRD journeys and the core experience ("watch AI play D&D, drop in when 
 
 ### Flow 1: First Session
 
-**Entry Point:** User has cloned repo, configured API keys, runs `streamlit run app.py`
+**Entry Point:** User has cloned repo, configured API keys, starts the application (FastAPI backend + SvelteKit frontend)
 
 ```mermaid
 flowchart TD
@@ -1074,23 +1082,23 @@ flowchart TD
 
 ## Component Strategy
 
-### Design System Components (Streamlit Native)
+### Design System Components (SvelteKit)
 
-| Component | Streamlit Element | Customization Level |
-|-----------|-------------------|---------------------|
-| Text display | `st.markdown` | Heavy CSS (manuscript styling) |
-| Text input | `st.text_area` | Moderate CSS (theme colors) |
-| Buttons | `st.button` | Heavy CSS (character theming) |
-| Sidebar | `st.sidebar` | Moderate CSS (width, colors) |
-| Modal | `st.dialog` | Heavy CSS (dark theme) |
-| Dropdowns | `st.selectbox` | Moderate CSS (theme colors) |
-| Tabs | `st.tabs` | Heavy CSS (tab styling) |
+| Component | Svelte Implementation | Styling Approach |
+|-----------|----------------------|------------------|
+| Text display | Svelte component with {@html} | Scoped CSS (manuscript styling) |
+| Text input | `<textarea>` / `<input>` | Scoped CSS (theme colors) |
+| Buttons | `<button>` with Svelte events | Scoped CSS (character theming) |
+| Sidebar | Layout component (CSS Grid) | Scoped CSS (responsive width, colors) |
+| Modal | Svelte component with portal | Scoped CSS (dark theme) |
+| Dropdowns | `<select>` or custom component | Scoped CSS (theme colors) |
+| Tabs | Custom tab component | Scoped CSS (tab styling) |
 
 ### Custom Components
 
 #### 1. Character Card (Sidebar)
 
-**Streamlit Base:** `st.container` with custom CSS class
+**Svelte Component:** `CharacterCard.svelte` with scoped CSS
 
 **Purpose:** Display party member with Drop-In control
 
@@ -1163,7 +1171,7 @@ flowchart TD
 
 #### 2. Narrative Message (DM)
 
-**Streamlit Base:** `st.markdown` with custom container
+**Svelte Component:** `NarrativeMessage.svelte` with scoped CSS
 
 **Purpose:** Display DM narration in manuscript style
 
@@ -1199,7 +1207,7 @@ flowchart TD
 
 #### 3. Narrative Message (PC)
 
-**Streamlit Base:** `st.markdown` with custom container
+**Svelte Component:** `NarrativeMessage.svelte` with character color prop
 
 **Purpose:** Display PC dialogue and actions
 
@@ -1246,7 +1254,7 @@ flowchart TD
 
 #### 4. Mode Indicator
 
-**Streamlit Base:** `st.markdown` badge
+**Svelte Component:** `DiceResult.svelte` with scoped CSS
 
 **Purpose:** Show Watch/Play mode state
 
@@ -1290,7 +1298,7 @@ flowchart TD
 
 #### 5. Session Header
 
-**Streamlit Base:** `st.markdown` in main area
+**Svelte Component:** `ThinkingIndicator.svelte` with scoped CSS
 
 **Purpose:** Chronicle-style session title
 
@@ -1323,7 +1331,7 @@ flowchart TD
 
 #### 6. Input Context Bar
 
-**Streamlit Base:** `st.container` above text input
+**Svelte Component:** `HumanInputBar.svelte` with scoped CSS
 
 **Purpose:** Show "You are [Character]" when dropped in
 
@@ -1352,7 +1360,7 @@ flowchart TD
 
 #### 7. Config Modal
 
-**Streamlit Base:** `st.dialog` + `st.tabs`
+**Svelte Component:** `SettingsModal.svelte` with tab navigation
 
 **CSS Specification:**
 
@@ -1417,7 +1425,7 @@ flowchart TD
 
 #### 8. Error Panel
 
-**Streamlit Base:** `st.container` replacing `st.error`
+**Svelte Component:** `ErrorToast.svelte` with scoped CSS
 
 **CSS Specification:**
 
@@ -1465,9 +1473,9 @@ flowchart TD
 
 ### Component Implementation Strategy
 
-1. **Create `styles.css`** with all CSS variables and component styles
-2. **Inject via `st.markdown`** using `unsafe_allow_html=True`
-3. **Use consistent class naming** for Streamlit element targeting
+1. **Define CSS custom properties** in `app.css` for all theme tokens and spacing
+2. **Use Svelte's scoped `<style>` blocks** per component. Global theme tokens defined as CSS custom properties in `app.css`. No unsafe HTML injection needed.
+3. **Use consistent class naming** for component styling
 4. **Test character color theming** across all states
 
 ### Implementation Roadmap
@@ -1660,9 +1668,9 @@ flowchart TD
 
 ### Responsive Strategy
 
-**Approach:** Desktop-Only (Local Streamlit App)
+**Approach:** Desktop-First (Responsive Web Application)
 
-Since autodungeon is a locally-run Streamlit application (`streamlit run app.py`), mobile and tablet support is not a realistic use case. Users will access the app via desktop browsers on the same machine running the Python server.
+autodungeon is a locally-run web application served by FastAPI (backend) with a SvelteKit frontend. While primarily designed for desktop browsers, the SvelteKit architecture enables responsive design for tablet and mobile viewports. Desktop remains the primary target with a minimum viewport of 1024px for full layout; sidebar collapses on narrower screens.
 
 **Supported Viewports:**
 
@@ -1771,24 +1779,18 @@ Below this width, a message will display: "Please use a wider browser window for
 
 ### Implementation Guidelines
 
-**Streamlit-Specific Implementation:**
+**SvelteKit Layout Implementation:**
 
-```python
-# Set wide layout mode
-st.set_page_config(layout="wide")
+The app shell is defined in `+layout.svelte`, which provides the root layout with sidebar and main content area. CSS custom properties are defined in `app.css` and available to all components. No `st.set_page_config` or `st.markdown` injection needed.
 
-# Inject custom CSS
-st.markdown("""
-<style>
-    /* Desktop-only breakpoint handling */
-    @media (max-width: 1023px) {
-        .main-content::before {
-            content: "Please use a wider browser window";
-            /* ... styling ... */
-        }
+```css
+/* In app.css - Desktop-first breakpoint handling */
+@media (max-width: 1023px) {
+    .main-content::before {
+        content: "Please use a wider browser window";
+        /* ... styling ... */
     }
-</style>
-""", unsafe_allow_html=True)
+}
 ```
 
 **CSS Best Practices:**

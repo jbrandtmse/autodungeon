@@ -10,6 +10,10 @@ workflowType: 'architecture'
 project_name: 'autodungeon'
 user_name: 'Developer'
 date: '2026-01-25'
+lastEdited: '2026-02-11'
+editHistory:
+  - date: '2026-02-11'
+    changes: 'UI framework migration: Streamlit → FastAPI + SvelteKit. Updated state sync, execution model, project layout, module mapping, boundaries. Added API layer and frontend architecture. Per Sprint Change Proposal 2026-02-11.'
 ---
 
 # Architecture Decision Document
@@ -55,19 +59,22 @@ _This document builds collaboratively through step-by-step discovery. Sections a
 
 **Scale & Complexity:**
 
-- Primary domain: Full-stack Python (LangGraph orchestration + Streamlit UI)
+- Primary domain: Client-server application (Python backend with FastAPI + SvelteKit frontend)
 - Complexity level: Medium-High
-- Deployment: Self-hosted local application
-- Estimated architectural components: 6-8 major modules
+- Deployment: Self-hosted local application (dual runtime: Python + Node.js)
+- Estimated architectural components: 8-12 major modules (backend + API layer + frontend)
 
 ### Technical Constraints & Dependencies
 
 **Explicit Technology Choices (from requirements):**
-- Python 3.10+ runtime
+- Python 3.10+ runtime (backend: game engine, API layer)
+- Node.js 20+ runtime (frontend: SvelteKit build and dev server)
 - LangGraph for multi-agent orchestration (cyclical state management)
-- Streamlit for UI (with heavy CSS customization)
+- FastAPI for API and WebSocket endpoints
+- SvelteKit for reactive frontend UI with scoped CSS
 - Pydantic for data models and validation
 - JSON/YAML file storage (no database for MVP)
+- ~~Streamlit for UI~~ *(deprecated — architecturally incompatible with real-time game engine; see Sprint Change Proposal 2026-02-11)*
 
 **External Dependencies:**
 - Google Gemini API (ChatGoogleGenerativeAI)
@@ -96,22 +103,22 @@ _This document builds collaboratively through step-by-step discovery. Sections a
 
 ### Primary Technology Domain
 
-Full-stack Python application with predefined technology stack:
+Client-server application with predefined technology stack:
 
-- **Orchestration**: LangGraph (cyclical state management for turn-based gameplay)
-- **UI**: Streamlit (with heavy CSS customization)
-- **Data Models**: Pydantic (type-safe game state)
+- **Backend**: Python 3.10+ (LangGraph orchestration, FastAPI API layer, Pydantic models)
+- **Frontend**: SvelteKit 2.0+ (Svelte 5, Vite, scoped CSS, reactive stores)
+- **Real-time**: WebSocket (persistent connection for game state streaming + control commands)
 - **LLM Integration**: LangChain chat models (multi-provider abstraction)
 
-### Starter Approach: Clean Python Project
+### Starter Approach: Clean Project (Backend + Frontend)
 
-Given the explicitly defined technology stack and envisioned module structure, no external starter template is required. The project will be scaffolded from scratch with established Python conventions.
+Given the explicitly defined technology stack, no external starter template is required. The backend continues the established Python flat layout. The frontend is scaffolded via `npx sv create`.
 
 **Rationale:**
 
-- Technology choices are locked (LangGraph + Streamlit + Pydantic)
-- Original vision already defines sensible module breakdown
-- Architectural complexity is in component integration, not scaffolding
+- Backend technology choices are locked (LangGraph + FastAPI + Pydantic)
+- Frontend benefits from SvelteKit's official scaffold for routing and build config
+- Architectural complexity is in the API contract between backend and frontend
 - Solo developer project benefits from simplicity over convention enforcement
 
 ### Project Scaffolding Decisions
@@ -130,25 +137,50 @@ Selected: **uv** - Fast dependency resolution, built-in venv management, and sim
 
 ```text
 autodungeon/
-├── pyproject.toml
-├── .env.example
-├── app.py              # Streamlit entry point
-├── graph.py            # LangGraph state machine
-├── agents.py           # Agent definitions, LLM factory
-├── memory.py           # MemoryManager, summarization
-├── models.py           # Pydantic models (GameState, AgentMemory, etc.)
-├── tools.py            # Function tools (dice rolling, etc.)
-├── persistence.py      # Checkpoint save/load, transcript export
-├── config.py           # Configuration loading, defaults
+├── pyproject.toml           # Python dependencies (uv)
+├── .env.example             # API key template
+├── app.py                   # [LEGACY] Streamlit entry point (deprecated)
+├── graph.py                 # LangGraph state machine
+├── agents.py                # Agent definitions, LLM factory
+├── memory.py                # MemoryManager, summarization
+├── models.py                # Pydantic models (GameState, AgentMemory, etc.)
+├── tools.py                 # Function tools (dice rolling, etc.)
+├── persistence.py           # Checkpoint save/load, transcript export
+├── config.py                # Configuration loading, defaults
+│
+├── api/                     # FastAPI application (v2.0)
+│   ├── __init__.py
+│   ├── main.py              # FastAPI app, CORS, lifespan
+│   ├── routes.py            # REST endpoints (sessions, config, characters)
+│   ├── websocket.py         # WebSocket endpoints (game stream, controls)
+│   ├── engine.py            # GameEngine service (extracted from app.py)
+│   ├── dependencies.py      # Shared dependencies (engine registry, config)
+│   └── schemas.py           # API request/response models (Pydantic)
+│
+├── frontend/                # SvelteKit application (v2.0)
+│   ├── src/
+│   │   ├── routes/          # SvelteKit pages (+page.svelte, +layout.svelte)
+│   │   ├── lib/
+│   │   │   ├── stores/      # Svelte stores (gameState, ui, config)
+│   │   │   ├── components/  # Reusable components (NarrativePanel, PartyCard, etc.)
+│   │   │   └── ws.ts        # WebSocket client with auto-reconnect
+│   │   └── app.css          # Global campfire theme CSS custom properties
+│   ├── static/              # Static assets
+│   ├── svelte.config.js
+│   ├── vite.config.ts
+│   └── package.json         # Node.js dependencies
+│
 ├── styles/
-│   └── theme.css       # Custom Streamlit theming
-├── campaigns/          # Saved game data
-│   └── .gitkeep
+│   └── theme.css            # [LEGACY] Streamlit theme (deprecated)
+├── config/
+│   ├── defaults.yaml
+│   └── characters/
+├── campaigns/               # Saved game data
 └── tests/
     └── ...
 ```
 
-Flat layout chosen for simplicity - no import path complexity for a focused application.
+Backend uses flat Python layout for simplicity. Frontend uses SvelteKit's standard directory structure. The API layer bridges the two.
 
 **Development Tooling:**
 
@@ -179,8 +211,8 @@ Flat layout chosen for simplicity - no import path complexity for a focused appl
 | Agent Config | Centralized + UI | Config file defaults, UI overrides |
 | Checkpoint Format | Single JSON | One file per checkpoint, Pydantic serialization |
 | Checkpoint Naming | Turn-based | `session_001/turn_042.json` |
-| State Sync | Shared object | GameState in `st.session_state["game"]` |
-| Async Handling | Blocking | Synchronous execution with spinner feedback |
+| State Sync | WebSocket streaming | Backend broadcasts state updates; frontend subscribes via Svelte stores |
+| Async Handling | Async event-driven | FastAPI async endpoints; autopilot runs as background task independent of client connections |
 
 ### LangGraph State Machine Architecture
 
@@ -264,8 +296,8 @@ def get_llm(provider: str, model: str) -> BaseChatModel:
 
 1. Default config file (`config/defaults.yaml`) sets initial model assignments
 2. Campaign config can override defaults
-3. UI (Streamlit sidebar) can override at runtime
-4. Runtime changes persist to session state, optionally saved to campaign
+3. UI (Settings page) can override at runtime via REST API
+4. Runtime changes persist to backend session state, optionally saved to campaign
 
 ### Persistence Strategy
 
@@ -285,29 +317,63 @@ campaigns/
 
 **Transcript Format:** Separate append-only JSON file for research analysis. Each entry includes timestamp, agent name, raw output, and any tool calls.
 
-### Streamlit Integration
+### API Layer & Frontend Integration
 
-**State Synchronization:**
+**Architecture Overview:**
 
-- GameState lives in `st.session_state["game"]`
-- LangGraph execution reads/writes to this shared object
-- UI rendering reads from same object
-- No polling or callbacks needed - Streamlit's rerun model handles updates
+The system is split into three layers:
+1. **Game Engine** (Python) — LangGraph orchestration, agents, memory, persistence (unchanged)
+2. **API Layer** (FastAPI) — WebSocket + REST endpoints that expose the game engine to clients
+3. **Frontend** (SvelteKit) — Reactive UI that consumes the API
+
+**State Management:**
+
+- Backend: `GameEngine` service class holds GameState per session (keyed by session_id)
+- API: WebSocket broadcasts state updates to all connected clients for a session
+- Frontend: `gameStore` (writable Svelte store) subscribes to WebSocket stream
+- Frontend: `uiStore` (client-side only) manages sidebar state, scroll position, selected character
+- Frontend: `configStore` synced to backend via REST API
+
+**Key Principle:** UI interactions send commands via WebSocket. Backend processes commands and streams updates. No coupling between UI rendering and game engine execution. Widget interactions cannot affect the game loop.
 
 **Execution Model:**
 
-- Graph execution is synchronous (blocking)
-- UI shows spinner/loading indicator during LLM calls
-- Matches UX spec: "spinner after 500ms delay"
-- Async execution deferred to post-MVP if needed
+- Autopilot runs as an `asyncio` background task, independent of client connections
+- Turn generation is async — frontend remains fully interactive during LLM calls
+- WebSocket streams turn-by-turn updates as they complete
+- Auto-reconnect on WebSocket drop (target: survive 12+ hour sessions)
 
 **Human Intervention Flow:**
 
-1. User clicks "Drop-In" → sets `human_active=True`, `controlled_character="rogue"`
-2. Graph routes to `human_intervention_node` instead of AI node
-3. Node pauses, waits for Streamlit input
-4. User submits action → node completes, graph continues
-5. User clicks "Release" → resets flags, AI resumes control
+1. User clicks "Drop-In" → frontend sends `{type: "drop_in", character: "rogue"}` via WebSocket
+2. Backend sets `human_active=True`, `controlled_character="rogue"` on GameState
+3. Graph routes to `human_intervention_node` instead of AI node
+4. Backend sends `{type: "awaiting_input", character: "rogue"}` to frontend
+5. User submits action → frontend sends `{type: "human_action", content: "..."}` via WebSocket
+6. Backend feeds action to graph, graph continues
+7. User clicks "Release" → frontend sends `{type: "release_control"}`, AI resumes
+
+**WebSocket Message Protocol:**
+
+```
+# Client → Server (commands)
+{type: "start_autopilot", speed: "normal"}
+{type: "stop_autopilot"}
+{type: "next_turn"}
+{type: "drop_in", character: "rogue"}
+{type: "release_control"}
+{type: "human_action", content: "I check the door for traps."}
+{type: "nudge", content: "Maybe try talking to the innkeeper?"}
+{type: "set_speed", speed: "fast"}
+
+# Server → Client (updates)
+{type: "turn_update", turn: 42, agent: "dm", content: "...", state: {...}}
+{type: "awaiting_input", character: "rogue"}
+{type: "autopilot_started"}
+{type: "autopilot_stopped", reason: "user_request"}
+{type: "error", message: "LLM API timeout", recoverable: true}
+{type: "session_state", state: {...}}  # Full state sync on connect/reconnect
+```
 
 ## Implementation Patterns & Consistency Rules
 
@@ -320,7 +386,8 @@ campaigns/
 | Model naming | No suffix | `GameState`, not `GameStateModel` |
 | Node functions | Agent pattern | `{agent}_turn` (e.g., `dm_turn`, `rogue_turn`) |
 | Node IDs | Lowercase short | `"dm"`, `"rogue"`, `"fighter"` |
-| Session state keys | Underscore separated | `"game"`, `"ui_mode"`, `"controlled_character"` |
+| Svelte store names | camelCase | `gameStore`, `uiStore`, `configStore` |
+| API route paths | kebab-case | `/api/sessions`, `/api/config`, `/ws/game/{session_id}` |
 | Config YAML keys | Concise | `name`, `class`, `personality` |
 | Error messages | Friendly narrative | Match campfire aesthetic for user-facing |
 
@@ -342,13 +409,36 @@ workflow.add_node("rogue", rogue_turn)
 def route_to_next_agent(state: GameState) -> str: ...
 ```
 
-**Streamlit Session State:**
+**Svelte Stores (frontend/src/lib/stores/):**
+
+```typescript
+// gameStore.ts — subscribed to WebSocket stream
+export const gameStore = writable<GameState | null>(null);
+
+// uiStore.ts — client-side only
+export const uiStore = writable({
+    sidebarOpen: true,
+    selectedCharacter: null as string | null,
+    uiMode: 'watch' as 'watch' | 'play',
+});
+
+// configStore.ts — synced to backend via REST
+export const configStore = writable<GameConfig | null>(null);
+```
+
+**API Endpoints (api/routes.py):**
 
 ```python
-st.session_state["game"]                 # GameState object
-st.session_state["ui_mode"]              # "watch" | "play"
-st.session_state["controlled_character"] # str | None
-st.session_state["error"]                # UserError | None
+# REST
+GET  /api/sessions              # List sessions
+POST /api/sessions              # Create session
+GET  /api/sessions/{id}         # Get session details
+GET  /api/sessions/{id}/config  # Get session config
+PUT  /api/sessions/{id}/config  # Update config
+GET  /api/characters            # List character library
+
+# WebSocket
+WS   /ws/game/{session_id}      # Game state stream + control commands
 ```
 
 ### Format Patterns
@@ -398,12 +488,13 @@ logger.error("LLM API failed", extra={"provider": "gemini", "agent": "dm"})
 
 **All AI Agents MUST:**
 
-1. Follow PEP 8 (enforced by Ruff)
-2. Use type hints (enforced by Pyright)
-3. Place Pydantic models in `models.py`
-4. Use `{agent}_turn` node naming
-5. Access state via `st.session_state["game"]`
+1. Follow PEP 8 (enforced by Ruff) for Python; follow Svelte conventions for frontend
+2. Use type hints (enforced by Pyright) for Python; TypeScript for frontend
+3. Place Pydantic models in `models.py`; API schemas in `api/schemas.py`
+4. Use `{agent}_turn` node naming for LangGraph nodes
+5. Access game state via `GameEngine` service (backend) or `gameStore` (frontend)
 6. Use friendly narrative for user errors
+7. Never couple game engine logic to UI framework — all UI communication via API layer
 
 ## Project Structure & Boundaries
 
@@ -411,12 +502,12 @@ logger.error("LLM API failed", extra={"provider": "gemini", "agent": "dm"})
 
 ```text
 autodungeon/
-├── pyproject.toml           # uv/pip config, dependencies
+├── pyproject.toml           # Python dependencies (uv)
 ├── .env.example             # API key template
 ├── .gitignore
 ├── README.md
 │
-├── app.py                   # Streamlit entry point
+├── app.py                   # [LEGACY] Streamlit entry point (deprecated)
 ├── graph.py                 # LangGraph state machine, nodes
 ├── agents.py                # Agent definitions, get_llm factory
 ├── memory.py                # MemoryManager, summarization
@@ -425,16 +516,34 @@ autodungeon/
 ├── persistence.py           # Checkpoint save/load, transcript
 ├── config.py                # Pydantic Settings, config loading
 │
+├── api/                     # FastAPI application (v2.0)
+│   ├── __init__.py
+│   ├── main.py              # FastAPI app, CORS, lifespan
+│   ├── routes.py            # REST endpoints
+│   ├── websocket.py         # WebSocket endpoints
+│   ├── engine.py            # GameEngine service class
+│   ├── dependencies.py      # Shared deps (engine registry)
+│   └── schemas.py           # API request/response Pydantic models
+│
+├── frontend/                # SvelteKit application (v2.0)
+│   ├── src/
+│   │   ├── routes/          # SvelteKit pages
+│   │   ├── lib/
+│   │   │   ├── stores/      # gameStore, uiStore, configStore
+│   │   │   ├── components/  # NarrativePanel, PartyCard, etc.
+│   │   │   └── ws.ts        # WebSocket client
+│   │   └── app.css          # Campfire theme CSS custom properties
+│   ├── static/
+│   ├── svelte.config.js
+│   ├── vite.config.ts
+│   └── package.json
+│
 ├── config/
 │   ├── defaults.yaml        # Default LLM assignments
 │   └── characters/          # Character templates
-│       ├── dm.yaml
-│       ├── rogue.yaml
-│       ├── fighter.yaml
-│       └── wizard.yaml
 │
 ├── styles/
-│   └── theme.css            # Campfire aesthetic CSS
+│   └── theme.css            # [LEGACY] Streamlit theme (deprecated)
 │
 ├── campaigns/               # Saved game data
 │   └── session_001/
@@ -447,33 +556,42 @@ autodungeon/
     ├── test_models.py
     ├── test_memory.py
     ├── test_graph.py
-    └── test_persistence.py
+    ├── test_persistence.py
+    └── test_api.py          # FastAPI endpoint tests
 ```
 
 ### FR Category to Module Mapping
 
-| FR Domain | Primary Module | Supporting |
-|-----------|---------------|------------|
-| Multi-Agent Game Loop (FR1-10) | `graph.py` | `agents.py` |
-| Memory & Context (FR11-16) | `memory.py` | `models.py` |
-| Human Interaction (FR17-24) | `graph.py` | `app.py` |
-| Viewer Interface (FR25-32) | `app.py` | `styles/` |
-| Persistence (FR33-41) | `persistence.py` | `campaigns/` |
-| LLM Configuration (FR42-50) | `agents.py`, `config.py` | `config/` |
-| Agent Behavior (FR51-55) | `agents.py` | `tools.py` |
-| Module Selection (FR56-59) | `agents.py`, `app.py` | `models.py` |
-| Character Sheets (FR60-66) | `models.py`, `tools.py` | `app.py` |
-| Character Creation (FR67-70) | `app.py` | `agents.py`, `models.py` |
-| DM Whisper & Secrets (FR71-75) | `tools.py`, `models.py` | `graph.py` |
-| Callback Tracking (FR76-80) | `memory.py`, `models.py` | `app.py` |
-| Fork Gameplay (FR81-84) | `persistence.py`, `app.py` | `models.py` |
+| FR Domain | Primary Module | API Layer | Frontend |
+|-----------|---------------|-----------|----------|
+| Multi-Agent Game Loop (FR1-10) | `graph.py` | `api/engine.py` | — |
+| Memory & Context (FR11-16) | `memory.py` | — | — |
+| Human Interaction (FR17-24) | `graph.py` | `api/websocket.py` | `stores/gameStore` |
+| Viewer Interface (FR25-32) | — | `api/websocket.py` | `components/NarrativePanel` |
+| Persistence (FR33-41) | `persistence.py` | `api/routes.py` | `routes/sessions` |
+| LLM Configuration (FR42-50) | `agents.py`, `config.py` | `api/routes.py` | `routes/settings` |
+| Agent Behavior (FR51-55) | `agents.py` | — | — |
+| Module Selection (FR56-59) | `agents.py` | `api/routes.py` | `routes/adventure` |
+| Character Sheets (FR60-66) | `models.py`, `tools.py` | `api/websocket.py` | `components/CharacterSheet` |
+| Character Creation (FR67-70) | `agents.py`, `models.py` | `api/routes.py` | `routes/characters` |
+| DM Whisper & Secrets (FR71-75) | `tools.py`, `models.py` | `api/websocket.py` | `components/WhisperPanel` |
+| Callback Tracking (FR76-80) | `memory.py`, `models.py` | `api/websocket.py` | `components/CallbackTracker` |
+| Fork Gameplay (FR81-84) | `persistence.py` | `api/routes.py` | `routes/forks` |
 
 ### Architectural Boundaries
 
-**LangGraph ↔ Streamlit:**
+**Game Engine ↔ API Layer:**
 
-- Bridge: `st.session_state["game"]` holds GameState
-- Graph reads/writes state, Streamlit renders it
+- Bridge: `GameEngine` service class wraps graph execution, state management, and autopilot
+- API layer instantiates `GameEngine` per session, manages lifecycle
+- Game engine has zero knowledge of HTTP, WebSocket, or frontend
+
+**API Layer ↔ Frontend:**
+
+- Bridge: WebSocket for real-time game state streaming + bidirectional control commands
+- REST for CRUD operations (sessions, config, characters)
+- Frontend sends commands; backend processes and streams updates
+- No shared state — all communication via explicit messages
 
 **Memory ↔ Agents:**
 
@@ -790,30 +908,38 @@ campaigns/
 
 | Check | Status |
 |-------|--------|
-| Decision Compatibility | ✅ LangGraph + Pydantic + Streamlit cohesive |
-| Pattern Consistency | ✅ PEP 8, node naming, session state keys |
-| Structure Alignment | ✅ Flat layout supports all decisions |
-| FR Coverage | ✅ All 13 domains mapped to modules (MVP + v1.1) |
-| NFR Coverage | ✅ 16GB RAM, 2min timeout addressed |
-| Implementation Ready | ✅ Patterns + examples complete |
+| Decision Compatibility | ✅ LangGraph + Pydantic + FastAPI + SvelteKit cohesive |
+| Pattern Consistency | ✅ PEP 8 (Python), Svelte conventions (frontend), API naming |
+| Structure Alignment | ✅ Flat Python layout + SvelteKit standard structure + API bridge |
+| FR Coverage | ✅ All 13 domains mapped to modules with API + frontend columns |
+| NFR Coverage | ✅ 16GB RAM, 2min timeout, WebSocket stability, UI non-interruption |
+| Implementation Ready | ✅ Patterns + examples + WebSocket protocol defined |
 | v1.1 Models Defined | ✅ CharacterSheet, Whisper, NarrativeElement, Fork, ModuleInfo |
 | v1.1 Tools Defined | ✅ update_character_sheet, whisper_to_agent, reveal_secret |
 | v1.1 Context Patterns | ✅ Sheet injection, module context, whisper context |
+| API Contract | ✅ REST endpoints + WebSocket message protocol documented |
+| State Architecture | ✅ Backend GameEngine + frontend Svelte stores with WebSocket bridge |
 
-### Architecture Readiness: READY FOR IMPLEMENTATION
+### Architecture Readiness: READY FOR IMPLEMENTATION (Epic 16)
 
-**First Implementation Step:**
+**Backend Setup:**
 
 ```bash
-uv init autodungeon
-cd autodungeon
-uv add langgraph langchain-google-genai langchain-anthropic streamlit pydantic pyyaml python-dotenv
+uv add fastapi uvicorn[standard] websockets
+```
+
+**Frontend Setup:**
+
+```bash
+npx sv create frontend
+cd frontend && npm install
 ```
 
 **AI Agent Guidelines:**
 
 - Follow all architectural decisions exactly as documented
 - Use implementation patterns consistently across all components
-- Respect project structure and boundaries
+- Respect project structure and boundaries — game engine logic in Python, UI in SvelteKit, API as the bridge
+- Never import UI framework code in game engine modules
 - Refer to this document for all architectural questions
 

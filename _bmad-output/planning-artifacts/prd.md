@@ -1,6 +1,10 @@
 ---
 stepsCompleted: ['step-01-init', 'step-02-discovery', 'step-03-success', 'step-04-journeys', 'step-05-domain', 'step-06-innovation', 'step-07-project-type', 'step-08-scoping', 'step-09-functional', 'step-10-nonfunctional', 'step-11-polish', 'step-12-complete']
 workflowCompleted: '2026-01-24'
+lastEdited: '2026-02-11'
+editHistory:
+  - date: '2026-02-11'
+    changes: 'UI framework migration: Streamlit → FastAPI + SvelteKit. Updated tech stack, FR25-32, NFRs (Stability, Build & Deployment), deployment model, growth roadmap. Per Sprint Change Proposal 2026-02-11.'
 inputDocuments:
   - 'planning-artifacts/product-brief-autodungeon-2026-01-24.md'
   - 'planning-artifacts/research/technical-autodungeon-research-2026-01-24.md'
@@ -115,7 +119,7 @@ This is a passion project with research value, not a commercial product.
 1. Multi-Agent Game Loop (DM + N PCs with turn-based narrative)
 2. Simple Memory System (short-term buffer + session summaries)
 3. Human Interaction (Watch Mode, Drop-In Mode, Nudge Option)
-4. Viewer Interface (Streamlit with real-time display)
+4. Viewer Interface (web-based real-time display via WebSocket streaming)
 5. Core Infrastructure (LangGraph, multi-LLM support, Pydantic models, transcript logging)
 
 ### Growth Features (Post-MVP)
@@ -218,7 +222,7 @@ Dr. Chen runs 10 more sessions with different configurations (different LLM mode
 Alex finds autodungeon on Twitter. The clip shows AI agents arguing about whether to trust an NPC. Alex thinks: "My viewers would love this. Nobody else is streaming this."
 
 **Rising Action:**
-Alex sets up autodungeon with OBS screen capture on the Streamlit UI. Creates a colorful party with exaggerated personalities: an arrogant wizard, a cowardly barbarian, a cynical cleric, and a too-helpful bard.
+Alex sets up autodungeon with OBS screen capture on the web UI. Creates a colorful party with exaggerated personalities: an arrogant wizard, a cowardly barbarian, a cynical cleric, and a too-helpful bard.
 
 Starts streaming. The AI agents immediately start clashing in entertaining ways. Chat goes wild when the barbarian runs from a spider.
 
@@ -317,24 +321,27 @@ The CollabStory dataset (NAACL 2024) validates the core premise:
 
 ### Project-Type Overview
 
-autodungeon is a Python-based web application using Streamlit for the user interface. It runs locally on the user's machine, connecting to external LLM APIs for agent intelligence. The application prioritizes real-time narrative display, seamless human interaction, and persistent game state across sessions.
+autodungeon is a client-server web application with a Python backend (FastAPI) and a SvelteKit frontend. It runs locally on the user's machine, connecting to external LLM APIs for agent intelligence. The backend exposes a WebSocket API for real-time game state streaming and REST endpoints for session/configuration management. The frontend renders narrative in real-time and provides interactive controls that never interrupt the game engine. The application prioritizes real-time narrative display, seamless human interaction, and persistent game state across sessions.
 
 ### Technical Architecture Considerations
 
-**Application Type:** Local Python application with web-based UI (Streamlit)
+**Application Type:** Local client-server application (FastAPI backend + SvelteKit frontend)
 
 **Runtime Environment:**
 
-- Python 3.10+ required
-- Streamlit for UI rendering
+- Python 3.10+ required (backend: game engine, API layer)
+- Node.js 20+ required (frontend: SvelteKit build and dev server)
+- FastAPI for API and WebSocket endpoints
+- SvelteKit for reactive frontend UI
 - LangGraph for multi-agent orchestration
 - External LLM API connections (Gemini, Claude, Ollama)
 
 **Deployment Model:**
 
 - Self-hosted on user's local machine
-- No server deployment for MVP
-- Users clone repo, install dependencies, configure API keys
+- No cloud deployment for MVP
+- Users clone repo, install Python and Node.js dependencies, configure API keys
+- Backend and frontend can run as a single process (FastAPI serves SvelteKit build) or separately during development
 
 ### UI/UX Requirements
 
@@ -355,7 +362,7 @@ autodungeon is a Python-based web application using Streamlit for the user inter
 **Accessibility:**
 
 - No specific accessibility requirements for MVP
-- Standard Streamlit accessibility features sufficient
+- Standard semantic HTML and ARIA attributes sufficient
 
 ### State Persistence
 
@@ -375,7 +382,7 @@ autodungeon is a Python-based web application using Streamlit for the user inter
 
 ### LLM Configuration
 
-**Configuration Method:** UI Settings (Streamlit sidebar)
+**Configuration Method:** UI Settings (dedicated settings page)
 
 **Configurable Options:**
 
@@ -396,7 +403,7 @@ autodungeon is a Python-based web application using Streamlit for the user inter
 
 - No strict latency requirements for MVP
 - "Reasonable responsiveness" - turn generation within typical LLM response times
-- UI remains responsive during LLM API calls (async/streaming)
+- UI remains fully interactive during LLM API calls (event-driven architecture, no blocking)
 
 **Resource Usage:**
 
@@ -408,11 +415,12 @@ autodungeon is a Python-based web application using Streamlit for the user inter
 
 **Key Technical Decisions:**
 
-1. Streamlit for rapid UI development (not production-grade but sufficient for MVP)
+1. FastAPI + SvelteKit for event-driven UI with persistent WebSocket connections (replacing Streamlit, which was architecturally incompatible with real-time game engine requirements)
 2. LangGraph supervisor pattern for turn management
 3. Pydantic models for type-safe game state
 4. JSON/YAML file storage (no database complexity for MVP)
 5. Environment-based API key configuration with UI override option
+6. WebSocket for real-time narrative streaming and bidirectional control commands
 
 ## Project Scoping & Phased Development
 
@@ -456,12 +464,12 @@ The goal is to prove that watching AI agents play D&D together is genuinely fun 
    - Nudge Option (influence without full control)
    - Seamless transition between modes
 
-4. **Viewer Interface (Streamlit)**
-   - Real-time narrative display with character attribution
-   - Visual distinction (DM vs PC vs actions)
+4. **Viewer Interface (SvelteKit + WebSocket)**
+   - Real-time narrative display via WebSocket streaming with character attribution
+   - Visual distinction (DM vs PC vs actions) using character-colored components
    - Drop-In buttons per character
-   - Session controls (pause, speed)
-   - Session history/transcript view
+   - Session controls (pause, speed) that never interrupt the game engine
+   - Session history with virtual scrolling for large sessions
 
 5. **Persistence & Recovery**
    - Auto-checkpoint per turn
@@ -493,6 +501,14 @@ The goal is to prove that watching AI agents play D&D together is genuinely fun 
 |---------|-----------|
 | INT-based variable memory | Smarter characters remember more - adds depth |
 | Advanced pacing curves | Tension → release → climax rhythms |
+
+**Phase 2.9 - UI Framework Migration (v2.0):** *(Applied to PRD 2026-02-11; implementation pending as Epic 16)*
+
+| Feature | Rationale |
+|---------|-----------|
+| FastAPI API layer | WebSocket streaming, REST endpoints, decoupled game engine |
+| SvelteKit frontend | Event-driven UI, scoped CSS, reactive stores, no game engine interruption |
+| Streamlit deprecation | Rerun-model incompatible with real-time game engine; causes autopilot death on widget interaction, WebSocket drops in long sessions |
 
 **Phase 3 - Community & Scale (v2.x):**
 
@@ -573,10 +589,10 @@ The goal is to prove that watching AI agents play D&D together is genuinely fun 
 
 ### Viewer Interface
 
-- FR25: User can view narrative in real-time as turns are generated
-- FR26: User can distinguish between DM narration, PC dialogue, and actions visually
-- FR27: User can see which character is speaking for each message
-- FR28: User can scroll through session history
+- FR25: User can view narrative in real-time as turns are streamed via WebSocket
+- FR26: User can distinguish between DM narration, PC dialogue, and actions via character-colored message components
+- FR27: User can see which character is speaking via literary "Name, the Class:" attribution
+- FR28: User can scroll through session history with virtual scrolling for sessions exceeding 200 turns
 - FR29: User can see the current turn highlighted in the narrative
 - FR30: User can access Drop-In controls for each PC character
 - FR31: User can access session controls (pause, speed, etc.)
@@ -668,7 +684,7 @@ The goal is to prove that watching AI agents play D&D together is genuinely fun 
 | Requirement | Specification |
 |-------------|---------------|
 | Turn Generation Timeout | Up to 2 minutes per turn is acceptable |
-| UI Responsiveness | UI must remain responsive during LLM API calls (async processing) |
+| UI Responsiveness | UI must remain fully interactive during LLM API calls; user controls must never interrupt background game engine processes |
 | Visual Feedback | Spinner or "thinking..." indicator must display while waiting for turn generation |
 | Memory Footprint | Must run comfortably on 16GB RAM system |
 | Checkpoint Storage | Efficient storage - avoid redundant data in checkpoint files |
@@ -692,3 +708,20 @@ The goal is to prove that watching AI agents play D&D together is genuinely fun 
 | State Consistency | Checkpoint restore must restore complete agent memory state |
 | Data Integrity | Session files must remain valid even after unexpected shutdown |
 | Error Recovery | User can recover from any error without losing more than current turn |
+
+### Stability
+
+| Requirement | Specification |
+|-------------|---------------|
+| WebSocket Connection | Must survive 12+ hour sessions with automatic reconnection on drop |
+| UI Non-Interruption | User interactions (controls, navigation, settings) must not interrupt background game engine processes (autopilot, turn generation) |
+| Long-Session Rendering | Sessions with 200+ turns must render efficiently via virtual scrolling without UI degradation |
+
+### Build & Deployment
+
+| Requirement | Specification |
+|-------------|---------------|
+| Backend Runtime | Python 3.10+ (game engine, FastAPI API layer) |
+| Frontend Runtime | Node.js 20+ (SvelteKit build pipeline, dev server) |
+| Dual Runtime | Backend and frontend can be served together (FastAPI serves SvelteKit build artifacts) or separately during development |
+| Dependency Management | Python: uv/pip; Node.js: npm/pnpm |
