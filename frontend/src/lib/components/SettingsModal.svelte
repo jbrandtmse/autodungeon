@@ -327,10 +327,10 @@
 		}
 	}
 
-	const tabs: { id: TabId; label: string }[] = [
+	const tabs: { id: TabId; label: string; requiresSession?: boolean }[] = [
 		{ id: 'api-keys', label: 'API Keys' },
-		{ id: 'models', label: 'Models' },
-		{ id: 'settings', label: 'Settings' },
+		{ id: 'models', label: 'Models', requiresSession: true },
+		{ id: 'settings', label: 'Settings', requiresSession: true },
 	];
 </script>
 
@@ -369,7 +369,9 @@
 						role="tab"
 						class="tab-btn"
 						class:active={activeTab === tab.id}
+						class:tab-disabled={tab.requiresSession && !sessionId}
 						aria-selected={activeTab === tab.id}
+						disabled={tab.requiresSession && !sessionId}
 						onclick={() => (activeTab = tab.id)}
 					>
 						{tab.label}
@@ -567,6 +569,12 @@
 	.tab-btn.active {
 		color: var(--accent-warm);
 		border-bottom-color: var(--accent-warm);
+	}
+
+	.tab-btn:disabled,
+	.tab-btn.tab-disabled {
+		opacity: 0.4;
+		cursor: not-allowed;
 	}
 
 	.tab-btn:focus-visible {
