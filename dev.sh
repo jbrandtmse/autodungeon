@@ -8,11 +8,14 @@ set -euo pipefail
 # ── Prerequisite checks ──────────────────────────────────────────
 
 PYTHON_CMD=""
-if command -v python3 &>/dev/null; then
-  PYTHON_CMD="python3"
-elif command -v python &>/dev/null; then
-  PYTHON_CMD="python"
-else
+# Try each candidate and verify it actually runs (Windows Store stubs exist but fail)
+for candidate in python3 python; do
+  if command -v "$candidate" &>/dev/null && "$candidate" --version &>/dev/null 2>&1; then
+    PYTHON_CMD="$candidate"
+    break
+  fi
+done
+if [ -z "$PYTHON_CMD" ]; then
   echo "ERROR: Python is not installed. Please install Python 3.10+ and try again."
   exit 1
 fi
