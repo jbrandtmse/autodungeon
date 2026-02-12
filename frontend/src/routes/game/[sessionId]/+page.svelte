@@ -3,13 +3,33 @@
 	import { onMount, onDestroy } from 'svelte';
 	import NarrativePanel from '$lib/components/NarrativePanel.svelte';
 	import { createGameConnection, type GameConnection } from '$lib/ws';
-	import { connectionStatus, lastError } from '$lib/stores/connectionStore';
-	import { handleServerMessage, resetStores } from '$lib/stores/gameStore';
+	import { connectionStatus, lastError, wsSend, sendCommand } from '$lib/stores/connectionStore';
+	import { handleServerMessage, resetStores, gameState } from '$lib/stores/gameStore';
 
 	const sessionId = $derived($page.params.sessionId ?? '');
 
 	let connection: GameConnection | undefined;
 	let cleanupCallbacks: Array<() => void> = [];
+
+	function handleKeydown(event: KeyboardEvent): void {
+		// Skip if user is typing in an input/textarea/select or contentEditable
+		const target = event.target as HTMLElement;
+		const tag = target?.tagName;
+		if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+		if (target?.isContentEditable) return;
+
+		if (event.key >= '1' && event.key <= '4') {
+			const index = parseInt(event.key) - 1;
+			const characterKeys = Object.keys($gameState?.characters ?? {});
+			if (index < characterKeys.length) {
+				sendCommand({ type: 'drop_in', character: characterKeys[index] });
+			}
+		} else if (event.key === 'Escape') {
+			if ($gameState?.human_active) {
+				sendCommand({ type: 'release_control' });
+			}
+		}
+	}
 
 	onMount(() => {
 		if (!sessionId) return;
@@ -22,12 +42,14 @@
 		cleanupCallbacks.push(
 			conn.onConnect(() => {
 				connectionStatus.set('connected');
+				wsSend.set((cmd) => conn.send(cmd));
 			}),
 		);
 
 		cleanupCallbacks.push(
 			conn.onDisconnect(() => {
 				connectionStatus.set('reconnecting');
+				wsSend.set(null);
 			}),
 		);
 
@@ -44,30 +66,26 @@
 
 		connectionStatus.set('connecting');
 		conn.connect();
+
+		// Register keyboard shortcuts
+		window.addEventListener('keydown', handleKeydown);
 	});
 
 	onDestroy(() => {
+		// Remove keyboard shortcut listener
+		window.removeEventListener('keydown', handleKeydown);
+
 		// Unsubscribe all callbacks before disconnecting to prevent
 		// stale closures firing during in-flight reconnect races
 		cleanupCallbacks.forEach((cleanup) => cleanup());
 		cleanupCallbacks = [];
+		wsSend.set(null);
 		connection?.disconnect();
 		connectionStatus.set('disconnected');
 	});
 </script>
 
 <div class="game-view">
-	<div class="connection-badge-container">
-		<span
-			class="connection-badge"
-			class:connected={$connectionStatus === 'connected'}
-			class:reconnecting={$connectionStatus === 'reconnecting'}
-			class:connecting={$connectionStatus === 'connecting'}
-		>
-			{$connectionStatus}
-		</span>
-	</div>
-
 	<div class="narrative-area">
 		<NarrativePanel />
 	</div>
@@ -78,39 +96,6 @@
 		display: flex;
 		flex-direction: column;
 		height: calc(100vh - var(--space-lg) * 2);
-	}
-
-	.connection-badge-container {
-		display: flex;
-		justify-content: flex-end;
-		margin-bottom: var(--space-sm);
-		flex-shrink: 0;
-	}
-
-	.connection-badge {
-		font-size: 0.7rem;
-		padding: var(--space-xs) var(--space-sm);
-		border-radius: var(--border-radius-sm);
-		background-color: var(--bg-secondary);
-		color: var(--text-muted, var(--text-secondary));
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		font-family: var(--font-ui);
-	}
-
-	.connection-badge.connected {
-		background-color: rgba(107, 142, 107, 0.2);
-		color: var(--color-rogue);
-	}
-
-	.connection-badge.reconnecting {
-		background-color: rgba(232, 168, 73, 0.2);
-		color: var(--accent-warm);
-	}
-
-	.connection-badge.connecting {
-		background-color: rgba(74, 144, 164, 0.2);
-		color: var(--color-cleric);
 	}
 
 	.narrative-area {

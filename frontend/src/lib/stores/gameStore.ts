@@ -1,5 +1,6 @@
 import { writable } from 'svelte/store';
 import type { GameState, WsServerEvent } from '$lib/types';
+import { uiState } from './uiStore';
 
 export const gameState = writable<GameState | null>(null);
 export const isAutopilotRunning = writable<boolean>(false);
@@ -7,6 +8,8 @@ export const isPaused = writable<boolean>(false);
 export const speed = writable<string>('normal');
 export const isThinking = writable<boolean>(false);
 export const thinkingAgent = writable<string>('dm');
+export const awaitingInput = writable<boolean>(false);
+export const awaitingInputCharacter = writable<string>('');
 
 /**
  * Central dispatch for all WebSocket server events.
@@ -24,6 +27,8 @@ export function handleServerMessage(msg: WsServerEvent): void {
 
 		case 'turn_update':
 			isThinking.set(false);
+			awaitingInput.set(false);
+			awaitingInputCharacter.set('');
 			// Append new turn to the ground_truth_log in existing state
 			gameState.update((state) => {
 				if (!state) return state;
@@ -36,9 +41,6 @@ export function handleServerMessage(msg: WsServerEvent): void {
 					turn_number: msg.turn,
 				};
 			});
-			// Begin thinking about next agent
-			isThinking.set(true);
-			thinkingAgent.set(msg.agent);
 			break;
 
 		case 'autopilot_started':
@@ -65,6 +67,37 @@ export function handleServerMessage(msg: WsServerEvent): void {
 			speed.set(msg.speed);
 			break;
 
+		case 'drop_in':
+			gameState.update((state) => {
+				if (!state) return state;
+				return {
+					...state,
+					human_active: true,
+					controlled_character: msg.character,
+				};
+			});
+			uiState.update((s) => ({ ...s, uiMode: 'play' as const }));
+			break;
+
+		case 'release_control':
+			gameState.update((state) => {
+				if (!state) return state;
+				return {
+					...state,
+					human_active: false,
+					controlled_character: null,
+				};
+			});
+			uiState.update((s) => ({ ...s, uiMode: 'watch' as const }));
+			awaitingInput.set(false);
+			awaitingInputCharacter.set('');
+			break;
+
+		case 'awaiting_input':
+			awaitingInput.set(true);
+			awaitingInputCharacter.set(msg.character);
+			break;
+
 		case 'error':
 			isThinking.set(false);
 			break;
@@ -86,4 +119,6 @@ export function resetStores(): void {
 	speed.set('normal');
 	isThinking.set(false);
 	thinkingAgent.set('dm');
+	awaitingInput.set(false);
+	awaitingInputCharacter.set('');
 }

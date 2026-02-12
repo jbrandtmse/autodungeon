@@ -5,9 +5,17 @@ export {
 	speed,
 	isThinking,
 	thinkingAgent,
+	awaitingInput,
+	awaitingInputCharacter,
 	handleServerMessage,
 	resetStores,
 } from './gameStore';
 export { uiState, type UiState } from './uiStore';
-export { connectionStatus, lastError, type ConnectionStatus } from './connectionStore';
+export {
+	connectionStatus,
+	lastError,
+	wsSend,
+	sendCommand,
+	type ConnectionStatus,
+} from './connectionStore';
 export { narrativeMessages, displayLimit } from './narrativeStore';

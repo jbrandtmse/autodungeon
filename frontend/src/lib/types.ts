@@ -54,6 +54,21 @@ export interface TurnEntry {
   content: string;
 }
 
+export interface CharacterSheetHP {
+  current: number;
+  max: number;
+  temp: number;
+}
+
+export interface CombatState {
+  active: boolean;
+  round_number: number;
+  initiative_order: string[];
+  initiative_rolls: Record<string, number>;
+  current_combatant: string;
+  npc_profiles: Record<string, { name: string }>;
+}
+
 export interface GameState {
   ground_truth_log: string[];
   turn_queue: string[];
@@ -64,6 +79,9 @@ export interface GameState {
   controlled_character: string | null;
   turn_number: number;
   session_id: string;
+  characters?: Record<string, Character>;
+  combat_state?: CombatState | null;
+  character_sheets?: Record<string, { hp: CharacterSheetHP }>;
 }
 
 // === WebSocket Server-to-Client Events ===

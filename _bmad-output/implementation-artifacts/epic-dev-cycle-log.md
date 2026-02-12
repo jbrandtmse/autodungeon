@@ -1553,7 +1553,7 @@ Completed in separate cycle sessions (not logged here).
 | 16-2-game-engine-extraction | ✅ done | Full Cycle |
 | 16-3-websocket-game-streaming | ✅ done | Full Cycle |
 | 16-4-sveltekit-scaffold-theme | ✅ done | Full Cycle |
-| 16-5-narrative-panel | pending | - |
+| 16-5-narrative-panel | ✅ done | Full Cycle |
 | 16-6-sidebar-party-controls | pending | - |
 | 16-7-session-management-ui | pending | - |
 | 16-8-settings-configuration-ui | pending | - |
@@ -1717,6 +1717,44 @@ Completed in separate cycle sessions (not logged here).
 - **MEDIUM**: No unsubscribe for WS callbacks (memory leak) — Return unsubscribe functions
 - **LOW**: Stale onopen after disconnect — Self-resolving edge case
 - **LOW**: WsCommand missing ping type — Internal ping handles this
+
+### User Input Required
+- None - all issues auto-resolved
+
+---
+
+## Story: 16-5-narrative-panel
+
+**Status:** ✅ Completed
+**Commit:** f8a8576
+**Duration:** 2026-02-11
+
+### Files Touched
+- `frontend/src/lib/narrative.ts` - Log entry parser, HTML sanitizer, dice/action formatters
+- `frontend/src/lib/components/NarrativeMessage.svelte` - DM/PC/Sheet/System message rendering with character colors
+- `frontend/src/lib/components/NarrativePanel.svelte` - Scrollable container, pagination, auto-scroll, session header
+- `frontend/src/lib/components/ThinkingIndicator.svelte` - 500ms-delayed animated dots with agent text
+- `frontend/src/lib/stores/gameStore.ts` - Central WebSocket event dispatcher
+- `frontend/src/lib/stores/narrativeStore.ts` - Derived stores for parsed messages and display limit
+- `frontend/src/routes/game/[sessionId]/+page.svelte` - Full game page with WebSocket lifecycle
+- `frontend/src/app.css` - Added .dice-roll and .action-text global classes
+
+### Key Design Decisions
+- Store-driven pattern: WebSocket -> handleServerMessage() -> store updates -> NarrativePanel reacts
+- Sanitize-then-format pipeline: HTML escape first, then inject known-safe spans for dice/actions
+- Auto-scroll with manual scroll-lock (50px threshold), "Resume auto-scroll" floating button
+- Paginated display with scroll position preservation on "Load earlier messages"
+- Character colors via CSS classes (not hardcoded hex)
+- All Svelte 5 runes syntax ($props, $state, $derived, $effect)
+
+### Issues Auto-Resolved (Code Review)
+- **HIGH**: WebSocket callback memory leak on navigation — Store cleanup functions, call before disconnect
+- **HIGH**: Auto-scroll reactive feedback loop — untrack() + isProgrammaticScroll guard
+- **MEDIUM**: Thinking indicator never disappears between turns — Use isThinking && isAutopilotRunning
+- **MEDIUM**: PC attribution uses Lora instead of Inter font — Changed to --font-ui
+- **MEDIUM**: NarrativePanel duplicates narrativeStore logic — Import from narrativeStore instead
+- **LOW**: smooth scroll-behavior conflicts with pagination
+- **LOW**: getCharInfo not memoized in each loop
 
 ### User Input Required
 - None - all issues auto-resolved
