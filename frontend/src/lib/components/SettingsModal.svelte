@@ -196,46 +196,48 @@
 		saving = true;
 		saveError = null;
 
-		// 1. Save API keys + token limits to backend (global settings)
-		try {
-			const settingsUpdate: Record<string, unknown> = {};
-
-			// Only send API keys if user entered new values
-			if (googleKey.trim()) {
-				settingsUpdate.google_api_key = googleKey.trim();
-			}
-			if (anthropicKey.trim()) {
-				settingsUpdate.anthropic_api_key = anthropicKey.trim();
-			}
-			if (ollamaUrl !== origOllamaUrl) {
-				settingsUpdate.ollama_url = ollamaUrl.trim();
-			}
-
-			// Always send token limit overrides
-			settingsUpdate.token_limit_overrides = {
-				summarizer: summarizerTokenLimit,
-				extractor: extractorTokenLimit,
-			};
-
-			await updateUserSettings(settingsUpdate as Parameters<typeof updateUserSettings>[0]);
-		} catch (e) {
-			// Fallback: save to localStorage
+		// Build user-settings save (with localStorage fallback)
+		const settingsPromise = (async () => {
 			try {
-				if (googleKey.trim()) {
-					localStorage.setItem('autodungeon_google_key', googleKey.trim());
-				}
-				if (anthropicKey.trim()) {
-					localStorage.setItem('autodungeon_anthropic_key', anthropicKey.trim());
-				}
-				if (ollamaUrl.trim()) {
-					localStorage.setItem('autodungeon_ollama_url', ollamaUrl.trim());
-				} else {
-					localStorage.removeItem('autodungeon_ollama_url');
-				}
+				const settingsUpdate: Record<string, unknown> = {};
+				if (googleKey.trim()) settingsUpdate.google_api_key = googleKey.trim();
+				if (anthropicKey.trim()) settingsUpdate.anthropic_api_key = anthropicKey.trim();
+				if (ollamaUrl !== origOllamaUrl) settingsUpdate.ollama_url = ollamaUrl.trim();
+				settingsUpdate.token_limit_overrides = {
+					summarizer: summarizerTokenLimit,
+					extractor: extractorTokenLimit,
+				};
+				await updateUserSettings(settingsUpdate as Parameters<typeof updateUserSettings>[0]);
 			} catch {
-				// localStorage unavailable too
+				try {
+					if (googleKey.trim()) localStorage.setItem('autodungeon_google_key', googleKey.trim());
+					if (anthropicKey.trim()) localStorage.setItem('autodungeon_anthropic_key', anthropicKey.trim());
+					if (ollamaUrl.trim()) localStorage.setItem('autodungeon_ollama_url', ollamaUrl.trim());
+					else localStorage.removeItem('autodungeon_ollama_url');
+				} catch { /* localStorage unavailable */ }
 			}
-		}
+		})();
+
+		// Build session-config save (if session active)
+		const configPromise = (async (): Promise<GameConfig | null> => {
+			if (!sessionId || !originalConfig) return null;
+			return updateSessionConfig(sessionId, {
+				summarizer_provider: summarizerProvider,
+				summarizer_model: summarizerModel,
+				extractor_provider: extractorProvider,
+				extractor_model: extractorModel,
+				combat_mode: combatMode,
+				max_combat_rounds: maxCombatRounds,
+				party_size: partySize,
+				narrative_display_limit: narrativeDisplayLimit,
+				dm_provider: dmProvider,
+				dm_model: dmModel,
+				dm_token_limit: dmTokenLimit,
+			});
+		})();
+
+		// Run both saves in parallel — they're independent endpoints
+		const [, configResult] = await Promise.allSettled([settingsPromise, configPromise]);
 
 		// Clear model cache so dropdowns refetch with new API keys
 		clearModelCache();
@@ -247,28 +249,16 @@
 		origSummarizerTokenLimit = summarizerTokenLimit;
 		origExtractorTokenLimit = extractorTokenLimit;
 
-		// 2. Save session config (including DM fields) if we have a session
-		if (sessionId && originalConfig) {
-			try {
-				const updatedConfig = await updateSessionConfig(sessionId, {
-					summarizer_provider: summarizerProvider,
-					summarizer_model: summarizerModel,
-					extractor_provider: extractorProvider,
-					extractor_model: extractorModel,
-					combat_mode: combatMode,
-					max_combat_rounds: maxCombatRounds,
-					party_size: partySize,
-					narrative_display_limit: narrativeDisplayLimit,
-					dm_provider: dmProvider,
-					dm_model: dmModel,
-					dm_token_limit: dmTokenLimit,
-				});
-				originalConfig = { ...updatedConfig };
-			} catch (e) {
-				saveError = e instanceof ApiError ? e.message : 'Failed to save configuration';
-				saving = false;
-				return;
-			}
+		// Check session config result
+		if (configResult.status === 'rejected') {
+			const e = configResult.reason;
+			saveError = e instanceof ApiError ? e.message : 'Failed to save configuration';
+			saving = false;
+			return;
+		}
+
+		if (configResult.value) {
+			originalConfig = { ...configResult.value };
 		}
 
 		saving = false;
