@@ -657,6 +657,10 @@ class GameEngine:
             "speed": self._speed,
             "message_count": len(log),
             "ground_truth_log": list(log),
+            "characters": {
+                k: v.model_dump() if hasattr(v, "model_dump") else v
+                for k, v in self._state.get("characters", {}).items()
+            },
         }
 
     def _get_turn_delay(self) -> float:

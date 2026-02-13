@@ -183,11 +183,22 @@ export function formatActionText(content: string): string {
 }
 
 /**
+ * Convert newlines to HTML paragraph breaks.
+ * Double newlines become paragraph breaks; single newlines become <br>.
+ */
+function formatNewlines(content: string): string {
+	return content
+		.split(/\n\n+/)
+		.map((para) => para.replace(/\n/g, '<br>'))
+		.join('</p><p>');
+}
+
+/**
  * Full formatting pipeline for message content.
  *
  * Applies sanitization first, then formatting based on message type:
- * - dm_narration: sanitize -> dice (entire text is italic via CSS)
- * - pc_dialogue: sanitize -> dice -> action text
+ * - dm_narration: sanitize -> newlines -> dice (entire text is italic via CSS)
+ * - pc_dialogue: sanitize -> newlines -> dice -> action text
  * - sheet_update: sanitize only (no dice/action formatting)
  * - system: sanitize only
  */
@@ -196,9 +207,9 @@ export function formatMessageContent(content: string, messageType: MessageType):
 
 	switch (messageType) {
 		case 'dm_narration':
-			return formatDiceNotation(sanitized);
+			return formatDiceNotation(formatNewlines(sanitized));
 		case 'pc_dialogue':
-			return formatActionText(formatDiceNotation(sanitized));
+			return formatActionText(formatDiceNotation(formatNewlines(sanitized)));
 		case 'sheet_update':
 		case 'system':
 			return sanitized;

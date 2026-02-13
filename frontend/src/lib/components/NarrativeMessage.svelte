@@ -54,7 +54,11 @@
 		color: var(--text-primary);
 		font-style: italic;
 		text-align: justify;
-		margin: 0;
+		margin: 0 0 0.6em 0;
+	}
+
+	.dm-message p:last-child {
+		margin-bottom: 0;
 	}
 
 	/* ===== PC Dialogue ===== */
@@ -72,7 +76,11 @@
 		line-height: 1.6;
 		color: var(--text-primary);
 		text-align: justify;
-		margin: 0;
+		margin: 0 0 0.6em 0;
+	}
+
+	.pc-message p:last-child {
+		margin-bottom: 0;
 	}
 
 	/* PC Attribution - "Name, the Class:" format (Inter, not Lora per AC4) */
