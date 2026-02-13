@@ -29,14 +29,16 @@ export function handleServerMessage(msg: WsServerEvent): void {
 			isThinking.set(false);
 			awaitingInput.set(false);
 			awaitingInputCharacter.set('');
-			// Append new turn to the ground_truth_log in existing state
+			// Sync full ground_truth_log from backend state snapshot.
+			// A single graph round processes multiple agents (DM + PCs),
+			// so the event's state.ground_truth_log contains all entries,
+			// not just the last agent's.
 			gameState.update((state) => {
 				if (!state) return state;
-				const prefix =
-					msg.agent.toUpperCase() === 'SHEET' ? 'SHEET' : msg.agent;
+				const serverLog = msg.state?.ground_truth_log as string[] | undefined;
 				return {
 					...state,
-					ground_truth_log: [...state.ground_truth_log, `[${prefix}]: ${msg.content}`],
+					ground_truth_log: serverLog ?? state.ground_truth_log,
 					current_turn: msg.agent,
 					turn_number: msg.turn,
 				};

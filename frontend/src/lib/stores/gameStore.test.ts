@@ -43,7 +43,49 @@ describe('gameStore', () => {
   });
 
   describe('handleServerMessage — turn_update', () => {
-    it('appends a turn entry to ground_truth_log', () => {
+    it('syncs ground_truth_log from server state snapshot', () => {
+      gameState.set(makeGameState({ ground_truth_log: ['[dm]: Start'] }));
+      handleServerMessage({
+        type: 'turn_update',
+        turn: 2,
+        agent: 'fighter',
+        content: '[fighter]: I attack the goblin',
+        state: {
+          ground_truth_log: ['[dm]: Start', '[dm]: The round begins', '[fighter]: I attack the goblin'],
+        },
+      });
+      const gs = get(gameState);
+      expect(gs!.ground_truth_log).toEqual([
+        '[dm]: Start',
+        '[dm]: The round begins',
+        '[fighter]: I attack the goblin',
+      ]);
+      expect(gs!.current_turn).toBe('fighter');
+      expect(gs!.turn_number).toBe(2);
+    });
+
+    it('includes all agents from a full round', () => {
+      gameState.set(makeGameState({ ground_truth_log: [] }));
+      const fullLog = [
+        '[dm]: The adventure begins',
+        '[Brother Aldric]: I cast a spell',
+        '[Elara]: I examine the runes',
+        '[Shadowmere]: I check for traps',
+        '[Thorin]: I take point',
+      ];
+      handleServerMessage({
+        type: 'turn_update',
+        turn: 5,
+        agent: 'Thorin',
+        content: '[Thorin]: I take point',
+        state: { ground_truth_log: fullLog },
+      });
+      const gs = get(gameState);
+      expect(gs!.ground_truth_log).toEqual(fullLog);
+      expect(gs!.ground_truth_log).toHaveLength(5);
+    });
+
+    it('falls back to existing log when state has no ground_truth_log', () => {
       gameState.set(makeGameState({ ground_truth_log: ['[dm]: Start'] }));
       handleServerMessage({
         type: 'turn_update',
@@ -53,38 +95,7 @@ describe('gameStore', () => {
         state: {},
       });
       const gs = get(gameState);
-      expect(gs!.ground_truth_log).toEqual([
-        '[dm]: Start',
-        '[fighter]: I attack the goblin',
-      ]);
-      expect(gs!.current_turn).toBe('fighter');
-      expect(gs!.turn_number).toBe(1);
-    });
-
-    it('uses uppercase SHEET prefix for SHEET agent', () => {
-      gameState.set(makeGameState());
-      handleServerMessage({
-        type: 'turn_update',
-        turn: 2,
-        agent: 'SHEET',
-        content: 'Updated character stats',
-        state: {},
-      });
-      const gs = get(gameState);
-      expect(gs!.ground_truth_log).toContain('[SHEET]: Updated character stats');
-    });
-
-    it('preserves SHEET prefix regardless of case', () => {
-      gameState.set(makeGameState());
-      handleServerMessage({
-        type: 'turn_update',
-        turn: 2,
-        agent: 'sheet',
-        content: 'Stats updated',
-        state: {},
-      });
-      const gs = get(gameState);
-      expect(gs!.ground_truth_log).toContain('[SHEET]: Stats updated');
+      expect(gs!.ground_truth_log).toEqual(['[dm]: Start']);
     });
 
     it('returns null when gameState is null (no crash)', () => {
@@ -111,7 +122,7 @@ describe('gameStore', () => {
         turn: 1,
         agent: 'dm',
         content: 'The adventure begins',
-        state: {},
+        state: { ground_truth_log: ['[dm]: The adventure begins'] },
       });
 
       expect(get(isThinking)).toBe(false);

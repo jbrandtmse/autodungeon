@@ -467,6 +467,9 @@ async def game_websocket(websocket: WebSocket, session_id: str) -> None:
     try:
         snapshot = engine._get_state_snapshot()
         await websocket.send_json(WsSessionState(state=snapshot).model_dump())
+        # Sync autopilot status on reconnect so the UI reflects the current state
+        if engine.is_running:
+            await websocket.send_json(WsAutopilotStarted().model_dump())
     except Exception:
         logger.exception("Failed to send initial state snapshot")
 
