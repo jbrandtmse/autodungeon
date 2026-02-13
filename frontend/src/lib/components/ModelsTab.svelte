@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import {
 		PROVIDERS,
 		PROVIDER_DISPLAY,
@@ -70,15 +71,20 @@
 		return loadedModels[p] ?? getFallbackModels(p);
 	}
 
-	// Fetch models when providers change
+	// Fetch models when providers change.
+	// untrack prevents the effect from tracking loadingProviders/loadedModels
+	// mutations inside loadModels, which would cause a re-run cycle.
 	$effect(() => {
-		loadModels(dmProvider.toLowerCase());
+		const p = dmProvider.toLowerCase();
+		untrack(() => loadModels(p));
 	});
 	$effect(() => {
-		loadModels(summarizerProvider.toLowerCase());
+		const p = summarizerProvider.toLowerCase();
+		untrack(() => loadModels(p));
 	});
 	$effect(() => {
-		loadModels(extractorProvider.toLowerCase());
+		const p = extractorProvider.toLowerCase();
+		untrack(() => loadModels(p));
 	});
 
 	function handleProviderChange(

@@ -37,6 +37,9 @@ export const FALLBACK_MODELS: Record<Provider, string[]> = {
 const cache = new Map<string, { models: string[]; source: string; ts: number }>();
 const CACHE_TTL = 60_000; // 60 seconds
 
+/** In-flight deduplication: provider -> pending promise */
+const inFlight = new Map<string, Promise<{ models: string[]; source: 'api' | 'fallback' }>>();
+
 /**
  * Normalize provider name for the API call.
  * The API accepts both "claude" and "anthropic" but normalizes to "anthropic".
@@ -65,18 +68,30 @@ export async function fetchModelsForProvider(
 		return { models: cached.models, source: cached.source as 'api' | 'fallback' };
 	}
 
-	// Fetch from API
-	try {
-		const result: ModelListResult = await getModels(normalized);
-		const models = result.models.length > 0 ? result.models : getFallbackModels(normalized);
-		cache.set(normalized, { models, source: result.source, ts: Date.now() });
-		return { models, source: result.source };
-	} catch {
-		// API completely unreachable — use fallbacks
-		const models = getFallbackModels(normalized);
-		cache.set(normalized, { models, source: 'fallback', ts: Date.now() });
-		return { models, source: 'fallback' };
-	}
+	// Return existing in-flight request if one is pending (deduplication)
+	const pending = inFlight.get(normalized);
+	if (pending) return pending;
+
+	// Start new fetch and track the promise
+	const promise = (async (): Promise<{ models: string[]; source: 'api' | 'fallback' }> => {
+		try {
+			const result: ModelListResult = await getModels(normalized);
+			const models =
+				result.models.length > 0 ? result.models : getFallbackModels(normalized);
+			cache.set(normalized, { models, source: result.source, ts: Date.now() });
+			return { models, source: result.source };
+		} catch {
+			// API completely unreachable — use fallbacks
+			const models = getFallbackModels(normalized);
+			cache.set(normalized, { models, source: 'fallback', ts: Date.now() });
+			return { models, source: 'fallback' };
+		} finally {
+			inFlight.delete(normalized);
+		}
+	})();
+
+	inFlight.set(normalized, promise);
+	return promise;
 }
 
 /** Get static fallback models for a provider. */
