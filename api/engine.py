@@ -656,6 +656,7 @@ class GameEngine:
             "is_paused": self._is_paused,
             "speed": self._speed,
             "message_count": len(log),
+            "ground_truth_log": list(log),
         }
 
     def _get_turn_delay(self) -> float:
