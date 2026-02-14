@@ -3,6 +3,8 @@ stepsCompleted: ['step-01-init', 'step-02-discovery', 'step-03-success', 'step-0
 workflowCompleted: '2026-01-24'
 lastEdited: '2026-02-11'
 editHistory:
+  - date: '2026-02-14'
+    changes: 'AI Scene Image Generation: Added FR85-FR92, v2.1 growth feature. Per Sprint Change Proposal 2026-02-14.'
   - date: '2026-02-11'
     changes: 'UI framework migration: Streamlit → FastAPI + SvelteKit. Updated tech stack, FR25-32, NFRs (Stability, Build & Deployment), deployment model, growth roadmap. Per Sprint Change Proposal 2026-02-11.'
 inputDocuments:
@@ -134,6 +136,7 @@ This is a passion project with research value, not a commercial product.
 | Fork gameplay (branch exploration) | v1.1 |
 | Advanced pacing curves | v1.2 |
 | INT-based variable memory | v1.2 |
+| AI scene illustration (text-to-image) | v2.1 |
 
 ### Vision (Future)
 
@@ -676,6 +679,17 @@ The goal is to prove that watching AI agents play D&D together is genuinely fun 
 - FR82: System can manage multiple active forks with distinct GameState branches
 - FR83: User can compare forks side-by-side to see divergent narratives
 - FR84: User can resolve forks by selecting one branch to continue as canonical
+
+### AI Scene Illustration (v2.1)
+
+- FR85: User can generate an AI illustration of the current scene
+- FR86: User can generate an AI illustration of the "best scene" from the entire session, using a configurable LLM to scan/analyze session history
+- FR87: User can generate an AI illustration of a scene at a specific turn number
+- FR88: Turn numbers are visible in the narrative display (format: "Turn N — Name, the Class:")
+- FR89: User can configure the text-to-image model (Imagen 3, Imagen 4, Gemini Flash Image)
+- FR90: User can configure which LLM model scans session history for "best scene" selection
+- FR91: User can download an individual generated image or bulk-download all images for a session
+- FR92: Generated images are stored in the campaign directory for persistence
 
 ## Non-Functional Requirements
 

@@ -10,6 +10,8 @@ date: 2026-01-24
 lastUpdated: 2026-02-01
 lastEdited: '2026-02-11'
 editHistory:
+  - date: '2026-02-14'
+    changes: 'AI Scene Image Generation: Added v2.1 feature section for image generation UI, turn number display, image download/export. Per Sprint Change Proposal 2026-02-14.'
   - date: '2026-02-11'
     changes: 'UI framework migration: Streamlit → SvelteKit. Updated design system, component strategy, consistency patterns, responsive design. All visual design tokens preserved. Per Sprint Change Proposal 2026-02-11.'
 author: Developer
@@ -22,6 +24,10 @@ v1_1_features:
   - dm-whisper-ui
   - callback-history-panel
   - fork-management-ui
+v2_1_features:
+  - turn-number-display
+  - image-generation-ui
+  - image-download-export
 ---
 
 # UX Design Specification - autodungeon
@@ -3233,3 +3239,384 @@ Add to existing CSS variables:
 | `F` | Open fork manager |
 | `T` | Open story threads panel |
 | `W` | Focus whisper input (when dropped in) |
+
+---
+
+## v2.1 Feature: AI Scene Image Generation
+
+### Overview
+
+**Purpose:** Generate AI illustrations of D&D scenes using Google's Imagen/Gemini text-to-image API. Three generation modes: current scene, best scene (LLM-scanned), and specific turn.
+
+**Entry Point:** Image generation controls in session toolbar or narrative context menu
+
+**FRs Covered:** FR85-FR92
+
+### Design Principles
+
+1. **Non-blocking** — Image generation (5-15 seconds) must not interrupt narrative flow
+2. **Contextual** — Images appear inline with the narrative they illustrate
+3. **Discoverable** — Turn numbers visible in headers make "illustrate this turn" intuitive
+4. **Exportable** — Single-click download for sharing
+
+### Turn Number Display (FR88)
+
+**Change to PC Attribution Format:**
+
+```
+BEFORE: "Thorgrim, the Fighter:"
+AFTER:  "Turn 42 — Thorgrim, the Fighter:"
+```
+
+**Change to DM Narration:** Turn number appears as a subtle label above the DM block.
+
+```
+Turn 42
+┌────────────────────────────────────────┐
+│ ║  The tavern falls silent as the      │
+│ ║  stranger enters...                  │
+└────────────────────────────────────────┘
+```
+
+**CSS Specification:**
+
+```css
+.turn-number {
+    font-family: JetBrains Mono, monospace;
+    font-size: 11px;
+    color: var(--text-secondary);
+    opacity: 0.6;
+    letter-spacing: 0.05em;
+}
+
+.pc-attribution .turn-number {
+    margin-right: var(--space-xs);    /* 4px */
+}
+
+.dm-message .turn-number {
+    display: block;
+    margin-bottom: var(--space-xs);
+}
+```
+
+### Image Generation Controls
+
+**Location:** Floating toolbar above narrative area (alongside existing session controls)
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  [▶ Autopilot] [⏸ Pause] [⚡ Speed]  │  [🎨 Illustrate ▼]  │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**Dropdown Menu:**
+
+```
+┌─────────────────────────────────┐
+│ 🎨 Illustrate Current Scene     │
+│ ⭐ Illustrate Best Scene        │
+│ 📌 Illustrate Turn #...         │
+│ ─────────────────────────────── │
+│ 🖼️ View Image Gallery           │
+└─────────────────────────────────┘
+```
+
+**"Illustrate Turn #" Dialog:**
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  Illustrate a Specific Turn                             [X]  │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│  Turn Number:                                                │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │ 42                                                      │  │
+│  └────────────────────────────────────────────────────────┘  │
+│                                                              │
+│  Preview: "Turn 42 — Thorgrim, the Fighter: ..."            │
+│                                                              │
+├──────────────────────────────────────────────────────────────┤
+│  [Cancel]                                   [Generate →]     │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**Alternative: Click-to-Illustrate on Turn Header**
+
+Turn numbers are clickable. Hovering shows a camera icon overlay:
+
+```css
+.turn-number:hover {
+    cursor: pointer;
+    color: var(--accent-warm);
+    opacity: 1;
+}
+
+.turn-number:hover::after {
+    content: ' 📷';
+    font-size: 10px;
+}
+```
+
+### Image Display (Inline)
+
+**When an image is generated for a turn, it appears above the narrative message:**
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │                                                          │  │
+│  │              [Generated Scene Image]                     │  │
+│  │              (16:9 aspect ratio)                         │  │
+│  │                                                          │  │
+│  │                                        [⬇️ Download]     │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                                                                │
+│  Turn 42 — Thorgrim, the Fighter:                              │
+│  "We should proceed with caution."                             │
+│  *He places a hand on his sword hilt.*                         │
+└────────────────────────────────────────────────────────────────┘
+```
+
+**CSS Specification:**
+
+```css
+.scene-image-container {
+    position: relative;
+    margin-bottom: var(--space-md);
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--bg-message);
+}
+
+.scene-image {
+    width: 100%;
+    height: auto;
+    display: block;
+    aspect-ratio: 16 / 9;
+    object-fit: cover;
+}
+
+.scene-image-overlay {
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    padding: var(--space-sm);
+    display: flex;
+    gap: var(--space-xs);
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+.scene-image-container:hover .scene-image-overlay {
+    opacity: 1;
+}
+
+.image-download-btn {
+    background: rgba(26, 22, 18, 0.8);     /* --bg-primary with alpha */
+    border: 1px solid var(--text-secondary);
+    color: var(--text-primary);
+    border-radius: 4px;
+    padding: 4px 10px;
+    font-family: Inter;
+    font-size: 12px;
+    cursor: pointer;
+    backdrop-filter: blur(4px);
+}
+
+.image-download-btn:hover {
+    background: var(--accent-warm);
+    border-color: var(--accent-warm);
+    color: var(--bg-primary);
+}
+```
+
+### Generation Loading State
+
+**While image is being generated:**
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  ┌──────────────────────────────────────────────────────────┐│
+│  │                                                          ││
+│  │               🎨 Painting the scene...                   ││
+│  │                   [·····○·····]                          ││
+│  │                                                          ││
+│  └──────────────────────────────────────────────────────────┘│
+│                                                              │
+│  Turn 42 — Thorgrim, the Fighter:                            │
+│  "We should proceed with caution."                           │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**CSS:**
+
+```css
+.image-generating {
+    background: var(--bg-secondary);
+    border: 1px dashed var(--accent-warm);
+    border-radius: 8px;
+    padding: var(--space-lg);
+    text-align: center;
+    margin-bottom: var(--space-md);
+    min-height: 200px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-sm);
+}
+
+.image-generating-text {
+    font-family: Inter;
+    font-size: 14px;
+    color: var(--accent-warm);
+    font-style: italic;
+}
+```
+
+### Image Gallery Panel
+
+**Access via:** "View Image Gallery" in illustration menu or sidebar
+
+**Layout:** Slide-out panel from right (520px width)
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ [X]  🖼️ Scene Gallery                        [⬇️ Download All]│
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│  ┌─────────────────────┐  ┌─────────────────────┐           │
+│  │                     │  │                     │           │
+│  │  [Scene Image 1]    │  │  [Scene Image 2]    │           │
+│  │                     │  │                     │           │
+│  │  Turn 42 • Current  │  │  Turn 28 • Best     │           │
+│  │  [⬇️]               │  │  [⬇️]               │           │
+│  └─────────────────────┘  └─────────────────────┘           │
+│                                                              │
+│  ┌─────────────────────┐  ┌─────────────────────┐           │
+│  │                     │  │                     │           │
+│  │  [Scene Image 3]    │  │  [Scene Image 4]    │           │
+│  │                     │  │                     │           │
+│  │  Turn 15 • Specific │  │  Turn 8 • Current   │           │
+│  │  [⬇️]               │  │  [⬇️]               │           │
+│  └─────────────────────┘  └─────────────────────┘           │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**CSS Specification:**
+
+```css
+.image-gallery {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-md);
+    padding: var(--space-md);
+}
+
+.gallery-card {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--bg-message);
+    transition: all 0.15s ease;
+}
+
+.gallery-card:hover {
+    border-color: var(--accent-warm);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.gallery-image {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    object-fit: cover;
+}
+
+.gallery-meta {
+    padding: var(--space-sm);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.gallery-label {
+    font-family: Inter;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.gallery-mode-badge {
+    font-family: JetBrains Mono;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(232, 168, 73, 0.15);
+    color: var(--accent-warm);
+}
+
+.bulk-download-btn {
+    background: transparent;
+    border: 1px solid var(--accent-warm);
+    color: var(--accent-warm);
+    border-radius: 4px;
+    padding: 6px 12px;
+    font-family: Inter;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.bulk-download-btn:hover {
+    background: var(--accent-warm);
+    color: var(--bg-primary);
+}
+```
+
+### Configuration UI Extension
+
+**In Settings Modal → new "Image Generation" tab:**
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  API Keys │ Models │ Settings │ Image Generation              │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│  Enable Image Generation:  [Toggle: ON/OFF]                  │
+│                                                              │
+│  ─── Text-to-Image Model ───                                │
+│                                                              │
+│  Provider:  [Gemini          ▼]                              │
+│  Model:     [imagen-3.0-generate-002  ▼]                    │
+│                                                              │
+│  ─── Best Scene Scanner ───                                  │
+│                                                              │
+│  Provider:  [Gemini          ▼]                              │
+│  Model:     [gemini-2.5-pro  ▼]                             │
+│  Context:   [128000 tokens   ▼]                              │
+│                                                              │
+│  ℹ️ The scanner model analyzes your session history to find  │
+│     the most visually dramatic scene. A larger context model  │
+│     produces better results for long sessions.               │
+│                                                              │
+├──────────────────────────────────────────────────────────────┤
+│  [Cancel]                                      [Save]        │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Keyboard Shortcuts (v2.1)
+
+| Shortcut | Action |
+|----------|--------|
+| `I` | Open illustration menu |
+| `G` | Open image gallery |
+
+### Accessibility
+
+| Feature | ARIA Requirements |
+|---------|-------------------|
+| Scene Image | `alt` text generated from image prompt |
+| Download Button | `aria-label="Download scene image for Turn N"` |
+| Gallery | `role="grid"` with image cards as grid items |
+| Turn Number Link | `aria-label="Illustrate Turn N"`, `role="button"` |
+| Generation Loading | `aria-live="polite"` for status updates |

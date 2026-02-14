@@ -12,6 +12,8 @@ user_name: 'Developer'
 date: '2026-01-25'
 lastEdited: '2026-02-11'
 editHistory:
+  - date: '2026-02-14'
+    changes: 'AI Scene Image Generation: Added SceneImage + ImageGenerationConfig models, image generation module, API endpoints, WebSocket image_ready event, config extension, FR85-FR92 module mapping. Per Sprint Change Proposal 2026-02-14.'
   - date: '2026-02-11'
     changes: 'UI framework migration: Streamlit → FastAPI + SvelteKit. Updated state sync, execution model, project layout, module mapping, boundaries. Added API layer and frontend architecture. Per Sprint Change Proposal 2026-02-11.'
 ---
@@ -577,6 +579,7 @@ autodungeon/
 | DM Whisper & Secrets (FR71-75) | `tools.py`, `models.py` | `api/websocket.py` | `components/WhisperPanel` |
 | Callback Tracking (FR76-80) | `memory.py`, `models.py` | `api/websocket.py` | `components/CallbackTracker` |
 | Fork Gameplay (FR81-84) | `persistence.py` | `api/routes.py` | `routes/forks` |
+| AI Scene Illustration (FR85-92) | `image_gen.py` | `api/routes.py` | `components/ImageGen`, `stores/imageStore` |
 
 ### Architectural Boundaries
 
@@ -901,6 +904,96 @@ campaigns/
 2. **Switch Fork:** Load fork's latest state into session
 3. **Compare Forks:** Side-by-side ground_truth_log display
 4. **Resolve Fork:** Mark one as canonical, optionally archive others
+
+## v2.1 Extension Architecture
+
+### AI Scene Image Generation
+
+**New Data Models** (`models.py`):
+
+```python
+class SceneImage(BaseModel):
+    """A generated scene illustration."""
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    session_id: str
+    turn_number: int  # Which turn this illustrates
+    prompt: str  # The text-to-image prompt used
+    image_path: str  # Relative path within campaign directory
+    provider: str  # "gemini"
+    model: str  # "imagen-3.0-generate-002"
+    generation_mode: Literal["current", "best", "specific"]
+    generated_at: datetime = Field(default_factory=datetime.now)
+
+class ImageGenerationConfig(BaseModel):
+    """Configuration for AI scene image generation."""
+    enabled: bool = False
+    image_provider: str = "gemini"
+    image_model: str = "imagen-3.0-generate-002"
+    scanner_provider: str = "gemini"
+    scanner_model: str = "gemini-2.5-pro"
+    scanner_token_limit: int = 128000
+```
+
+**New Module** — `image_gen.py`:
+
+- Wraps `google-genai` SDK (`client.models.generate_images()`)
+- Scene-to-prompt pipeline: extract recent log entries → LLM summarizes into a vivid image prompt → generate image
+- "Best scene" scanner: chunked analysis of full session history using configurable LLM
+- Image storage to `campaigns/{session}/images/{image_id}.png`
+- Supported models: Imagen 3 (`imagen-3.0-generate-002`), Imagen 4 (`imagen-4.0-generate-001`), Gemini 2.5 Flash Image
+
+**New API Endpoints** (`api/routes.py`):
+
+```python
+POST /api/sessions/{session_id}/images/generate-current   # Generate image of current scene
+POST /api/sessions/{session_id}/images/generate-best       # Generate image of best scene (LLM-scanned)
+POST /api/sessions/{session_id}/images/generate-turn/{turn_number}  # Generate image at specific turn
+GET  /api/sessions/{session_id}/images                     # List all generated images
+GET  /api/sessions/{session_id}/images/{image_id}/download # Download single image (PNG)
+GET  /api/sessions/{session_id}/images/download-all        # Bulk download as zip
+```
+
+**Configuration Extension** (`config/defaults.yaml`):
+
+```yaml
+image_generation:
+  enabled: false
+  image_provider: gemini
+  image_model: imagen-3.0-generate-002
+  scanner_provider: gemini
+  scanner_model: gemini-2.5-pro
+  scanner_token_limit: 128000
+```
+
+**WebSocket Extension**: New `image_ready` event type for async notification when generation completes:
+
+```json
+{
+  "type": "image_ready",
+  "image_id": "abc-123",
+  "turn_number": 42,
+  "generation_mode": "current",
+  "image_url": "/api/sessions/{session_id}/images/abc-123/download"
+}
+```
+
+**Turn Number in Narrative**: Turn number = 1-based index in `ground_truth_log`. Computed in frontend from array index. No backend log format change needed.
+
+**Image Storage Structure:**
+
+```text
+campaigns/
+└── session_001/
+    ├── config.yaml
+    ├── turn_001.json
+    ├── images/
+    │   ├── abc123.png    # Generated scene image
+    │   ├── def456.png
+    │   └── images.json   # Image metadata index
+    └── transcript.json
+```
+
+**Dependencies**: `google-genai`, `Pillow` (added to `pyproject.toml`)
 
 ## Architecture Validation
 
