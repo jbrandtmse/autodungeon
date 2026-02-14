@@ -14,12 +14,16 @@ Each workflow.invoke() executes ONE complete round. Call invoke() again
 for subsequent rounds.
 """
 
+import logging
+
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from agents import LLMError, dm_turn, pc_turn
 from memory import MemoryManager
 from models import CombatState, GameConfig, GameState, create_user_error
+
+logger = logging.getLogger("autodungeon")
 
 __all__ = [
     "GameStateWithError",
@@ -64,10 +68,6 @@ def context_manager(state: GameState) -> GameState:
         Updated game state with compressed memories if needed.
         Sets summarization_in_progress flag during operation.
     """
-    import logging
-
-    logger = logging.getLogger("autodungeon")
-
     # Create a typed copy to avoid mutating original state
     updated_state: GameState = {
         **state,
@@ -82,8 +82,32 @@ def context_manager(state: GameState) -> GameState:
     for agent_name in agent_memories:
         passes = 0
 
+        # Debug: log buffer sizes for all agents each round
+        mem = agent_memories[agent_name]
+        buf_chars = sum(len(s) for s in mem.short_term_buffer)
+        buf_entries = len(mem.short_term_buffer)
+        buf_tokens = memory_manager.get_buffer_token_count(agent_name)
+        near_limit = memory_manager.is_near_limit(agent_name)
+        if near_limit or buf_entries > 15:
+            logger.info(
+                "Memory check: %s — buffer=%d entries (%d chars, ~%d tokens), "
+                "summary=%d chars, near_limit=%s",
+                agent_name,
+                buf_entries,
+                buf_chars,
+                buf_tokens,
+                len(mem.long_term_summary),
+                near_limit,
+            )
+
         # Pass 1: Compress buffer if near limit
-        if memory_manager.is_near_limit(agent_name):
+        if near_limit:
+            logger.info(
+                "Triggering compression for %s (buffer ~%d tokens, limit %d)",
+                agent_name,
+                buf_tokens,
+                mem.token_limit,
+            )
             memory_manager.compress_buffer(agent_name)
             passes += 1
 
@@ -490,6 +514,18 @@ def run_single_round(state: GameState) -> GameStateWithError:
     session_id = state.get("session_id", "001")
     last_checkpoint_turn = get_latest_checkpoint(session_id)
 
+    import sys
+    import time as _time
+
+    _round_start = _time.time()
+    log = state.get("ground_truth_log", [])
+    print(
+        f"[{_time.strftime('%H:%M:%S')}] run_single_round: START — "
+        f"turn {len(log)}, queue={state.get('turn_queue', [])}",
+        file=sys.stderr,
+        flush=True,
+    )
+
     workflow = create_game_workflow(state["turn_queue"])
 
     # Compute recursion limit: use the longer of turn_queue or initiative_order (Story 15-3)
@@ -507,6 +543,12 @@ def run_single_round(state: GameState) -> GameStateWithError:
             state,
             config={"recursion_limit": recursion_limit},
         )  # type: ignore[assignment]
+        print(
+            f"[{_time.strftime('%H:%M:%S')}] run_single_round: COMPLETE — "
+            f"elapsed {_time.time() - _round_start:.1f}s",
+            file=sys.stderr,
+            flush=True,
+        )
 
     except LLMError as e:
         # Create user-friendly error without corrupting game state (Story 4.5)

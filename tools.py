@@ -37,18 +37,25 @@ MAX_DICE_COUNT = 100  # Maximum dice in a single group
 MAX_DICE_SIDES = 1000  # Maximum sides on a die
 MAX_TOTAL_DICE = 100  # Maximum total dice across all groups
 
-# Regex pattern to match dice groups (e.g., "2d6", "d20", "1d4")
-DICE_PATTERN = re.compile(r"(\d*)d(\d+)", re.IGNORECASE)
+# Regex pattern to match dice groups with optional keep-highest/keep-lowest
+# Supports: "2d6", "d20", "2d20kh1", "2d20kl1", "2d20H1", "2d20L", "2d20h", etc.
+# Keep modes: kh/kl (D&D Beyond), H/L (Roll20 shorthand), h/l (lowercase variant)
+DICE_PATTERN = re.compile(r"(\d*)d(\d+)(?:(k[hl]|[hl])(\d+)?)?", re.IGNORECASE)
 
-# Pattern to validate the entire notation
-NOTATION_PATTERN = re.compile(r"^(\d*d\d+)([+-](\d*d\d+|\d+))*$", re.IGNORECASE)
+# Keep-mode suffix for notation validation
+_KEEP_SUFFIX = r"(?:(?:k[hl]|[hl])\d*)"
+
+# Pattern to validate the entire notation (supports kh/kl/H/L suffixes)
+NOTATION_PATTERN = re.compile(
+    rf"^(\d*d\d+{_KEEP_SUFFIX}?)([+-](\d*d\d+{_KEEP_SUFFIX}?|\d+))*$", re.IGNORECASE
+)
 
 # Pattern to find unresolved dice notation inline in text.
 # Matches patterns like "1d20+5", "2d6", "d20" but NOT when:
 # - Followed by more dice arithmetic (prevents partial matches via backtracking)
 # - Followed by ": [" which indicates an already-formatted DiceResult string
 INLINE_DICE_PATTERN = re.compile(
-    r"\b(\d*d\d+(?:[+-](?:\d*d\d+|\d+))*)"
+    r"\b(\d*d\d+(?:(?:k[hl]|[hl])\d*)?(?:[+-](?:\d*d\d+(?:(?:k[hl]|[hl])\d*)?|\d+))*)"
     r"(?![+-]?\d)"  # Not followed by more modifier digits
     r"(?!\s*:\s*\[)",  # Not already a formatted result
     re.IGNORECASE,
@@ -161,6 +168,16 @@ def roll_dice(notation: str | None = None) -> DiceResult:
         if dice_match:
             count_str = dice_match.group(1)
             sides_str = dice_match.group(2)
+            keep_mode_raw = dice_match.group(3)  # "kh", "kl", "h", "l", "H", "L", or None
+            keep_count_str = dice_match.group(4)  # number to keep, or None
+            # Normalize keep mode: "h"/"H"/"kh" -> "kh", "l"/"L"/"kl" -> "kl"
+            keep_mode = None
+            if keep_mode_raw:
+                k = keep_mode_raw.lower()
+                if k in ("kh", "h"):
+                    keep_mode = "kh"
+                elif k in ("kl", "l"):
+                    keep_mode = "kl"
 
             count = int(count_str) if count_str else 1
             sides = int(sides_str)
@@ -189,16 +206,27 @@ def roll_dice(notation: str | None = None) -> DiceResult:
             # Roll the dice
             dice_rolls = _roll_dice_group(count, sides)
 
+            # Apply keep-highest / keep-lowest filtering (advantage/disadvantage)
+            kept_rolls = dice_rolls
+            if keep_mode:
+                keep_n = int(keep_count_str) if keep_count_str else 1
+                if keep_n <= 0 or keep_n > count:
+                    keep_n = min(max(keep_n, 1), count)
+                sorted_rolls = sorted(dice_rolls, reverse=(keep_mode == "kh"))
+                kept_rolls = sorted_rolls[:keep_n]
+
             # Store with normalized key (always include count)
             # Handle duplicate dice types by appending to existing list
             dice_key = f"{count}d{sides}"
+            if keep_mode:
+                dice_key += f"{keep_mode}{keep_count_str or 1}"
             if dice_key in rolls:
-                rolls[dice_key].extend(dice_rolls)
+                rolls[dice_key].extend(kept_rolls)
             else:
-                rolls[dice_key] = dice_rolls
+                rolls[dice_key] = kept_rolls
 
-            # Add to total (with sign)
-            total += multiplier * sum(dice_rolls)
+            # Add to total (with sign) — use kept_rolls, not all rolls
+            total += multiplier * sum(kept_rolls)
         else:
             # It's a numeric modifier
             try:

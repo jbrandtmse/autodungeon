@@ -297,7 +297,7 @@ class GameEngine:
                 "turn": turn_number,
                 "agent": current_turn,
                 "content": last_entry,
-                "state": self._get_state_snapshot(),
+                "state": self._get_state_snapshot(full_log=False),
             }
             await self._broadcast(turn_event)
             return turn_event
@@ -405,8 +405,15 @@ class GameEngine:
         """Background loop that executes turns continuously.
 
         Respects pause flag, speed delay, turn limit, and error conditions.
-        Stops on error so the user can inspect and retry.
+        Retries on recoverable errors with exponential backoff before stopping.
+        Broadcasts heartbeat events during backoff so monitors can distinguish
+        "backing off" from "stalled".
         """
+        import sys
+        import time as _time
+
+        consecutive_errors = 0
+        max_consecutive_errors = self.MAX_RETRY_ATTEMPTS
         try:
             while True:
                 # Check pause
@@ -416,34 +423,116 @@ class GameEngine:
 
                 # Check turn limit
                 if self._turn_count >= self._max_turns:
+                    print(
+                        f"[{_time.strftime('%H:%M:%S')}] autopilot: "
+                        f"turn limit reached ({self._turn_count})",
+                        flush=True,
+                    )
                     await self._broadcast(
                         {"type": "autopilot_stopped", "reason": "turn_limit"}
                     )
                     break
 
                 # Execute a turn
+                turn_start = _time.time()
+                print(
+                    f"[{_time.strftime('%H:%M:%S')}] autopilot: "
+                    f"executing turn (count={self._turn_count}, "
+                    f"errors={consecutive_errors})",
+                    file=sys.stderr,
+                    flush=True,
+                )
                 async with self._lock:
                     result = await self._execute_turn()
+                elapsed = _time.time() - turn_start
 
-                self._turn_count += 1
-
-                # Stop on error
+                # Handle error with retry
                 if result.get("type") == "error":
-                    await self._broadcast(
-                        {"type": "autopilot_stopped", "reason": "error"}
+                    consecutive_errors += 1
+                    error_msg = result.get("message", "unknown")
+                    print(
+                        f"[{_time.strftime('%H:%M:%S')}] autopilot: "
+                        f"error {consecutive_errors}/{max_consecutive_errors} "
+                        f"after {elapsed:.1f}s: {error_msg}",
+                        file=sys.stderr,
+                        flush=True,
                     )
-                    break
+                    if consecutive_errors >= max_consecutive_errors:
+                        logger.error(
+                            "Autopilot stopping after %d consecutive errors. "
+                            "Last error: %s",
+                            consecutive_errors,
+                            error_msg,
+                        )
+                        await self._broadcast(
+                            {"type": "autopilot_stopped", "reason": "error"}
+                        )
+                        break
+                    # Exponential backoff: 10s, 20s, 40s...
+                    backoff = 10 * (2 ** (consecutive_errors - 1))
+                    logger.warning(
+                        "Autopilot error %d/%d, retrying in %ds: %s",
+                        consecutive_errors,
+                        max_consecutive_errors,
+                        backoff,
+                        error_msg,
+                    )
+                    await self._broadcast({
+                        "type": "autopilot_retry",
+                        "attempt": consecutive_errors,
+                        "max_attempts": max_consecutive_errors,
+                        "backoff_seconds": backoff,
+                        "error": error_msg,
+                    })
+                    # Sleep in 10s chunks, broadcasting heartbeat each chunk
+                    # so the monitor knows we're alive (not stalled)
+                    remaining = backoff
+                    while remaining > 0:
+                        chunk = min(remaining, 10)
+                        await asyncio.sleep(chunk)
+                        remaining -= chunk
+                        if remaining > 0:
+                            await self._broadcast({
+                                "type": "autopilot_heartbeat",
+                                "status": "backoff",
+                                "remaining_seconds": remaining,
+                            })
+                    continue
+
+                # Success — reset error counter and log
+                consecutive_errors = 0
+                self._turn_count += 1
+                turn_num = result.get("turn", "?")
+                agent = result.get("agent", "?")
+                print(
+                    f"[{_time.strftime('%H:%M:%S')}] autopilot: "
+                    f"turn {turn_num} [{agent}] completed in {elapsed:.1f}s "
+                    f"(total={self._turn_count})",
+                    file=sys.stderr,
+                    flush=True,
+                )
 
                 # Wait for speed delay
                 await asyncio.sleep(self._get_turn_delay())
 
         except asyncio.CancelledError:
+            print(
+                f"[{_time.strftime('%H:%M:%S')}] autopilot: cancelled (graceful stop)",
+                file=sys.stderr,
+                flush=True,
+            )
             # Graceful shutdown -- the cancellation is expected
             raise
         except Exception:
             # Defense-in-depth: catch unexpected exceptions so the task
             # does not die silently without broadcasting a stop event.
             logger.exception("Unexpected error in autopilot loop")
+            print(
+                f"[{_time.strftime('%H:%M:%S')}] autopilot: "
+                f"unexpected exception, stopping",
+                file=sys.stderr,
+                flush=True,
+            )
             await self._broadcast(
                 {"type": "autopilot_stopped", "reason": "error"}
             )
@@ -637,8 +726,13 @@ class GameEngine:
     # Helpers
     # -------------------------------------------------------------------------
 
-    def _get_state_snapshot(self) -> dict[str, Any]:
-        """Build a lightweight state snapshot for broadcast events.
+    def _get_state_snapshot(self, full_log: bool = True) -> dict[str, Any]:
+        """Build a state snapshot for broadcast events.
+
+        Args:
+            full_log: If True, include full ground_truth_log (for initial
+                session_state). If False, omit it to keep turn_update events
+                small (the content field already has the latest entry).
 
         Returns:
             Dict with key state fields for consumers.
@@ -647,7 +741,7 @@ class GameEngine:
             return {}
 
         log = self._state.get("ground_truth_log", [])
-        return {
+        snapshot: dict[str, Any] = {
             "session_id": self._session_id,
             "turn_number": len(log),
             "current_turn": self._state.get("current_turn", ""),
@@ -656,12 +750,14 @@ class GameEngine:
             "is_paused": self._is_paused,
             "speed": self._speed,
             "message_count": len(log),
-            "ground_truth_log": list(log),
             "characters": {
                 k: v.model_dump() if hasattr(v, "model_dump") else v
                 for k, v in self._state.get("characters", {}).items()
             },
         }
+        if full_log:
+            snapshot["ground_truth_log"] = list(log)
+        return snapshot
 
     def _get_turn_delay(self) -> float:
         """Get the delay between turns based on current speed.

@@ -159,16 +159,21 @@ class Summarizer:
         self.model = model
         self._llm: BaseChatModel | None = None
 
+    # Summarizer/compactor calls process large buffers and need more time
+    # than regular agent turns. 5 minutes prevents timeout on 100K+ buffers.
+    LLM_TIMEOUT: int = 300
+
     def _get_llm(self) -> BaseChatModel:
         """Get or create the LLM client.
 
-        Lazily initializes the LLM on first access.
+        Lazily initializes the LLM on first access with extended timeout
+        since summarization processes large buffers.
 
         Returns:
             The LangChain chat model instance.
         """
         if self._llm is None:
-            self._llm = get_llm(self.provider, self.model)
+            self._llm = get_llm(self.provider, self.model, timeout=self.LLM_TIMEOUT)
         return self._llm
 
     # Maximum characters to send to summarizer to prevent context overflow
@@ -755,7 +760,18 @@ class MemoryManager:
         summary = summarizer.generate_summary(agent_name, entries_to_compress)
 
         if not summary:
-            # Summarization failed, don't modify state
+            # Summarization failed — apply emergency fallback compression.
+            # Drop oldest entries to prevent unbounded buffer growth that
+            # causes LLM timeouts on subsequent turns. Keep the most recent
+            # half of entries plus retain_count.
+            logger.warning(
+                "Summarization failed for %s — applying emergency buffer trim. "
+                "Dropping %d oldest entries to prevent stall.",
+                agent_name,
+                len(entries_to_compress),
+            )
+            memory.short_term_buffer.clear()
+            memory.short_term_buffer.extend(entries_to_keep)
             return ""
 
         # Merge with existing summary
@@ -1241,16 +1257,19 @@ class NarrativeElementExtractor:
         self.model = model
         self._llm: BaseChatModel | None = None
 
+    # Extended timeout for extraction (same as Summarizer)
+    LLM_TIMEOUT: int = 300
+
     def _get_llm(self) -> BaseChatModel:
         """Get or create the LLM client.
 
-        Lazily initializes the LLM on first access.
+        Lazily initializes the LLM on first access with extended timeout.
 
         Returns:
             The LangChain chat model instance.
         """
         if self._llm is None:
-            self._llm = get_llm(self.provider, self.model)
+            self._llm = get_llm(self.provider, self.model, timeout=self.LLM_TIMEOUT)
         return self._llm
 
     def extract_elements(

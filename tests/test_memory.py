@@ -2590,8 +2590,13 @@ class TestStory52EdgeCases:
 
         # Should return empty string
         assert result == ""
-        # Buffer should be unchanged when summarization fails
-        assert state["agent_memories"]["dm"].short_term_buffer == original_buffer
+        # Buffer should be trimmed to retain_count entries (emergency fallback)
+        # Default retain_count is 3, so keeps last 3 of 5 entries
+        assert state["agent_memories"]["dm"].short_term_buffer == [
+            "Event 3",
+            "Event 4",
+            "Event 5",
+        ]
 
     def test_merging_multiple_summaries(self, empty_game_state: GameState) -> None:
         """Test that multiple summaries merge correctly over time."""
@@ -2688,9 +2693,13 @@ class TestSummarizerErrorRecovery:
 
         # Should return empty string
         assert result == ""
-        # Buffer should be COMPLETELY unchanged
-        assert state["agent_memories"]["dm"].short_term_buffer == original_entries
-        # Existing summary should be preserved
+        # Buffer should be trimmed to retain_count entries (emergency fallback)
+        assert state["agent_memories"]["dm"].short_term_buffer == [
+            "Event 3",
+            "Event 4",
+            "Event 5",
+        ]
+        # Existing summary should be preserved (not modified on failure)
         assert state["agent_memories"]["dm"].long_term_summary == "Existing summary."
 
     def test_llm_exception_preserves_buffer(self, empty_game_state: GameState) -> None:
@@ -2825,7 +2834,8 @@ class TestSummarizerErrorRecovery:
         """Test that truncation is logged as a warning."""
         from unittest.mock import MagicMock, patch
 
-        large_entry = "x" * 60_000
+        # Must exceed Summarizer.MAX_BUFFER_CHARS (250_000) to trigger truncation
+        large_entry = "x" * 260_000
 
         with (
             patch("memory.get_llm") as mock_get_llm,
@@ -3376,7 +3386,7 @@ class TestSummarizerMaxBufferChars:
         from memory import Summarizer
 
         assert hasattr(Summarizer, "MAX_BUFFER_CHARS")
-        assert Summarizer.MAX_BUFFER_CHARS == 50_000
+        assert Summarizer.MAX_BUFFER_CHARS == 250_000
 
     def test_buffer_exactly_at_max_not_truncated(self) -> None:
         """Test buffer exactly at limit is not truncated."""
@@ -3407,8 +3417,8 @@ class TestSummarizerMaxBufferChars:
         """Test buffer over limit is truncated."""
         from unittest.mock import MagicMock, patch
 
-        # Create buffer over 50,000 chars
-        entry = "x" * 50_001
+        # Create buffer over MAX_BUFFER_CHARS (250,000) to trigger truncation
+        entry = "x" * 260_000
 
         with (
             patch("memory.get_llm") as mock_get_llm,

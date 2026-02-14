@@ -547,14 +547,11 @@ def _log_llm_error(error: LLMError) -> None:
         error: The LLMError to log.
     """
     logger.error(
-        "LLM API call failed",
-        extra={
-            "provider": error.provider,
-            "agent": error.agent,
-            "error_type": error.error_type,
-            "timestamp": datetime.now(UTC).isoformat(),
-            "original_error": str(error.original_error) if error.original_error else "",
-        },
+        "LLM API call failed: provider=%s agent=%s type=%s error=%s",
+        error.provider,
+        error.agent,
+        error.error_type,
+        str(error.original_error) if error.original_error else "",
     )
 
 
@@ -678,7 +675,7 @@ def _extract_response_text(response: object) -> str:
     return ""
 
 
-def get_llm(provider: str, model: str) -> BaseChatModel:
+def get_llm(provider: str, model: str, timeout: int | None = None) -> BaseChatModel:
     """Create an LLM client for the specified provider and model.
 
     Factory function that returns the appropriate LangChain chat model
@@ -710,7 +707,7 @@ def get_llm(provider: str, model: str) -> BaseChatModel:
             return ChatGoogleGenerativeAI(
                 model=model,
                 google_api_key=api_key,
-                timeout=120,  # 2 minutes for Gemini 3 models
+                timeout=timeout or 120,  # Default 2 min, callers can override
                 max_retries=1,  # Disable SDK infinite retry on 429s
             )
         case "claude":
@@ -727,7 +724,7 @@ def get_llm(provider: str, model: str) -> BaseChatModel:
             return ChatOllama(
                 model=model,
                 base_url=base_url,
-                timeout=300,  # 5 minutes - Ollama server may be shared
+                timeout=timeout or 300,  # Default 5 min, callers can override
             )
         case _:
             raise ValueError(f"Unknown provider: {provider}")
@@ -1706,6 +1703,11 @@ def dm_turn(state: GameState) -> GameState:
             and logged internally before being re-raised for handling
             in the game loop (Story 4.5).
     """
+    import sys
+    import time as _time
+
+    _t0 = _time.time()
+    print(f"[{_time.strftime('%H:%M:%S')}] dm_turn: START", file=sys.stderr, flush=True)
     # Get DM config and create agent
     dm_config = state["dm_config"]
 
@@ -1800,8 +1802,23 @@ def dm_turn(state: GameState) -> GameState:
 
         # Invoke the model with tool call handling loop
         max_tool_iterations = 5  # Increased for sheet updates alongside dice rolls
-        for _ in range(max_tool_iterations):
+        import time as _time
+
+        _context_chars = sum(len(m.content) for m in messages if hasattr(m, "content"))
+        logger.info(
+            "DM turn — invoking LLM (%s/%s), context ~%d chars",
+            dm_config.provider,
+            dm_config.model,
+            _context_chars,
+        )
+        for _iter in range(max_tool_iterations):
+            _call_start = _time.time()
             response = dm_agent.invoke(messages)
+            logger.info(
+                "DM LLM call returned in %.1fs (iteration %d)",
+                _time.time() - _call_start,
+                _iter + 1,
+            )
 
             # Check if model wants to call tools
             tool_calls = getattr(response, "tool_calls", None)
@@ -2027,6 +2044,11 @@ def dm_turn(state: GameState) -> GameState:
 
     # Return new state with current_turn set appropriately
     # This is critical for route_to_next_agent to know who just acted
+    print(
+        f"[{_time.strftime('%H:%M:%S')}] dm_turn: DONE ({_time.time() - _t0:.1f}s)",
+        file=sys.stderr,
+        flush=True,
+    )
     return GameState(
         ground_truth_log=new_log,
         turn_queue=turn_queue_for_return,
@@ -2444,6 +2466,15 @@ def pc_turn(state: GameState, agent_name: str) -> GameState:
             and logged internally before being re-raised for handling
             in the game loop (Story 4.5).
     """
+    import sys
+    import time as _time
+
+    _t0 = _time.time()
+    print(
+        f"[{_time.strftime('%H:%M:%S')}] pc_turn: START [{agent_name}]",
+        file=sys.stderr,
+        flush=True,
+    )
     # Get character config from state
     character_config = state["characters"][agent_name]
 
@@ -2475,8 +2506,25 @@ def pc_turn(state: GameState, agent_name: str) -> GameState:
 
         # Invoke the model with tool call handling loop
         max_tool_iterations = 3  # Prevent infinite loops
-        for _ in range(max_tool_iterations):
+        import time as _time
+
+        _context_chars = sum(len(m.content) for m in messages if hasattr(m, "content"))
+        logger.info(
+            "PC turn [%s] — invoking LLM (%s/%s), context ~%d chars",
+            agent_name,
+            character_config.provider,
+            character_config.model,
+            _context_chars,
+        )
+        for _iter in range(max_tool_iterations):
+            _call_start = _time.time()
             response = pc_agent.invoke(messages)
+            logger.info(
+                "PC [%s] LLM call returned in %.1fs (iteration %d)",
+                agent_name,
+                _time.time() - _call_start,
+                _iter + 1,
+            )
 
             # Check if model wants to call tools
             tool_calls = getattr(response, "tool_calls", None)
@@ -2622,6 +2670,11 @@ def pc_turn(state: GameState, agent_name: str) -> GameState:
 
     # Return new state with current_turn updated to this agent's name
     # This is critical for route_to_next_agent to know who just acted
+    print(
+        f"[{_time.strftime('%H:%M:%S')}] pc_turn: DONE [{agent_name}] ({_time.time() - _t0:.1f}s)",
+        file=sys.stderr,
+        flush=True,
+    )
     return GameState(
         ground_truth_log=new_log,
         turn_queue=state["turn_queue"],

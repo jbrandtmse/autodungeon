@@ -641,12 +641,22 @@ class TestAutopilot:
 
     @pytest.mark.anyio
     async def test_autopilot_stops_on_error(self, started_engine: GameEngine) -> None:
-        """Autopilot stops when a turn returns an error."""
+        """Autopilot stops after MAX_RETRY_ATTEMPTS consecutive errors."""
+        # Reduce retry delay for test speed by patching sleep
         mock_result = _make_error_result(started_engine._state)  # type: ignore[arg-type]
-        with patch("graph.run_single_round", return_value=mock_result):
+        original_sleep = asyncio.sleep
+
+        async def fast_sleep(delay: float) -> None:
+            # Collapse backoff delays to near-zero for testing
+            await original_sleep(min(delay, 0.01))
+
+        with (
+            patch("graph.run_single_round", return_value=mock_result),
+            patch("asyncio.sleep", side_effect=fast_sleep),
+        ):
             await started_engine.start_autopilot(speed="fast")
-            # Wait for autopilot to process and stop
-            await asyncio.sleep(0.3)
+            # Wait for autopilot to exhaust retries and stop
+            await original_sleep(0.5)
 
         assert started_engine.is_running is False
 
