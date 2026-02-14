@@ -2130,3 +2130,35 @@ Completed in separate cycle sessions (not logged here).
 - None (fully autonomous)
 
 ---
+
+## Story: 17-3-current-scene-specific-turn-api
+
+**Status:** Completed
+**Phase:** create-story → dev-story → code-review → commit → done
+
+### Files Touched
+- `api/routes.py` (modified) — 4 new endpoints + background task + helpers
+- `api/schemas.py` (modified) — ImageGenerateRequest, ImageGenerateAccepted, SceneImageResponse, WsImageReady
+- `api/websocket.py` (modified) — image_ready event in _engine_event_to_schema
+- `tests/test_image_api.py` (created) — 35 tests
+
+### Key Design Decisions
+- Background task via `asyncio.create_task()` with strong reference tracking (prevent GC)
+- HTTP 202 Accepted with task_id for async image generation
+- JSON sidecar metadata files alongside PNG images
+- Concurrency guard: max 3 concurrent tasks, HTTP 429 when exceeded
+- Path traversal prevention via strict UUID.png regex on image filenames
+
+### Issues Auto-Resolved (Code Review)
+1. **HIGH:** `generation_mode` typed as `str` instead of `Literal` — fixed
+2. **HIGH:** Discarded `asyncio.create_task()` references (GC risk) — added task tracking
+3. **HIGH:** No images dir existence check before sidecar write — added mkdir
+4. **MEDIUM:** Unused `app` parameter (dead code) — removed
+5. **MEDIUM:** Blocking sync I/O in async endpoint — documented as acceptable
+6. **MEDIUM:** Raw dict broadcast bypassed schema validation — used WsImageReady model
+7. **MEDIUM:** No concurrent request guard — added 3-task limit with 429 response
+
+### User Input Required
+- None (fully autonomous)
+
+---

@@ -712,6 +712,23 @@ class ImageGenerateAccepted(BaseModel):
     status: Literal["pending"] = Field(default="pending", description="Task status")
 
 
+class BestSceneAccepted(BaseModel):
+    """Response for accepted (202) best-scene scan + generate requests.
+
+    Uses ``status="scanning"`` to differentiate from direct image generation,
+    indicating the two-phase nature (scan first, then generate).
+
+    Story 17-4: Best Scene Scanner.
+    """
+
+    task_id: str = Field(..., description="Background task ID (UUID)")
+    session_id: str = Field(..., description="Session ID")
+    status: Literal["scanning"] = Field(
+        default="scanning",
+        description="Task status (scanning phase before generation)",
+    )
+
+
 class SceneImageResponse(BaseModel):
     """Response model for a generated scene image."""
 

@@ -21,6 +21,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import ValidationError
 
 from api.schemas import (
+    BestSceneAccepted,
     CharacterCreateRequest,
     CharacterDetailResponse,
     CharacterResponse,
@@ -2589,6 +2590,221 @@ async def generate_turn_image(
         task_id=task_id,
         session_id=session_id,
         turn_number=turn_number,
+    )
+
+
+# =============================================================================
+# Best Scene Scanner (Story 17-4)
+# =============================================================================
+
+
+async def _scan_and_generate_best_image(
+    session_id: str,
+    task_id: str,
+    log_entries: list[str],
+    characters: dict[str, Any],
+) -> None:
+    """Background task that scans for the best scene, then generates an image.
+
+    Combines the scanner phase (LLM analysis of full log) with the image
+    generation phase (prompt building + Imagen API call) in a single task.
+
+    This function MUST NOT raise exceptions -- all errors are caught
+    and broadcast as WebSocket error events.
+
+    Args:
+        session_id: Session ID.
+        task_id: Unique task identifier for tracking.
+        log_entries: Complete ground_truth_log entries.
+        characters: Character info dict.
+    """
+    from image_gen import ImageGenerationError, ImageGenerator
+
+    try:
+        generator = ImageGenerator()
+
+        # Phase 1: Scan for best scene
+        turn_number, rationale = await generator.scan_best_scene(log_entries)
+
+        logger.info(
+            "Best scene scan complete for session %s (task %s): Turn %d - %s",
+            session_id,
+            task_id,
+            turn_number,
+            rationale[:150],
+        )
+
+        # Phase 2: Extract context window around identified turn (+/-5 entries)
+        start = max(0, turn_number - 5)
+        end = min(len(log_entries), turn_number + 6)
+        context_entries = list(log_entries[start:end])
+
+        # Phase 3: Build scene prompt
+        prompt = await generator.build_scene_prompt(context_entries, characters)
+
+        # Phase 4: Generate image
+        scene_image = await generator.generate_scene_image(
+            prompt=prompt,
+            session_id=session_id,
+            turn_number=turn_number,
+            generation_mode="best",
+        )
+
+        # Phase 5: Save metadata as JSON sidecar
+        images_dir = get_session_dir(session_id) / "images"
+        images_dir.mkdir(parents=True, exist_ok=True)
+        metadata_path = images_dir / f"{scene_image.id}.json"
+        metadata_path.write_text(
+            _json.dumps(scene_image.model_dump(), indent=2),
+            encoding="utf-8",
+        )
+
+        # Phase 6: Broadcast WebSocket event
+        from api.schemas import SceneImageResponse as _SceneImageResponse
+        from api.schemas import WsImageReady as _WsImageReady
+        from api.websocket import manager
+
+        download_url = _build_download_url(session_id, scene_image.id)
+        ws_event = _WsImageReady(
+            image=_SceneImageResponse(
+                id=scene_image.id,
+                session_id=scene_image.session_id,
+                turn_number=scene_image.turn_number,
+                prompt=scene_image.prompt,
+                image_path=scene_image.image_path,
+                provider=scene_image.provider,
+                model=scene_image.model,
+                generation_mode=scene_image.generation_mode,
+                generated_at=scene_image.generated_at,
+                download_url=download_url,
+            ),
+        )
+        await manager.broadcast(session_id, ws_event.model_dump())
+
+        logger.info(
+            "Best scene image generated for session %s turn %d (task %s): %s",
+            session_id,
+            turn_number,
+            task_id,
+            scene_image.id,
+        )
+
+    except ImageGenerationError as e:
+        logger.error(
+            "Best scene generation failed for session %s (task %s): %s",
+            session_id,
+            task_id,
+            e,
+        )
+        from api.websocket import manager
+
+        await manager.broadcast(
+            session_id,
+            {
+                "type": "error",
+                "message": f"Best scene generation failed: {e}",
+                "recoverable": True,
+            },
+        )
+
+    except Exception as e:
+        logger.exception(
+            "Unexpected error in best scene generation background task "
+            "(session=%s, task=%s)",
+            session_id,
+            task_id,
+        )
+        from api.websocket import manager
+
+        await manager.broadcast(
+            session_id,
+            {
+                "type": "error",
+                "message": f"Best scene generation failed unexpectedly: {e}",
+                "recoverable": True,
+            },
+        )
+
+
+@router.post(
+    "/sessions/{session_id}/images/generate-best",
+    response_model=BestSceneAccepted,
+    status_code=202,
+)
+async def generate_best_scene_image(
+    session_id: str,
+) -> BestSceneAccepted:
+    """Generate an image of the most visually dramatic scene in the session.
+
+    Uses an LLM scanner to analyze the entire ground_truth_log, identify the
+    most visually dramatic scene, and then generate an illustration of it.
+    Runs as a background task with WebSocket notification on completion.
+
+    Story 17-4: Best Scene Scanner.
+
+    Args:
+        session_id: Session ID string.
+
+    Returns:
+        202 Accepted with task ID and scanning status.
+    """
+    _validate_and_check_session(session_id)
+    _check_image_generation_enabled()
+
+    # Guard against too many concurrent image tasks for this session
+    active = _active_image_tasks.get(session_id, set())
+    # Prune completed tasks
+    active = {t for t in active if not t.done()}
+    _active_image_tasks[session_id] = active
+    if len(active) >= _MAX_CONCURRENT_IMAGE_TASKS:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many concurrent image generation requests "
+            f"(max {_MAX_CONCURRENT_IMAGE_TASKS}). Please wait for "
+            f"current tasks to complete.",
+        )
+
+    # Load game state
+    latest_turn = get_latest_checkpoint(session_id)
+    if latest_turn is None:
+        raise HTTPException(status_code=400, detail="Session has no checkpoints")
+
+    state = load_checkpoint(session_id, latest_turn)
+    if state is None:
+        raise HTTPException(status_code=500, detail="Failed to load latest checkpoint")
+
+    log = state.get("ground_truth_log", [])
+    if not log:
+        raise HTTPException(
+            status_code=400, detail="Session has no narrative log entries"
+        )
+
+    # Extract complete log (entire session history)
+    all_entries = list(log)
+
+    characters = state.get("characters", {})
+    char_dict = {
+        k: v.model_dump() if hasattr(v, "model_dump") else v
+        for k, v in characters.items()
+    }
+
+    task_id = str(_uuid.uuid4())
+
+    # Launch background task and store reference to prevent GC
+    task = asyncio.create_task(
+        _scan_and_generate_best_image(
+            session_id=session_id,
+            task_id=task_id,
+            log_entries=all_entries,
+            characters=char_dict,
+        )
+    )
+    active.add(task)
+    task.add_done_callback(lambda t: active.discard(t))
+
+    return BestSceneAccepted(
+        task_id=task_id,
+        session_id=session_id,
     )
 
 
