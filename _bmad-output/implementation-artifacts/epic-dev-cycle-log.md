@@ -2232,3 +2232,67 @@ Completed in separate cycle sessions (not logged here).
 - None (fully autonomous)
 
 ---
+
+## Story: 17-6-image-export-download
+
+**Status:** Completed
+**Phase:** create-story → dev-story → code-review → commit → done
+
+### Files Touched
+- `api/routes.py` (modified) — download + download-all endpoints, _get_safe_session_name helper
+- `frontend/src/lib/api.ts` (modified) — getImageDownloadUrl, getDownloadAllUrl builders
+- `frontend/src/lib/components/SceneImage.svelte` (modified) — download button URL
+- `frontend/src/lib/components/ImageGallery.svelte` (modified) — Download All button
+- `frontend/src/lib/api.test.ts` (modified) — 5 new URL builder tests
+- `frontend/src/lib/components/ImageGallery.test.ts` (modified) — 4 new tests
+- `frontend/src/lib/components/SceneImage.test.ts` (modified) — 1 updated test
+- `tests/test_image_api.py` (modified) — 17 new tests
+
+### Key Design Decisions
+- In-memory zip creation with asyncio.to_thread for non-blocking
+- Filename format: {session_name}_turn_{N}_{mode}.png (1-based, sanitized)
+- ASCII-only session name sanitization for Content-Disposition safety
+- Filename deduplication for duplicate turn+mode combinations in zip
+- Route ordering: download-all before {image_filename} catch-all
+
+### Issues Auto-Resolved (Code Review)
+1. **HIGH:** Duplicate filenames in zip silently overwrite entries — added deduplication
+2. **HIGH:** \w regex allows Unicode into Content-Disposition — restricted to ASCII
+3. **MEDIUM:** Sync file I/O blocks event loop — wrapped in asyncio.to_thread
+4. **MEDIUM:** generation_mode not validated before filename interpolation — added validation
+5. **MEDIUM:** turn_number not type-validated (TypeError on corrupt metadata) — added int() cast
+
+### User Input Required
+- None (fully autonomous)
+
+---
+
+# Epic 17 - Cycle Complete
+
+**Completion Time:** 2026-02-14
+**Total Stories Processed:** 6
+**Epic Status:** done
+
+## Overall Statistics
+- Total files touched: ~40 (created + modified across all stories)
+- Total design decisions: 25
+- Total issues auto-resolved: 31
+- Total user interventions: 0
+
+## Stories Completed This Cycle
+1. 17-1-turn-number-display — Frontend turn number display
+2. 17-2-image-generation-service — Backend ImageGenerator + google-genai SDK
+3. 17-3-current-scene-specific-turn-api — REST + WebSocket image endpoints
+4. 17-4-best-scene-scanner — LLM-powered session analysis with chunking
+5. 17-5-image-generation-ui — Full frontend UI (store, components, gallery, shortcuts)
+6. 17-6-image-export-download — Individual + bulk zip download
+
+## New Tests Added
+- Python: ~111 new tests (image_gen, image_api, image_scanner, models)
+- Frontend: ~80 new tests (store, components, API)
+- Total new: ~191 tests
+
+## Recommendations
+- Run epic retrospective: /bmad-bmm-retrospective
+- Check sprint status: /bmad-bmm-sprint-status
+- Visually verify the full flow: start a session, run a few turns, generate images, download
