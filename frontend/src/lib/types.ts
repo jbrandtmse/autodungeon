@@ -29,6 +29,7 @@ export interface GameConfig {
   dm_provider: string;
   dm_model: string;
   dm_token_limit: number;
+  image_generation_enabled?: boolean;
 }
 
 export interface UserSettings {
@@ -214,6 +215,11 @@ export interface WsCommandAck {
   command: string;
 }
 
+export interface WsImageReady {
+  type: 'image_ready';
+  image: SceneImage;
+}
+
 export type WsServerEvent =
   | WsTurnUpdate
   | WsSessionState
@@ -229,7 +235,8 @@ export type WsServerEvent =
   | WsResumed
   | WsPing
   | WsPong
-  | WsCommandAck;
+  | WsCommandAck
+  | WsImageReady;
 
 // === WebSocket Client-to-Server Commands ===
 
@@ -564,4 +571,32 @@ export interface CheckpointInfo {
 export interface CheckpointPreview {
   turn_number: number;
   entries: string[];
+}
+
+// === Scene Image Types (Story 17-5) ===
+
+export interface SceneImage {
+  id: string;
+  session_id: string;
+  turn_number: number;
+  prompt: string;
+  image_path: string;
+  provider: string;
+  model: string;
+  generation_mode: 'current' | 'best' | 'specific';
+  generated_at: string;
+  download_url: string;
+}
+
+export interface ImageGenerateAccepted {
+  task_id: string;
+  session_id: string;
+  turn_number: number;
+  status: 'pending';
+}
+
+export interface BestSceneAccepted {
+  task_id: string;
+  session_id: string;
+  status: 'scanning';
 }

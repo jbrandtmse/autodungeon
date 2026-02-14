@@ -4,9 +4,11 @@
 	import NarrativePanel from '$lib/components/NarrativePanel.svelte';
 	import ForkComparison from '$lib/components/ForkComparison.svelte';
 	import CharacterSheetModal from '$lib/components/CharacterSheetModal.svelte';
+	import ImageGallery from '$lib/components/ImageGallery.svelte';
 	import { createGameConnection, type GameConnection } from '$lib/ws';
 	import { connectionStatus, lastError, wsSend, sendCommand } from '$lib/stores/connectionStore';
 	import { handleServerMessage, resetStores, gameState } from '$lib/stores/gameStore';
+	import { galleryOpen, loadSessionImages } from '$lib/stores/imageStore';
 	import { uiState } from '$lib/stores';
 
 	const sessionId = $derived($page.params.sessionId ?? '');
@@ -23,6 +25,7 @@
 
 	let connection: GameConnection | undefined;
 	let cleanupCallbacks: Array<() => void> = [];
+	let narrativePanelRef: NarrativePanel | undefined = $state();
 
 	function handleKeydown(event: KeyboardEvent): void {
 		// Skip if user is typing in an input/textarea/select or contentEditable
@@ -41,6 +44,10 @@
 			if ($gameState?.human_active) {
 				sendCommand({ type: 'release_control' });
 			}
+		} else if (event.key === 'i' || event.key === 'I') {
+			narrativePanelRef?.toggleIllustrate();
+		} else if (event.key === 'g' || event.key === 'G') {
+			galleryOpen.update((v) => !v);
 		}
 	}
 
@@ -56,6 +63,8 @@
 			conn.onConnect(() => {
 				connectionStatus.set('connected');
 				wsSend.set((cmd) => conn.send(cmd));
+				// Load existing images for this session
+				loadSessionImages(sessionId);
 			}),
 		);
 
@@ -103,7 +112,7 @@
 		{#if comparisonForkId}
 			<ForkComparison {sessionId} forkId={comparisonForkId} onClose={closeComparison} />
 		{:else}
-			<NarrativePanel />
+			<NarrativePanel bind:this={narrativePanelRef} />
 		{/if}
 	</div>
 </div>
@@ -114,6 +123,8 @@
 	characterName={characterSheetName ?? ''}
 	onClose={closeCharacterSheet}
 />
+
+<ImageGallery />
 
 <style>
 	.game-view {

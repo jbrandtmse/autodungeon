@@ -214,6 +214,6 @@ development_status:
   17-1-turn-number-display: done
   17-2-image-generation-service: done
   17-3-current-scene-specific-turn-api: done
-  17-4-best-scene-scanner: review
-  17-5-image-generation-ui: backlog
+  17-4-best-scene-scanner: done
+  17-5-image-generation-ui: review
   17-6-image-export-download: backlog

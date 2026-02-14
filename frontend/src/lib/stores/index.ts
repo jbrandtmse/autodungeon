@@ -19,3 +19,14 @@ export {
 	type ConnectionStatus,
 } from './connectionStore';
 export { narrativeMessages, displayLimit } from './narrativeStore';
+export {
+	images,
+	generatingTurns,
+	generatingBest,
+	galleryOpen,
+	handleImageReady,
+	startGeneration,
+	startBestGeneration,
+	loadSessionImages,
+	resetImageStore,
+} from './imageStore';

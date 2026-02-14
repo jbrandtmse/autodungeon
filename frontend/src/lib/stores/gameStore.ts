@@ -1,6 +1,7 @@
 import { writable } from 'svelte/store';
 import type { GameState, WsServerEvent } from '$lib/types';
 import { uiState } from './uiStore';
+import { handleImageReady, resetImageStore } from './imageStore';
 
 export const gameState = writable<GameState | null>(null);
 export const isAutopilotRunning = writable<boolean>(false);
@@ -104,6 +105,10 @@ export function handleServerMessage(msg: WsServerEvent): void {
 			isThinking.set(false);
 			break;
 
+		case 'image_ready':
+			handleImageReady(msg.image);
+			break;
+
 		default:
 			// Other events (ping/pong handled by ws.ts, command_ack, etc.)
 			break;
@@ -123,4 +128,5 @@ export function resetStores(): void {
 	thinkingAgent.set('dm');
 	awaitingInput.set(false);
 	awaitingInputCharacter.set('');
+	resetImageStore();
 }

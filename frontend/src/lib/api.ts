@@ -16,6 +16,9 @@ import type {
   UserSettingsUpdate,
   ModuleDiscoveryResponse,
   SessionStartConfig,
+  SceneImage,
+  ImageGenerateAccepted,
+  BestSceneAccepted,
 } from './types';
 
 const BASE_URL = '';  // Empty — Vite proxy handles /api routing
@@ -307,5 +310,43 @@ export async function startSession(
       method: 'POST',
       body: JSON.stringify(config),
     },
+  );
+}
+
+// === Image Generation API (Story 17-5) ===
+
+export async function generateCurrentImage(
+  sessionId: string,
+): Promise<ImageGenerateAccepted> {
+  return request<ImageGenerateAccepted>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/images/generate-current`,
+    { method: 'POST', body: JSON.stringify({}) },
+  );
+}
+
+export async function generateTurnImage(
+  sessionId: string,
+  turnNumber: number,
+): Promise<ImageGenerateAccepted> {
+  return request<ImageGenerateAccepted>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/images/generate-turn/${turnNumber}`,
+    { method: 'POST', body: JSON.stringify({}) },
+  );
+}
+
+export async function generateBestImage(
+  sessionId: string,
+): Promise<BestSceneAccepted> {
+  return request<BestSceneAccepted>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/images/generate-best`,
+    { method: 'POST', body: JSON.stringify({}) },
+  );
+}
+
+export async function getSessionImages(
+  sessionId: string,
+): Promise<SceneImage[]> {
+  return request<SceneImage[]>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/images`,
   );
 }

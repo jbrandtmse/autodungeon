@@ -1,31 +1,58 @@
 <script lang="ts">
 	import type { ParsedMessage, CharacterInfo } from '$lib/narrative';
+	import type { SceneImage as SceneImageType } from '$lib/types';
 	import { formatMessageContent } from '$lib/narrative';
+	import SceneImage from './SceneImage.svelte';
+	import ImageGenerating from './ImageGenerating.svelte';
 
 	let {
 		message,
 		characterInfo,
 		isCurrent = false,
+		sceneImage = undefined,
+		isGenerating = false,
+		onIllustrateTurn = undefined,
 	}: {
 		message: ParsedMessage;
 		characterInfo?: CharacterInfo;
 		isCurrent: boolean;
+		sceneImage?: SceneImageType | undefined;
+		isGenerating?: boolean;
+		onIllustrateTurn?: ((turnIndex: number) => void) | undefined;
 	} = $props();
 
 	const formattedContent = $derived(formatMessageContent(message.content, message.messageType));
 	const classSlug = $derived(characterInfo?.classSlug ?? 'adventurer');
 	const turnNumber = $derived(message.index + 1);
+
+	function handleTurnClick(): void {
+		onIllustrateTurn?.(message.index);
+	}
+
+	function handleTurnKeydown(e: KeyboardEvent): void {
+		if (e.key === 'Enter') {
+			onIllustrateTurn?.(message.index);
+		}
+	}
 </script>
+
+{#if isGenerating && !sceneImage}
+	<ImageGenerating turnNumber={message.index} mode="specific" />
+{/if}
+
+{#if sceneImage}
+	<SceneImage image={sceneImage} />
+{/if}
 
 {#if message.messageType === 'dm_narration'}
 	<div class="dm-message" class:current-turn={isCurrent}>
-		<span class="turn-number" role="button" tabindex="0" aria-label="Illustrate Turn {turnNumber}">Turn {turnNumber}</span>
+		<span class="turn-number" role="button" tabindex="0" aria-label="Illustrate Turn {turnNumber}" onclick={handleTurnClick} onkeydown={handleTurnKeydown}>Turn {turnNumber}</span>
 		<p>{@html formattedContent}</p>
 	</div>
 {:else if message.messageType === 'pc_dialogue'}
 	<div class="pc-message {classSlug}" class:current-turn={isCurrent}>
 		<span class="pc-attribution {classSlug}">
-			<span class="turn-number" role="button" tabindex="0" aria-label="Illustrate Turn {turnNumber}">Turn {turnNumber}</span>
+			<span class="turn-number" role="button" tabindex="0" aria-label="Illustrate Turn {turnNumber}" onclick={handleTurnClick} onkeydown={handleTurnKeydown}>Turn {turnNumber}</span>
 			{' \u2014 '}
 			{characterInfo?.name ?? message.agent}, the {characterInfo?.characterClass ?? 'Adventurer'}:
 		</span>
@@ -33,7 +60,7 @@
 	</div>
 {:else if message.messageType === 'sheet_update'}
 	<div class="sheet-notification" class:current-turn={isCurrent}>
-		<span class="turn-number" role="button" tabindex="0" aria-label="Illustrate Turn {turnNumber}">Turn {turnNumber}</span>
+		<span class="turn-number" role="button" tabindex="0" aria-label="Illustrate Turn {turnNumber}" onclick={handleTurnClick} onkeydown={handleTurnKeydown}>Turn {turnNumber}</span>
 		<p>{@html formattedContent}</p>
 	</div>
 {:else}

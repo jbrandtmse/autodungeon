@@ -2,13 +2,17 @@
 	import { tick, untrack } from 'svelte';
 	import NarrativeMessage from './NarrativeMessage.svelte';
 	import ThinkingIndicator from './ThinkingIndicator.svelte';
+	import IllustrateMenu from './IllustrateMenu.svelte';
 	import {
 		resolveCharacterInfo,
 		type ParsedMessage,
 		type CharacterInfo,
 	} from '$lib/narrative';
+	import type { SceneImage } from '$lib/types';
 	import { gameState, isAutopilotRunning, isThinking, thinkingAgent } from '$lib/stores/gameStore';
 	import { narrativeMessages, displayLimit as displayLimitStore } from '$lib/stores/narrativeStore';
+	import { images, generatingTurns, galleryOpen, startGeneration } from '$lib/stores/imageStore';
+	import { generateTurnImage } from '$lib/api';
 	import { uiState } from '$lib/stores/uiStore';
 
 	let scrollContainer: HTMLElement;
@@ -38,6 +42,47 @@
 	function getCharInfo(msg: ParsedMessage): CharacterInfo | undefined {
 		if (msg.messageType !== 'pc_dialogue') return undefined;
 		return resolveCharacterInfo(msg.agent, characters);
+	}
+
+	// Image generation: derive per-turn image lookup map
+	const imagesByTurn = $derived(
+		$images.reduce<Record<number, SceneImage>>((map, img) => {
+			map[img.turn_number] = img;
+			return map;
+		}, {}),
+	);
+	const currentGenerating = $derived($generatingTurns);
+
+	// Whether image generation is enabled via game config
+	const imageEnabled = $derived(
+		$gameState?.game_config?.image_generation_enabled ?? false,
+	);
+
+	// IllustrateMenu ref for keyboard shortcut toggling
+	let illustrateMenuRef: IllustrateMenu | undefined = $state();
+
+	/** Toggle the Illustrate dropdown menu (for keyboard shortcut). */
+	export function toggleIllustrate(): void {
+		illustrateMenuRef?.toggle();
+	}
+
+	async function handleIllustrateTurn(turnIndex: number): Promise<void> {
+		if (!sessionId) return;
+		try {
+			startGeneration(turnIndex);
+			await generateTurnImage(sessionId, turnIndex);
+		} catch (e) {
+			console.error('[Narrative] Failed to generate image:', e);
+			generatingTurns.update((s) => {
+				const next = new Set(s);
+				next.delete(turnIndex);
+				return next;
+			});
+		}
+	}
+
+	function handleOpenGallery(): void {
+		galleryOpen.set(true);
 	}
 
 	// Thinking indicator state — use isThinking store (which is set to false
@@ -153,6 +198,14 @@
 <div class="narrative-panel">
 	<header class="session-header">
 		<h2 class="session-title">{sessionTitle}</h2>
+		{#if imageEnabled}
+			<IllustrateMenu
+				bind:this={illustrateMenuRef}
+				{sessionId}
+				totalTurns={parsedMessages.length}
+				onOpenGallery={handleOpenGallery}
+			/>
+		{/if}
 	</header>
 
 	<div
@@ -177,6 +230,9 @@
 					message={msg}
 					characterInfo={getCharInfo(msg)}
 					isCurrent={msg.index === parsedMessages.length - 1}
+					sceneImage={imagesByTurn[msg.index]}
+					isGenerating={currentGenerating.has(msg.index)}
+					onIllustrateTurn={handleIllustrateTurn}
 				/>
 			{/each}
 		{/if}
@@ -207,11 +263,15 @@
 
 	/* Session Header */
 	.session-header {
-		text-align: center;
-		padding: var(--space-sm) 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: var(--space-md);
+		padding: var(--space-sm) var(--space-md);
 		border-bottom: 1px solid var(--bg-secondary);
 		margin-bottom: 0;
 		flex-shrink: 0;
+		position: relative;
 	}
 
 	.session-title {

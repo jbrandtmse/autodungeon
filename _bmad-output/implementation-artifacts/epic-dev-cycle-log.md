@@ -2162,3 +2162,34 @@ Completed in separate cycle sessions (not logged here).
 - None (fully autonomous)
 
 ---
+
+## Story: 17-4-best-scene-scanner
+
+**Status:** Completed
+**Phase:** create-story → dev-story → code-review → commit → done
+
+### Files Touched
+- `image_gen.py` (modified) — scan_best_scene, chunking, parsing, token estimation
+- `api/routes.py` (modified) — generate-best endpoint + background task
+- `api/schemas.py` (modified) — BestSceneAccepted schema
+- `tests/test_image_scanner.py` (created) — 42 tests
+
+### Key Design Decisions
+- Token estimation: `words * 1.3` on formatted text (matching project memory)
+- Chunking: 80% fill factor, 20-entry overlap between chunks
+- Response parsing: JSON primary with markdown fence stripping, regex fallback
+- Scanner timeout: 300s matching Summarizer.LLM_TIMEOUT
+- Chunk offsets track global turn numbers for correct multi-chunk scanning
+- Background task: scan → extract context window → build prompt → generate image
+
+### Issues Auto-Resolved (Code Review)
+1. **HIGH:** Multi-chunk turn numbering used chunk-local indices — added global offset tracking
+2. **HIGH:** _chunk_log_entries returned no offset metadata — changed to return (offset, entries) tuples
+3. **MEDIUM:** _parse_scanner_response accepted negative turn numbers — added guard
+4. **MEDIUM:** Token estimation ignored formatting overhead — now estimates on formatted text
+5. **MEDIUM:** Multi-chunk test didn't verify global turn numbers — added assertions
+
+### User Input Required
+- None (fully autonomous)
+
+---
