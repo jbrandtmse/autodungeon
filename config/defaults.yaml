@@ -20,3 +20,12 @@ agents:
 # Game defaults
 party_size: 4
 auto_save: true
+
+# Image generation defaults
+image_generation:
+  enabled: false
+  image_provider: gemini
+  image_model: imagen-4.0-generate-001
+  scanner_provider: gemini
+  scanner_model: gemini-3-flash-preview
+  scanner_token_limit: 4000

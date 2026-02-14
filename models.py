@@ -61,13 +61,16 @@ __all__ = [
     "create_character_facts_from_config",
     "create_initial_game_state",
     "create_narrative_element",
+    "create_scene_image",
     "create_user_error",
     "create_whisper",
+    "ImageGenerationConfig",
     "generate_character_sheet_from_config",
     "load_character_sheet_from_library",
     "populate_game_state",
     "parse_log_entry",
     "parse_message_content",
+    "SceneImage",
 ]
 
 # Supported LLM providers (used by both CharacterConfig and DMConfig)
@@ -1238,6 +1241,128 @@ class ModuleDiscoveryResult(BaseModel):
     model: str = Field(..., description="Model used for discovery")
     timestamp: str = Field(..., description="ISO timestamp of discovery")
     retry_count: int = Field(default=0, ge=0, description="Number of retries needed")
+
+
+# =============================================================================
+# Scene Image Generation (Story 17-2)
+# =============================================================================
+
+
+class SceneImage(BaseModel):
+    """Metadata for a generated scene illustration.
+
+    Tracks the generated image and its provenance for display,
+    export, and re-generation.
+
+    Story 17-2: Image Generation Service.
+
+    Attributes:
+        id: Unique image identifier (UUID).
+        session_id: Session this image belongs to.
+        turn_number: Turn number the image illustrates.
+        prompt: The text prompt used for generation.
+        image_path: Relative path to the image file within campaigns/.
+        provider: Image generation provider (e.g., "gemini").
+        model: Image generation model name.
+        generation_mode: How the image was requested.
+        generated_at: ISO timestamp when image was generated.
+    """
+
+    id: str = Field(..., description="Unique image ID (UUID)")
+    session_id: str = Field(..., description="Session this image belongs to")
+    turn_number: int = Field(..., ge=0, description="Turn number illustrated")
+    prompt: str = Field(..., description="Text prompt used for generation")
+    image_path: str = Field(
+        ..., description="Relative path to image file within campaigns/"
+    )
+    provider: str = Field(..., description="Image generation provider")
+    model: str = Field(..., description="Image generation model name")
+    generation_mode: Literal["current", "best", "specific"] = Field(
+        ..., description="How the image was requested"
+    )
+    generated_at: str = Field(..., description="ISO timestamp of generation")
+
+
+def create_scene_image(
+    session_id: str,
+    turn_number: int,
+    prompt: str,
+    image_path: str,
+    provider: str,
+    model: str,
+    generation_mode: Literal["current", "best", "specific"],
+) -> SceneImage:
+    """Create a SceneImage with auto-generated ID and timestamp.
+
+    Factory function following the create_whisper / create_user_error pattern.
+
+    Story 17-2: Image Generation Service.
+
+    Args:
+        session_id: Session this image belongs to.
+        turn_number: Turn number the image illustrates.
+        prompt: The text prompt used for generation.
+        image_path: Relative path to the image file within campaigns/.
+        provider: Image generation provider (e.g., "gemini").
+        model: Image generation model name.
+        generation_mode: How the image was requested.
+
+    Returns:
+        A new SceneImage instance with unique ID and current timestamp.
+    """
+    return SceneImage(
+        id=str(uuid.uuid4()),
+        session_id=session_id,
+        turn_number=turn_number,
+        prompt=prompt,
+        image_path=image_path,
+        provider=provider,
+        model=model,
+        generation_mode=generation_mode,
+        generated_at=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+    )
+
+
+class ImageGenerationConfig(BaseModel):
+    """Configuration for AI scene image generation.
+
+    Controls which models are used for image generation and
+    the LLM scanner that selects "best scene" candidates.
+
+    Story 17-2: Image Generation Service.
+
+    Attributes:
+        enabled: Whether image generation is available.
+        image_provider: Provider for image generation (currently only "gemini").
+        image_model: Model name for image generation.
+        scanner_provider: LLM provider for scene scanning / prompt building.
+        scanner_model: LLM model for scene scanning / prompt building.
+        scanner_token_limit: Token limit for the scanner LLM context.
+    """
+
+    enabled: bool = Field(
+        default=False, description="Whether image generation is enabled"
+    )
+    image_provider: str = Field(
+        default="gemini", description="Provider for image generation"
+    )
+    image_model: str = Field(
+        default="imagen-4.0-generate-001",
+        description="Model for image generation",
+    )
+    scanner_provider: str = Field(
+        default="gemini",
+        description="LLM provider for scene scanning and prompt building",
+    )
+    scanner_model: str = Field(
+        default="gemini-3-flash-preview",
+        description="LLM model for scene scanning and prompt building",
+    )
+    scanner_token_limit: int = Field(
+        default=4000,
+        ge=1,
+        description="Token limit for the scanner LLM context",
+    )
 
 
 # =============================================================================

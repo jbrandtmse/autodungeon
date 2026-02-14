@@ -2064,3 +2064,34 @@ Completed in separate cycle sessions (not logged here).
 
 ---
 
+
+---
+
+# Epic 17: AI Scene Image Generation - Cycle Log (2026-02-14)
+
+## Story: 17-1-turn-number-display
+
+**Status:** Completed
+**Phase:** create-story → dev-story → code-review → commit → done
+
+### Files Touched
+- `frontend/src/lib/components/NarrativeMessage.svelte` (modified)
+- `frontend/src/lib/components/NarrativeMessage.test.ts` (modified, +8 tests)
+- `_bmad-output/implementation-artifacts/17-1-turn-number-display.md` (created)
+
+### Key Design Decisions
+- Turn number computed as `message.index + 1` (1-based) using Svelte 5 `$derived` rune
+- Camera icon shown via CSS `::after` pseudo-element on hover (no onclick — deferred to Story 17-5)
+- System messages deliberately excluded from turn numbers
+- Used existing CSS custom properties (`--font-mono`, `--text-secondary`, `--accent-warm`, `--transition-fast`)
+
+### Issues Auto-Resolved (Code Review)
+1. **HIGH:** Missing `tabindex="0"` on `role="button"` elements (WCAG violation) — fixed
+2. **MEDIUM:** No CSS transition on hover state — added `var(--transition-fast)`
+3. **MEDIUM:** `cursor: pointer` in `:hover` instead of base rule — moved to base
+4. **MEDIUM:** Test gap for `tabindex` attribute — added assertion
+
+### User Input Required
+- None (fully autonomous)
+
+---

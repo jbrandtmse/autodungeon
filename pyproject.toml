@@ -29,6 +29,8 @@ dependencies = [
     "fastapi>=0.128.8",
     "uvicorn[standard]>=0.40.0",
     "httpx>=0.28.1",
+    "google-genai>=1.0.0",
+    "Pillow>=10.0.0",
 ]
 
 [project.optional-dependencies]
@@ -54,6 +56,7 @@ only-include = [
     "tools.py",
     "persistence.py",
     "config.py",
+    "image_gen.py",
 ]
 
 [tool.ruff]

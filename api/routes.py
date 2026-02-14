@@ -44,6 +44,7 @@ from api.schemas import (
 )
 from config import (
     PROJECT_ROOT,
+    _load_yaml_defaults,
     load_character_configs,
     load_user_settings,
     save_user_settings,
@@ -76,7 +77,9 @@ router = APIRouter(prefix="/api")
 # Model Listing Cache
 # =============================================================================
 
-_model_cache: dict[str, tuple[list[str], str, float]] = {}  # provider -> (models, source, ts)
+_model_cache: dict[
+    str, tuple[list[str], str, float]
+] = {}  # provider -> (models, source, ts)
 _CACHE_TTL = 60.0
 
 FALLBACK_MODELS: dict[str, list[str]] = {
@@ -432,6 +435,10 @@ async def get_session_config(session_id: str) -> GameConfigResponse:
     if metadata is None:
         raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
 
+    # Load image generation defaults from YAML
+    yaml_defaults = _load_yaml_defaults()
+    img_cfg = yaml_defaults.get("image_generation", {})
+
     # Try loading from latest checkpoint
     latest_turn = get_latest_checkpoint(session_id)
     if latest_turn is not None:
@@ -453,6 +460,14 @@ async def get_session_config(session_id: str) -> GameConfigResponse:
                 dm_provider=dm_config.provider,
                 dm_model=dm_config.model,
                 dm_token_limit=dm_config.token_limit,
+                image_generation_enabled=img_cfg.get("enabled", False),
+                image_provider=img_cfg.get("image_provider", "gemini"),
+                image_model=img_cfg.get("image_model", "imagen-4.0-generate-001"),
+                image_scanner_provider=img_cfg.get("scanner_provider", "gemini"),
+                image_scanner_model=img_cfg.get(
+                    "scanner_model", "gemini-3-flash-preview"
+                ),
+                image_scanner_token_limit=img_cfg.get("scanner_token_limit", 4000),
             )
 
     # No checkpoint - return defaults
@@ -470,6 +485,12 @@ async def get_session_config(session_id: str) -> GameConfigResponse:
         dm_provider=dm_defaults.provider,
         dm_model=dm_defaults.model,
         dm_token_limit=dm_defaults.token_limit,
+        image_generation_enabled=img_cfg.get("enabled", False),
+        image_provider=img_cfg.get("image_provider", "gemini"),
+        image_model=img_cfg.get("image_model", "imagen-4.0-generate-001"),
+        image_scanner_provider=img_cfg.get("scanner_provider", "gemini"),
+        image_scanner_model=img_cfg.get("scanner_model", "gemini-3-flash-preview"),
+        image_scanner_token_limit=img_cfg.get("scanner_token_limit", 4000),
     )
 
 
@@ -520,12 +541,35 @@ async def update_session_config(
         state["session_number"] = metadata.session_number
         latest_turn = 0
 
-    # Separate DM fields from game_config fields
+    # Separate DM fields and image generation fields from game_config fields
     update_data = body.model_dump(exclude_none=True)
     dm_fields = {}
     for key in ("dm_provider", "dm_model", "dm_token_limit"):
         if key in update_data:
             dm_fields[key] = update_data.pop(key)
+
+    # Separate image generation fields.
+    # NOTE: These are NOT persisted in GameState yet (Story 17-2 scope).
+    # Values are reflected in the response for UI consistency but will
+    # revert to YAML defaults on next GET. Full persistence requires
+    # embedding ImageGenerationConfig in GameState (future story).
+    image_gen_fields = {}
+    for key in (
+        "image_generation_enabled",
+        "image_provider",
+        "image_model",
+        "image_scanner_provider",
+        "image_scanner_model",
+        "image_scanner_token_limit",
+    ):
+        if key in update_data:
+            image_gen_fields[key] = update_data.pop(key)
+
+    if image_gen_fields:
+        logger.debug(
+            "Image generation config fields received but not persisted: %s",
+            list(image_gen_fields.keys()),
+        )
 
     # Apply partial updates to game_config
     current_config = state["game_config"]
@@ -564,6 +608,10 @@ async def update_session_config(
         latest_turn = 0
     save_checkpoint(state, session_id, latest_turn)
 
+    # Load image generation defaults, merge with any submitted overrides
+    yaml_defaults = _load_yaml_defaults()
+    img_cfg = yaml_defaults.get("image_generation", {})
+
     return GameConfigResponse(
         combat_mode=new_config.combat_mode,
         max_combat_rounds=new_config.max_combat_rounds,
@@ -576,6 +624,25 @@ async def update_session_config(
         dm_provider=new_dm.provider,
         dm_model=new_dm.model,
         dm_token_limit=new_dm.token_limit,
+        image_generation_enabled=image_gen_fields.get(
+            "image_generation_enabled", img_cfg.get("enabled", False)
+        ),
+        image_provider=image_gen_fields.get(
+            "image_provider", img_cfg.get("image_provider", "gemini")
+        ),
+        image_model=image_gen_fields.get(
+            "image_model", img_cfg.get("image_model", "imagen-4.0-generate-001")
+        ),
+        image_scanner_provider=image_gen_fields.get(
+            "image_scanner_provider", img_cfg.get("scanner_provider", "gemini")
+        ),
+        image_scanner_model=image_gen_fields.get(
+            "image_scanner_model",
+            img_cfg.get("scanner_model", "gemini-3-flash-preview"),
+        ),
+        image_scanner_token_limit=image_gen_fields.get(
+            "image_scanner_token_limit", img_cfg.get("scanner_token_limit", 4000)
+        ),
     )
 
 
@@ -613,7 +680,9 @@ async def get_user_settings() -> UserSettingsResponse:
         google_api_key_configured=bool(api_keys.get("google")) or google_env,
         anthropic_api_key_configured=bool(api_keys.get("anthropic")) or anthropic_env,
         ollama_url=str(api_keys.get("ollama", "")),
-        token_limit_overrides={k: v for k, v in token_limits.items() if isinstance(v, int)},
+        token_limit_overrides={
+            k: v for k, v in token_limits.items() if isinstance(v, int)
+        },
     )
 
 
@@ -676,7 +745,9 @@ async def update_user_settings(body: UserSettingsUpdateRequest) -> UserSettingsR
         google_api_key_configured=bool(api_keys.get("google")) or google_env,
         anthropic_api_key_configured=bool(api_keys.get("anthropic")) or anthropic_env,
         ollama_url=str(api_keys.get("ollama", "")),
-        token_limit_overrides={k: v for k, v in token_limits.items() if isinstance(v, int)},
+        token_limit_overrides={
+            k: v for k, v in token_limits.items() if isinstance(v, int)
+        },
     )
 
 
@@ -1467,9 +1538,7 @@ def _validate_and_check_session(session_id: str) -> None:
 
     metadata = load_session_metadata(session_id)
     if metadata is None:
-        raise HTTPException(
-            status_code=404, detail=f"Session '{session_id}' not found"
-        )
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
 
 
 def _validate_fork_id_param(fork_id: str) -> None:
@@ -1508,9 +1577,7 @@ def _validate_turn_param(turn: int) -> None:
         )
 
 
-@router.get(
-    "/sessions/{session_id}/forks", response_model=list[ForkMetadataResponse]
-)
+@router.get("/sessions/{session_id}/forks", response_model=list[ForkMetadataResponse])
 async def list_session_forks(
     session_id: str,
 ) -> list[ForkMetadataResponse]:
@@ -1580,9 +1647,7 @@ async def create_session_fork(
         )
 
     try:
-        fork_meta = create_fork(
-            state=state, session_id=session_id, fork_name=body.name
-        )
+        fork_meta = create_fork(state=state, session_id=session_id, fork_name=body.name)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from None
     except OSError as e:
@@ -1668,9 +1733,7 @@ async def delete_session_fork(session_id: str, fork_id: str) -> None:
         )
 
 
-@router.post(
-    "/sessions/{session_id}/forks/{fork_id}/switch", status_code=200
-)
+@router.post("/sessions/{session_id}/forks/{fork_id}/switch", status_code=200)
 async def switch_to_fork(session_id: str, fork_id: str) -> dict[str, str]:
     """Switch to a fork timeline.
 
@@ -1712,12 +1775,8 @@ async def switch_to_fork(session_id: str, fork_id: str) -> dict[str, str]:
     return {"status": "ok", "fork_id": fork_id}
 
 
-@router.post(
-    "/sessions/{session_id}/forks/{fork_id}/promote", status_code=200
-)
-async def promote_session_fork(
-    session_id: str, fork_id: str
-) -> dict[str, object]:
+@router.post("/sessions/{session_id}/forks/{fork_id}/promote", status_code=200)
+async def promote_session_fork(session_id: str, fork_id: str) -> dict[str, object]:
     """Promote a fork to become the main timeline.
 
     Args:
@@ -1742,9 +1801,7 @@ async def promote_session_fork(
     return {"status": "ok", "latest_turn": latest_turn}
 
 
-@router.post(
-    "/sessions/{session_id}/forks/return-to-main", status_code=200
-)
+@router.post("/sessions/{session_id}/forks/return-to-main", status_code=200)
 async def return_to_main_timeline(
     session_id: str,
 ) -> dict[str, str]:
@@ -1782,9 +1839,7 @@ async def return_to_main_timeline(
     "/sessions/{session_id}/forks/{fork_id}/compare",
     response_model=ComparisonDataResponse,
 )
-async def compare_fork(
-    session_id: str, fork_id: str
-) -> ComparisonDataResponse:
+async def compare_fork(session_id: str, fork_id: str) -> ComparisonDataResponse:
     """Get comparison data between main timeline and a fork.
 
     Args:
@@ -1893,9 +1948,7 @@ async def list_session_checkpoints(
     "/sessions/{session_id}/checkpoints/{turn}/preview",
     response_model=CheckpointPreviewResponse,
 )
-async def preview_checkpoint(
-    session_id: str, turn: int
-) -> CheckpointPreviewResponse:
+async def preview_checkpoint(session_id: str, turn: int) -> CheckpointPreviewResponse:
     """Get a preview of log entries from a specific checkpoint.
 
     Args:
@@ -1924,12 +1977,8 @@ async def preview_checkpoint(
     return CheckpointPreviewResponse(turn_number=turn, entries=entries)
 
 
-@router.post(
-    "/sessions/{session_id}/checkpoints/{turn}/restore", status_code=200
-)
-async def restore_checkpoint(
-    session_id: str, turn: int
-) -> dict[str, object]:
+@router.post("/sessions/{session_id}/checkpoints/{turn}/restore", status_code=200)
+async def restore_checkpoint(session_id: str, turn: int) -> dict[str, object]:
     """Restore game state to a specific checkpoint.
 
     Loads the checkpoint and saves it as the current state.

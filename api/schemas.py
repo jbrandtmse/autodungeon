@@ -79,14 +79,29 @@ class GameConfigResponse(BaseModel):
         le=1000,
         description="Max messages to render in narrative area",
     )
-    dm_provider: str = Field(
-        default="gemini", description="DM agent LLM provider"
-    )
-    dm_model: str = Field(
-        default="gemini-1.5-flash", description="DM agent model name"
-    )
+    dm_provider: str = Field(default="gemini", description="DM agent LLM provider")
+    dm_model: str = Field(default="gemini-1.5-flash", description="DM agent model name")
     dm_token_limit: int = Field(
         default=8000, ge=1, description="DM agent context token limit"
+    )
+    # Image generation settings (Story 17-2)
+    image_generation_enabled: bool = Field(
+        default=False, description="Whether image generation is enabled"
+    )
+    image_provider: str = Field(
+        default="gemini", description="Provider for image generation"
+    )
+    image_model: str = Field(
+        default="imagen-4.0-generate-001", description="Image generation model"
+    )
+    image_scanner_provider: str = Field(
+        default="gemini", description="LLM provider for scene scanning"
+    )
+    image_scanner_model: str = Field(
+        default="gemini-3-flash-preview", description="LLM model for scene scanning"
+    )
+    image_scanner_token_limit: int = Field(
+        default=4000, ge=1, description="Token limit for scene scanner"
     )
 
 
@@ -122,14 +137,27 @@ class GameConfigUpdateRequest(BaseModel):
         le=1000,
         description="Max messages to render in narrative area",
     )
-    dm_provider: str | None = Field(
-        default=None, description="DM agent LLM provider"
-    )
-    dm_model: str | None = Field(
-        default=None, description="DM agent model name"
-    )
+    dm_provider: str | None = Field(default=None, description="DM agent LLM provider")
+    dm_model: str | None = Field(default=None, description="DM agent model name")
     dm_token_limit: int | None = Field(
         default=None, ge=1, description="DM agent context token limit"
+    )
+    # Image generation settings (Story 17-2)
+    image_generation_enabled: bool | None = Field(
+        default=None, description="Whether image generation is enabled"
+    )
+    image_provider: str | None = Field(
+        default=None, description="Provider for image generation"
+    )
+    image_model: str | None = Field(default=None, description="Image generation model")
+    image_scanner_provider: str | None = Field(
+        default=None, description="LLM provider for scene scanning"
+    )
+    image_scanner_model: str | None = Field(
+        default=None, description="LLM model for scene scanning"
+    )
+    image_scanner_token_limit: int | None = Field(
+        default=None, ge=1, description="Token limit for scene scanner"
     )
 
 
@@ -218,9 +246,7 @@ class ForkCreateRequest(BaseModel):
 class ForkRenameRequest(BaseModel):
     """Request body for renaming a fork."""
 
-    name: str = Field(
-        ..., min_length=1, max_length=200, description="New fork name"
-    )
+    name: str = Field(..., min_length=1, max_length=200, description="New fork name")
 
 
 class ForkMetadataResponse(BaseModel):
@@ -239,8 +265,12 @@ class ComparisonTurnResponse(BaseModel):
     """A single turn's content for comparison alignment."""
 
     turn_number: int = Field(..., ge=0, description="Turn number for alignment")
-    entries: list[str] = Field(default_factory=list, description="Log entries at this turn")
-    is_branch_point: bool = Field(default=False, description="Whether this is the branch point")
+    entries: list[str] = Field(
+        default_factory=list, description="Log entries at this turn"
+    )
+    is_branch_point: bool = Field(
+        default=False, description="Whether this is the branch point"
+    )
     is_ended: bool = Field(default=False, description="Whether timeline ended here")
 
 
@@ -261,8 +291,12 @@ class ComparisonDataResponse(BaseModel):
 
     session_id: str = Field(..., description="Session ID")
     branch_turn: int = Field(..., ge=0, description="Branch point turn number")
-    left: ComparisonTimelineResponse = Field(..., description="Left column (main) timeline")
-    right: ComparisonTimelineResponse = Field(..., description="Right column (fork) timeline")
+    left: ComparisonTimelineResponse = Field(
+        ..., description="Left column (main) timeline"
+    )
+    right: ComparisonTimelineResponse = Field(
+        ..., description="Right column (fork) timeline"
+    )
 
 
 # =============================================================================
@@ -309,7 +343,9 @@ class ArmorResponse(BaseModel):
     armor_class: int = Field(..., ge=0, description="Base AC")
     armor_type: str = Field(..., description="Armor category")
     strength_requirement: int = Field(default=0, description="Minimum STR")
-    stealth_disadvantage: bool = Field(default=False, description="Stealth disadvantage")
+    stealth_disadvantage: bool = Field(
+        default=False, description="Stealth disadvantage"
+    )
     is_equipped: bool = Field(default=True, description="Whether worn")
 
 
@@ -455,9 +491,7 @@ class UserSettingsResponse(BaseModel):
     anthropic_api_key_configured: bool = Field(
         default=False, description="Whether an Anthropic API key is configured"
     )
-    ollama_url: str = Field(
-        default="", description="Ollama base URL (not secret)"
-    )
+    ollama_url: str = Field(default="", description="Ollama base URL (not secret)")
     token_limit_overrides: dict[str, int] = Field(
         default_factory=dict,
         description="Token limit overrides keyed by agent name",
@@ -641,6 +675,4 @@ class SessionStartRequest(BaseModel):
     selected_characters: list[str] | None = Field(
         default=None, description="Character names to include in party"
     )
-    adventure_name: str = Field(
-        default="", description="Optional adventure name"
-    )
+    adventure_name: str = Field(default="", description="Optional adventure name")

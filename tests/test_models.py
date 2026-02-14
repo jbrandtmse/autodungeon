@@ -1154,3 +1154,177 @@ class TestPopulateGameStateWithCharacterFacts:
 
         dm_memory = state["agent_memories"]["dm"]
         assert dm_memory.character_facts is None
+
+
+# =============================================================================
+# SceneImage Model Tests (Story 17-2)
+# =============================================================================
+
+
+class TestSceneImage:
+    """Tests for SceneImage model and create_scene_image factory."""
+
+    def test_scene_image_creation(self) -> None:
+        """Test SceneImage can be created with all required fields."""
+        from models import SceneImage
+
+        image = SceneImage(
+            id="test-uuid-1234",
+            session_id="001",
+            turn_number=5,
+            prompt="A dark dungeon with flickering torchlight",
+            image_path="session_001/images/test-uuid-1234.png",
+            provider="gemini",
+            model="imagen-4.0-generate-001",
+            generation_mode="current",
+            generated_at="2026-02-14T12:00:00Z",
+        )
+        assert image.id == "test-uuid-1234"
+        assert image.session_id == "001"
+        assert image.turn_number == 5
+        assert image.provider == "gemini"
+        assert image.generation_mode == "current"
+
+    def test_scene_image_turn_number_validation(self) -> None:
+        """Test turn_number must be >= 0."""
+        from models import SceneImage
+
+        with pytest.raises(ValidationError, match="turn_number"):
+            SceneImage(
+                id="test-uuid",
+                session_id="001",
+                turn_number=-1,
+                prompt="test",
+                image_path="test.png",
+                provider="gemini",
+                model="imagen-4.0-generate-001",
+                generation_mode="current",
+                generated_at="2026-02-14T12:00:00Z",
+            )
+
+    def test_scene_image_generation_mode_literal(self) -> None:
+        """Test generation_mode must be one of the literal values."""
+        from models import SceneImage
+
+        with pytest.raises(ValidationError, match="generation_mode"):
+            SceneImage(
+                id="test-uuid",
+                session_id="001",
+                turn_number=0,
+                prompt="test",
+                image_path="test.png",
+                provider="gemini",
+                model="imagen-4.0-generate-001",
+                generation_mode="invalid",  # type: ignore[arg-type]
+                generated_at="2026-02-14T12:00:00Z",
+            )
+
+    def test_create_scene_image_factory(self) -> None:
+        """Test create_scene_image factory produces valid model with UUID and timestamp."""
+        from models import SceneImage, create_scene_image
+
+        image = create_scene_image(
+            session_id="001",
+            turn_number=10,
+            prompt="A tavern scene with adventurers",
+            image_path="session_001/images/generated.png",
+            provider="gemini",
+            model="imagen-4.0-generate-001",
+            generation_mode="best",
+        )
+        assert isinstance(image, SceneImage)
+        assert len(image.id) > 0  # UUID generated
+        assert image.session_id == "001"
+        assert image.turn_number == 10
+        assert image.generation_mode == "best"
+        assert image.generated_at.endswith("Z")
+
+    def test_create_scene_image_unique_ids(self) -> None:
+        """Test create_scene_image generates unique IDs."""
+        from models import create_scene_image
+
+        ids = set()
+        for _ in range(10):
+            image = create_scene_image(
+                session_id="001",
+                turn_number=1,
+                prompt="test",
+                image_path="test.png",
+                provider="gemini",
+                model="test-model",
+                generation_mode="specific",
+            )
+            ids.add(image.id)
+        assert len(ids) == 10
+
+    def test_scene_image_json_serialization(self) -> None:
+        """Test SceneImage can serialize to/from JSON."""
+        from models import create_scene_image
+
+        image = create_scene_image(
+            session_id="001",
+            turn_number=5,
+            prompt="test prompt",
+            image_path="session_001/images/test.png",
+            provider="gemini",
+            model="imagen-4.0-generate-001",
+            generation_mode="current",
+        )
+        json_str = image.model_dump_json()
+        assert "session_001/images/test.png" in json_str
+
+
+# =============================================================================
+# ImageGenerationConfig Model Tests (Story 17-2)
+# =============================================================================
+
+
+class TestImageGenerationConfig:
+    """Tests for ImageGenerationConfig model."""
+
+    def test_default_values(self) -> None:
+        """Test ImageGenerationConfig has correct defaults."""
+        from models import ImageGenerationConfig
+
+        config = ImageGenerationConfig()
+        assert config.enabled is False
+        assert config.image_provider == "gemini"
+        assert config.image_model == "imagen-4.0-generate-001"
+        assert config.scanner_provider == "gemini"
+        assert config.scanner_model == "gemini-3-flash-preview"
+        assert config.scanner_token_limit == 4000
+
+    def test_custom_values(self) -> None:
+        """Test ImageGenerationConfig accepts custom values."""
+        from models import ImageGenerationConfig
+
+        config = ImageGenerationConfig(
+            enabled=True,
+            image_provider="gemini",
+            image_model="imagen-4.0-ultra-generate-001",
+            scanner_provider="claude",
+            scanner_model="claude-3-haiku-20240307",
+            scanner_token_limit=8000,
+        )
+        assert config.enabled is True
+        assert config.image_model == "imagen-4.0-ultra-generate-001"
+        assert config.scanner_provider == "claude"
+        assert config.scanner_token_limit == 8000
+
+    def test_scanner_token_limit_validation(self) -> None:
+        """Test scanner_token_limit must be >= 1."""
+        from models import ImageGenerationConfig
+
+        with pytest.raises(ValidationError, match="scanner_token_limit"):
+            ImageGenerationConfig(scanner_token_limit=0)
+
+    def test_json_serialization(self) -> None:
+        """Test ImageGenerationConfig serializes to JSON."""
+        import json
+
+        from models import ImageGenerationConfig
+
+        config = ImageGenerationConfig(enabled=True)
+        data = json.loads(config.model_dump_json())
+        assert data["enabled"] is True
+        assert data["image_model"] == "imagen-4.0-generate-001"

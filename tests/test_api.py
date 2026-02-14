@@ -524,6 +524,13 @@ class TestSessionConfigGetEndpoint:
             "dm_provider",
             "dm_model",
             "dm_token_limit",
+            # Image generation fields (Story 17-2)
+            "image_generation_enabled",
+            "image_provider",
+            "image_model",
+            "image_scanner_provider",
+            "image_scanner_model",
+            "image_scanner_token_limit",
         }
         assert set(data.keys()) == expected_fields
 
@@ -1343,7 +1350,11 @@ class TestPresetCharacterModelConfig:
         """PUT with provider/model/token_limit succeeds for preset characters."""
         resp = await client.put(
             "/api/characters/shadowmere",
-            json={"provider": "gemini", "model": "gemini-2.0-flash", "token_limit": 8000},
+            json={
+                "provider": "gemini",
+                "model": "gemini-2.0-flash",
+                "token_limit": 8000,
+            },
         )
         assert resp.status_code == 200
         data = resp.json()
@@ -1700,9 +1711,7 @@ class TestForkEndpoints:
         fork_state["ground_truth_log"] = ["[DM]: Start", "[DM]: Fork path"]
         save_fork_checkpoint(fork_state, "001", fork_meta.fork_id, 1)
 
-        resp = await client.post(
-            f"/api/sessions/001/forks/{fork_meta.fork_id}/promote"
-        )
+        resp = await client.post(f"/api/sessions/001/forks/{fork_meta.fork_id}/promote")
         assert resp.status_code == 200
         assert resp.json()["status"] == "ok"
 
@@ -1874,9 +1883,7 @@ class TestCharacterSheetEndpoint:
         _create_test_session(temp_campaigns_dir, session_id="001")
         _create_test_checkpoint(temp_campaigns_dir, "001", 1)
 
-        resp = await client.get(
-            "/api/sessions/001/character-sheets/nonexistent"
-        )
+        resp = await client.get("/api/sessions/001/character-sheets/nonexistent")
         assert resp.status_code == 404
 
     @pytest.mark.anyio
@@ -1886,9 +1893,7 @@ class TestCharacterSheetEndpoint:
         """Returns 404 when session has no checkpoints."""
         _create_test_session(temp_campaigns_dir, session_id="001")
 
-        resp = await client.get(
-            "/api/sessions/001/character-sheets/fighter"
-        )
+        resp = await client.get("/api/sessions/001/character-sheets/fighter")
         assert resp.status_code == 404
 
     @pytest.mark.anyio
@@ -1921,9 +1926,7 @@ class TestCharacterSheetEndpoint:
         state["character_sheets"] = {"fighter": sheet}
         save_checkpoint(state, "001", 1, update_metadata=False)
 
-        resp = await client.get(
-            "/api/sessions/001/character-sheets/fighter"
-        )
+        resp = await client.get("/api/sessions/001/character-sheets/fighter")
         assert resp.status_code == 200
         data = resp.json()
         assert data["name"] == "Thorin"
@@ -1940,9 +1943,7 @@ class TestCharacterSheetEndpoint:
         self, client: AsyncClient, temp_campaigns_dir: Path
     ) -> None:
         """Returns 400 for invalid session ID."""
-        resp = await client.get(
-            "/api/sessions/bad!id/character-sheets/fighter"
-        )
+        resp = await client.get("/api/sessions/bad!id/character-sheets/fighter")
         assert resp.status_code == 400
 
     @pytest.mark.anyio
@@ -1950,9 +1951,7 @@ class TestCharacterSheetEndpoint:
         self, client: AsyncClient, temp_campaigns_dir: Path
     ) -> None:
         """Returns 404 for non-existent session."""
-        resp = await client.get(
-            "/api/sessions/999/character-sheets/fighter"
-        )
+        resp = await client.get("/api/sessions/999/character-sheets/fighter")
         assert resp.status_code == 404
 
     @pytest.mark.anyio
@@ -1964,9 +1963,7 @@ class TestCharacterSheetEndpoint:
         _create_test_checkpoint(temp_campaigns_dir, "001", 1)
 
         # Test with '..' in character name (no slashes so it stays in one path segment)
-        resp = await client.get(
-            "/api/sessions/001/character-sheets/..evil"
-        )
+        resp = await client.get("/api/sessions/001/character-sheets/..evil")
         assert resp.status_code == 400
 
     @pytest.mark.anyio
@@ -1977,9 +1974,7 @@ class TestCharacterSheetEndpoint:
         _create_test_session(temp_campaigns_dir, session_id="001")
         _create_test_checkpoint(temp_campaigns_dir, "001", 1)
 
-        resp = await client.get(
-            "/api/sessions/001/character-sheets/test%00evil"
-        )
+        resp = await client.get("/api/sessions/001/character-sheets/test%00evil")
         assert resp.status_code == 400
 
 
@@ -2069,9 +2064,7 @@ class TestUserSettingsEndpoint:
         assert data["token_limit_overrides"] == {}
 
     @pytest.mark.anyio
-    async def test_get_user_settings_with_keys(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_get_user_settings_with_keys(self, client: AsyncClient) -> None:
         """Returns configured status when keys exist in settings."""
         settings = {
             "api_keys": {"google": "test-key-123", "anthropic": "sk-ant-test"},
@@ -2301,9 +2294,7 @@ class TestModuleDiscovery:
     """Tests for POST /api/modules/discover."""
 
     @pytest.mark.anyio
-    async def test_discover_modules_success(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_discover_modules_success(self, client: AsyncClient) -> None:
         """Module discovery returns modules from mocked LLM."""
         from models import ModuleDiscoveryResult, ModuleInfo
 
@@ -2343,9 +2334,7 @@ class TestModuleDiscovery:
         assert data["error"] is None
 
     @pytest.mark.anyio
-    async def test_discover_modules_llm_error(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_discover_modules_llm_error(self, client: AsyncClient) -> None:
         """Module discovery returns source='error' on LLM failure."""
         from agents import LLMError
 
@@ -2367,9 +2356,7 @@ class TestModuleDiscovery:
         assert data["error"] is not None
 
     @pytest.mark.anyio
-    async def test_discover_modules_config_error(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_discover_modules_config_error(self, client: AsyncClient) -> None:
         """Module discovery returns error when DM config fails to load."""
         with patch(
             "config.load_dm_config",
@@ -2498,3 +2485,88 @@ class TestSessionStart:
         """Starting a non-existent session returns 404."""
         resp = await client.post("/api/sessions/999/start")
         assert resp.status_code == 404
+
+
+# =============================================================================
+# Image Generation Schema Tests (Story 17-2)
+# =============================================================================
+
+
+class TestImageGenerationSchemas:
+    """Tests for image generation schema extensions."""
+
+    def test_game_config_response_includes_image_fields(self) -> None:
+        """GameConfigResponse includes all image generation fields."""
+        from api.schemas import GameConfigResponse
+
+        response = GameConfigResponse()
+        assert response.image_generation_enabled is False
+        assert response.image_provider == "gemini"
+        assert response.image_model == "imagen-4.0-generate-001"
+        assert response.image_scanner_provider == "gemini"
+        assert response.image_scanner_model == "gemini-3-flash-preview"
+        assert response.image_scanner_token_limit == 4000
+
+    def test_game_config_update_request_accepts_image_fields(self) -> None:
+        """GameConfigUpdateRequest accepts image generation fields."""
+        from api.schemas import GameConfigUpdateRequest
+
+        request = GameConfigUpdateRequest(
+            image_generation_enabled=True,
+            image_provider="gemini",
+            image_model="imagen-4.0-fast-generate-001",
+            image_scanner_provider="gemini",
+            image_scanner_model="gemini-3-flash-preview",
+            image_scanner_token_limit=2000,
+        )
+        assert request.image_generation_enabled is True
+        assert request.image_model == "imagen-4.0-fast-generate-001"
+        assert request.image_scanner_token_limit == 2000
+
+    def test_game_config_update_request_image_fields_optional(self) -> None:
+        """Image generation fields in update request are all optional."""
+        from api.schemas import GameConfigUpdateRequest
+
+        request = GameConfigUpdateRequest()
+        assert request.image_generation_enabled is None
+        assert request.image_provider is None
+        assert request.image_model is None
+        assert request.image_scanner_provider is None
+        assert request.image_scanner_model is None
+        assert request.image_scanner_token_limit is None
+
+    @pytest.mark.anyio
+    async def test_get_config_returns_image_gen_defaults(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """GET config returns image generation defaults from YAML."""
+        _create_test_session(temp_campaigns_dir, session_id="001")
+
+        resp = await client.get("/api/sessions/001/config")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "image_generation_enabled" in data
+        assert "image_provider" in data
+        assert "image_model" in data
+        assert "image_scanner_provider" in data
+        assert "image_scanner_model" in data
+        assert "image_scanner_token_limit" in data
+
+    @pytest.mark.anyio
+    async def test_update_config_accepts_image_gen_fields(
+        self, client: AsyncClient, temp_campaigns_dir: Path
+    ) -> None:
+        """PUT config accepts image generation fields without error."""
+        _create_test_session(temp_campaigns_dir, session_id="001")
+
+        resp = await client.put(
+            "/api/sessions/001/config",
+            json={
+                "image_generation_enabled": True,
+                "image_model": "imagen-4.0-ultra-generate-001",
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["image_generation_enabled"] is True
+        assert data["image_model"] == "imagen-4.0-ultra-generate-001"
