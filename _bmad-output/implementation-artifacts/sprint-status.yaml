@@ -204,3 +204,16 @@ development_status:
   16-10-advanced-features-ui: done
   16-11-frontend-testing: done
   16-12-cutover-cleanup: done
+
+  # ===========================================
+  # v2.1 AI SCENE IMAGE GENERATION
+  # ===========================================
+
+  # Epic 17: AI Scene Image Generation (6 stories)
+  epic-17: in-progress
+  17-1-turn-number-display: review
+  17-2-image-generation-service: backlog
+  17-3-current-scene-specific-turn-api: backlog
+  17-4-best-scene-scanner: backlog
+  17-5-image-generation-ui: backlog
+  17-6-image-export-download: backlog

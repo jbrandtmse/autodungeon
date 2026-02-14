@@ -14,21 +14,26 @@
 
 	const formattedContent = $derived(formatMessageContent(message.content, message.messageType));
 	const classSlug = $derived(characterInfo?.classSlug ?? 'adventurer');
+	const turnNumber = $derived(message.index + 1);
 </script>
 
 {#if message.messageType === 'dm_narration'}
 	<div class="dm-message" class:current-turn={isCurrent}>
+		<span class="turn-number" role="button" tabindex="0" aria-label="Illustrate Turn {turnNumber}">Turn {turnNumber}</span>
 		<p>{@html formattedContent}</p>
 	</div>
 {:else if message.messageType === 'pc_dialogue'}
 	<div class="pc-message {classSlug}" class:current-turn={isCurrent}>
 		<span class="pc-attribution {classSlug}">
+			<span class="turn-number" role="button" tabindex="0" aria-label="Illustrate Turn {turnNumber}">Turn {turnNumber}</span>
+			{' \u2014 '}
 			{characterInfo?.name ?? message.agent}, the {characterInfo?.characterClass ?? 'Adventurer'}:
 		</span>
 		<p>{@html formattedContent}</p>
 	</div>
 {:else if message.messageType === 'sheet_update'}
 	<div class="sheet-notification" class:current-turn={isCurrent}>
+		<span class="turn-number" role="button" tabindex="0" aria-label="Illustrate Turn {turnNumber}">Turn {turnNumber}</span>
 		<p>{@html formattedContent}</p>
 	</div>
 {:else}
@@ -149,6 +154,40 @@
 		color: var(--text-secondary);
 		text-align: center;
 		margin: 0;
+	}
+
+	/* ===== Turn Number ===== */
+	.turn-number {
+		font-family: var(--font-mono);
+		font-size: 11px;
+		color: var(--text-secondary);
+		opacity: 0.6;
+		letter-spacing: 0.05em;
+		cursor: pointer;
+		transition: color var(--transition-fast), opacity var(--transition-fast);
+	}
+
+	/* Inline within PC attribution: spacing before the em dash */
+	.pc-attribution .turn-number {
+		margin-right: var(--space-xs);
+	}
+
+	/* Block label above DM/sheet messages */
+	.dm-message .turn-number,
+	.sheet-notification .turn-number {
+		display: block;
+		margin-bottom: var(--space-xs);
+	}
+
+	/* Hover hint: camera icon appears */
+	.turn-number:hover {
+		color: var(--accent-warm);
+		opacity: 1;
+	}
+
+	.turn-number:hover::after {
+		content: ' \1F4F7';
+		font-size: 10px;
 	}
 
 	/* ===== Current Turn Highlight ===== */
