@@ -2257,6 +2257,14 @@ _IMAGE_FILENAME_RE = _re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.png$"
 )
 
+# UUID without extension — used by the individual download endpoint
+_IMAGE_ID_RE = _re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+)
+
+# Valid generation_mode values for filename sanitization.
+_VALID_GENERATION_MODES = frozenset({"current", "best", "specific", "scene"})
+
 # Track active image generation tasks per session to prevent concurrent overload.
 # Maps session_id -> set of asyncio.Task references (also keeps strong refs to tasks).
 _active_image_tasks: dict[str, set[asyncio.Task[None]]] = {}
@@ -2291,6 +2299,29 @@ def _build_download_url(session_id: str, image_id: str) -> str:
         Relative URL path to the image file.
     """
     return f"/api/sessions/{session_id}/images/{image_id}.png"
+
+
+def _get_safe_session_name(session_id: str) -> str:
+    """Get a filesystem-safe session name for download filenames.
+
+    Loads session metadata name; falls back to ``session_{id}``.
+    Replaces non-alphanumeric characters (except hyphens/underscores) with
+    underscores and truncates to 50 characters.
+
+    Args:
+        session_id: Session ID string.
+
+    Returns:
+        Sanitized session name string.
+    """
+    metadata = load_session_metadata(session_id)
+    name = metadata.name if metadata and metadata.name else f"session_{session_id}"
+    # Replace non-ASCII and unsafe filesystem characters (ASCII alphanumeric,
+    # hyphens, and underscores only — avoids Unicode passing through \w)
+    safe = _re.sub(r"[^A-Za-z0-9_\-]", "_", name)
+    # Collapse multiple underscores
+    safe = _re.sub(r"_+", "_", safe).strip("_")
+    return safe[:50] if safe else f"session_{session_id}"
 
 
 async def _generate_image_background(
@@ -2856,6 +2887,153 @@ async def list_session_images(
             continue
 
     return results
+
+
+@router.get("/sessions/{session_id}/images/download-all")
+async def download_all_session_images(session_id: str) -> Any:
+    """Download all generated images for a session as a zip archive.
+
+    Creates an in-memory zip file containing all PNG images from the
+    session's images directory, with descriptive filenames derived from
+    the JSON sidecar metadata.
+
+    Args:
+        session_id: Session ID string.
+
+    Returns:
+        Response with zip file as attachment.
+    """
+    import io
+    import zipfile
+
+    from fastapi.responses import Response
+
+    _validate_and_check_session(session_id)
+
+    images_dir = get_session_dir(session_id) / "images"
+    if not images_dir.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="No images to download",
+        )
+
+    png_files = sorted(images_dir.glob("*.png"))
+    if not png_files:
+        raise HTTPException(
+            status_code=404,
+            detail="No images to download",
+        )
+
+    session_name = _get_safe_session_name(session_id)
+    zip_filename = f"{session_name}_images.zip"
+
+    def _build_zip() -> bytes:
+        """Build zip archive synchronously (run via to_thread)."""
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            used_names: set[str] = set()
+            for png_path in png_files:
+                # Derive archive filename from sidecar metadata
+                image_id = png_path.stem
+                metadata_path = images_dir / f"{image_id}.json"
+
+                turn_number = 0
+                generation_mode = "scene"
+                if metadata_path.exists():
+                    try:
+                        data = _json.loads(
+                            metadata_path.read_text(encoding="utf-8")
+                        )
+                        turn_number = int(data.get("turn_number", 0))
+                        raw_mode = data.get("generation_mode", "scene")
+                        generation_mode = (
+                            raw_mode
+                            if raw_mode in _VALID_GENERATION_MODES
+                            else "scene"
+                        )
+                    except (KeyError, ValueError, OSError, TypeError):
+                        pass
+
+                # Filename inside the zip: session_turn_N_mode.png
+                archive_name = (
+                    f"{session_name}_turn_{turn_number + 1}_{generation_mode}.png"
+                )
+                # Deduplicate: append counter if name already used
+                if archive_name in used_names:
+                    counter = 2
+                    base = f"{session_name}_turn_{turn_number + 1}_{generation_mode}"
+                    while f"{base}_{counter}.png" in used_names:
+                        counter += 1
+                    archive_name = f"{base}_{counter}.png"
+                used_names.add(archive_name)
+                zf.write(str(png_path), archive_name)
+
+        return buf.getvalue()
+
+    # Offload synchronous zip building to a thread to avoid blocking the
+    # event loop for sessions with many images.
+    zip_bytes = await asyncio.to_thread(_build_zip)
+
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{zip_filename}"',
+        },
+    )
+
+
+@router.get("/sessions/{session_id}/images/{image_id}/download")
+async def download_session_image(session_id: str, image_id: str) -> Any:
+    """Download a generated image with a descriptive filename.
+
+    Returns the PNG file with Content-Disposition: attachment header
+    so the browser initiates a file download with a user-friendly filename.
+
+    Args:
+        session_id: Session ID string.
+        image_id: Image UUID string (without .png extension).
+
+    Returns:
+        FileResponse with attachment disposition.
+    """
+    from fastapi.responses import FileResponse
+
+    _validate_and_check_session(session_id)
+
+    # Validate image_id format (UUID without extension)
+    if not _IMAGE_ID_RE.match(image_id):
+        raise HTTPException(status_code=400, detail="Invalid image ID format")
+
+    images_dir = get_session_dir(session_id) / "images"
+    image_path = images_dir / f"{image_id}.png"
+    if not image_path.exists():
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    # Load metadata sidecar for turn number and mode
+    metadata_path = images_dir / f"{image_id}.json"
+    turn_number = 0
+    generation_mode = "scene"
+    if metadata_path.exists():
+        try:
+            data = _json.loads(metadata_path.read_text(encoding="utf-8"))
+            turn_number = int(data.get("turn_number", 0))
+            raw_mode = data.get("generation_mode", "scene")
+            generation_mode = (
+                raw_mode if raw_mode in _VALID_GENERATION_MODES else "scene"
+            )
+        except (KeyError, ValueError, OSError, TypeError):
+            pass  # Use defaults
+
+    # Build descriptive filename
+    session_name = _get_safe_session_name(session_id)
+    filename = f"{session_name}_turn_{turn_number + 1}_{generation_mode}.png"
+
+    return FileResponse(
+        str(image_path),
+        media_type="image/png",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/sessions/{session_id}/images/{image_filename}")

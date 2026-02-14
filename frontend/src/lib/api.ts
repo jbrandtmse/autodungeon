@@ -350,3 +350,19 @@ export async function getSessionImages(
     `/api/sessions/${encodeURIComponent(sessionId)}/images`,
   );
 }
+
+/**
+ * Build the URL for downloading an individual image with Content-Disposition.
+ * Used as href for download <a> tags.
+ */
+export function getImageDownloadUrl(sessionId: string, imageId: string): string {
+  return `/api/sessions/${encodeURIComponent(sessionId)}/images/${encodeURIComponent(imageId)}/download`;
+}
+
+/**
+ * Build the URL for downloading all session images as a zip archive.
+ * Used as href for the "Download All" button.
+ */
+export function getDownloadAllUrl(sessionId: string): string {
+  return `/api/sessions/${encodeURIComponent(sessionId)}/images/download-all`;
+}

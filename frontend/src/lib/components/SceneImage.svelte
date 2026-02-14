@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { SceneImage } from '$lib/types';
+	import { getImageDownloadUrl } from '$lib/api';
 
 	let {
 		image,
@@ -8,6 +9,7 @@
 	} = $props();
 
 	const turnDisplay = $derived(image.turn_number + 1);
+	const downloadHref = $derived(getImageDownloadUrl(image.session_id, image.id));
 </script>
 
 <div class="scene-image-container">
@@ -20,7 +22,7 @@
 	<div class="scene-image-overlay">
 		<a
 			class="image-download-btn"
-			href={image.download_url}
+			href={downloadHref}
 			download
 			aria-label="Download scene image for Turn {turnDisplay}"
 		>

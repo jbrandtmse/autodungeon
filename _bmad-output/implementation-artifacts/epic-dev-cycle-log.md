@@ -2193,3 +2193,42 @@ Completed in separate cycle sessions (not logged here).
 - None (fully autonomous)
 
 ---
+
+## Story: 17-5-image-generation-ui
+
+**Status:** Completed
+**Phase:** create-story → dev-story → code-review → commit → done
+
+### Files Touched
+- `frontend/src/lib/stores/imageStore.ts` (created) — Image state management
+- `frontend/src/lib/components/SceneImage.svelte` (created) — Inline image display
+- `frontend/src/lib/components/ImageGenerating.svelte` (created) — Loading placeholder
+- `frontend/src/lib/components/IllustrateMenu.svelte` (created) — Dropdown menu
+- `frontend/src/lib/components/ImageGallery.svelte` (created) — Gallery panel with focus trap
+- `frontend/src/lib/types.ts` (modified) — SceneImage, WsImageReady types
+- `frontend/src/lib/api.ts` (modified) — Image API client functions
+- `frontend/src/lib/stores/gameStore.ts` (modified) — image_ready WebSocket handling
+- `frontend/src/lib/stores/index.ts` (modified) — Store exports
+- `frontend/src/lib/components/NarrativeMessage.svelte` (modified) — Click-to-illustrate
+- `frontend/src/lib/components/NarrativePanel.svelte` (modified) — Inline images + menu
+- `frontend/src/routes/game/[sessionId]/+page.svelte` (modified) — Gallery + shortcuts
+- 5 test files created (40 tests total)
+
+### Key Design Decisions
+- Image lookup via derived Record<number, SceneImage> map (O(1) per message)
+- IllustrateMenu conditionally rendered based on image_generation_enabled config
+- Gallery uses backdrop + slide-out panel with focus trap matching existing patterns
+- Keyboard shortcuts I (illustrate) and G (gallery) follow existing guard pattern
+- 0-based indices for API calls, 1-based for display (consistent with 17-1)
+
+### Issues Auto-Resolved (Code Review)
+1. **HIGH:** Duplicate images on WebSocket reconnect — added deduplication by image.id
+2. **MEDIUM:** generatingBest stuck forever on API error — reset in catch block
+3. **MEDIUM:** Non-reactive narrativePanelRef in Svelte 5 — added $state()
+4. **MEDIUM:** Error messages invisible (menu closes before await) — moved closeMenu after await
+5. **MEDIUM:** Gallery missing focus trap — added Tab/Shift+Tab cycling + initial focus
+
+### User Input Required
+- None (fully autonomous)
+
+---

@@ -8,6 +8,8 @@ import {
   createFork,
   deleteFork,
   getCharacterSheet,
+  getImageDownloadUrl,
+  getDownloadAllUrl,
   ApiError,
 } from './api';
 
@@ -225,6 +227,36 @@ describe('api.ts', () => {
         '/api/sessions/session-1/character-sheets/Thorin%20Ironforge',
         expect.any(Object),
       );
+    });
+  });
+
+  // Story 17-6: URL builder functions for image downloads
+  describe('getImageDownloadUrl', () => {
+    it('returns the correct download URL', () => {
+      const url = getImageDownloadUrl('001', 'img-uuid-123');
+      expect(url).toBe('/api/sessions/001/images/img-uuid-123/download');
+    });
+
+    it('encodes session ID with special characters', () => {
+      const url = getImageDownloadUrl('session with spaces', 'img-001');
+      expect(url).toBe('/api/sessions/session%20with%20spaces/images/img-001/download');
+    });
+
+    it('encodes image ID with special characters', () => {
+      const url = getImageDownloadUrl('001', 'id with spaces');
+      expect(url).toBe('/api/sessions/001/images/id%20with%20spaces/download');
+    });
+  });
+
+  describe('getDownloadAllUrl', () => {
+    it('returns the correct bulk download URL', () => {
+      const url = getDownloadAllUrl('001');
+      expect(url).toBe('/api/sessions/001/images/download-all');
+    });
+
+    it('encodes session ID with special characters', () => {
+      const url = getDownloadAllUrl('session with spaces');
+      expect(url).toBe('/api/sessions/session%20with%20spaces/images/download-all');
     });
   });
 });

@@ -48,13 +48,19 @@ describe('SceneImage', () => {
     expect(downloadBtn!.getAttribute('aria-label')).toBe('Download scene image for Turn 10');
   });
 
-  it('download button has correct href and download attribute', () => {
-    const image = makeSceneImage();
+  it('download button uses download endpoint URL (not inline serve URL)', () => {
+    const image = makeSceneImage({
+      id: 'img-001',
+      session_id: 'session-001',
+    });
     const { container } = render(SceneImage, { props: { image } });
 
     const downloadBtn = container.querySelector('.image-download-btn') as HTMLAnchorElement;
     expect(downloadBtn).not.toBeNull();
-    expect(downloadBtn.getAttribute('href')).toBe(image.download_url);
+    // Should use the download endpoint (with Content-Disposition), not the inline serve URL
+    expect(downloadBtn.getAttribute('href')).toBe(
+      '/api/sessions/session-001/images/img-001/download'
+    );
     expect(downloadBtn.hasAttribute('download')).toBe(true);
   });
 

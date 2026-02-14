@@ -873,3 +873,368 @@ class TestImageHelpers:
             with pytest.raises(HTTPException) as exc_info:
                 _check_image_generation_enabled()
             assert exc_info.value.status_code == 400
+
+    def test_image_id_re(self) -> None:
+        """_IMAGE_ID_RE matches UUID without .png extension."""
+        from api.routes import _IMAGE_ID_RE
+
+        assert _IMAGE_ID_RE.match("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+        assert not _IMAGE_ID_RE.match("a1b2c3d4-e5f6-7890-abcd-ef1234567890.png")
+        assert not _IMAGE_ID_RE.match("not-a-uuid")
+        assert not _IMAGE_ID_RE.match("")
+
+    def test_get_safe_session_name_with_name(
+        self,
+        temp_campaigns_dir: Path,
+    ) -> None:
+        """_get_safe_session_name returns sanitized session name."""
+        from api.routes import _get_safe_session_name
+
+        _create_test_session(temp_campaigns_dir, "001", name="Curse of Strahd!")
+        result = _get_safe_session_name("001")
+        assert result == "Curse_of_Strahd"
+        # No spaces, exclamation marks, etc.
+        assert " " not in result
+        assert "!" not in result
+
+    def test_get_safe_session_name_fallback(
+        self,
+        temp_campaigns_dir: Path,
+    ) -> None:
+        """_get_safe_session_name falls back to session_id when name is empty."""
+        from api.routes import _get_safe_session_name
+
+        _create_test_session(temp_campaigns_dir, "001", name="")
+        result = _get_safe_session_name("001")
+        assert result == "session_001"
+
+    def test_get_safe_session_name_special_chars(
+        self,
+        temp_campaigns_dir: Path,
+    ) -> None:
+        """_get_safe_session_name sanitizes special characters."""
+        from api.routes import _get_safe_session_name
+
+        _create_test_session(temp_campaigns_dir, "001", name="A/B\\C:D*E?F")
+        result = _get_safe_session_name("001")
+        # All special chars replaced with underscore, collapsed
+        assert "/" not in result
+        assert "\\" not in result
+        assert ":" not in result
+        assert "*" not in result
+        assert "?" not in result
+
+    def test_get_safe_session_name_truncates(
+        self,
+        temp_campaigns_dir: Path,
+    ) -> None:
+        """_get_safe_session_name truncates long names to 50 chars."""
+        from api.routes import _get_safe_session_name
+
+        _create_test_session(temp_campaigns_dir, "001", name="A" * 100)
+        result = _get_safe_session_name("001")
+        assert len(result) <= 50
+
+
+# =============================================================================
+# Individual Image Download Endpoint Tests (Story 17-6)
+# =============================================================================
+
+
+class TestDownloadSessionImage:
+    """Tests for GET /api/sessions/{session_id}/images/{image_id}/download."""
+
+    @pytest.mark.anyio
+    async def test_downloads_image_with_content_disposition(
+        self,
+        client: AsyncClient,
+        temp_campaigns_dir: Path,
+    ) -> None:
+        """Returns image file with Content-Disposition: attachment header."""
+        _create_test_session(temp_campaigns_dir, "001", name="Test Session")
+        image_id = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        _create_image_metadata(
+            temp_campaigns_dir,
+            "001",
+            image_id=image_id,
+            turn_number=5,
+            generation_mode="current",
+        )
+
+        resp = await client.get(f"/api/sessions/001/images/{image_id}/download")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "image/png"
+        content_disp = resp.headers["content-disposition"]
+        assert "attachment" in content_disp
+        assert "Test_Session_turn_6_current.png" in content_disp
+
+    @pytest.mark.anyio
+    async def test_download_filename_uses_1_based_turn(
+        self,
+        client: AsyncClient,
+        temp_campaigns_dir: Path,
+    ) -> None:
+        """Filename uses 1-based turn number (turn_number + 1)."""
+        _create_test_session(temp_campaigns_dir, "001", name="My Campaign")
+        image_id = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        _create_image_metadata(
+            temp_campaigns_dir,
+            "001",
+            image_id=image_id,
+            turn_number=0,
+            generation_mode="best",
+        )
+
+        resp = await client.get(f"/api/sessions/001/images/{image_id}/download")
+        assert resp.status_code == 200
+        content_disp = resp.headers["content-disposition"]
+        assert "My_Campaign_turn_1_best.png" in content_disp
+
+    @pytest.mark.anyio
+    async def test_download_invalid_image_id_returns_400(
+        self,
+        client: AsyncClient,
+        temp_campaigns_dir: Path,
+    ) -> None:
+        """Returns 400 for invalid image ID format."""
+        _create_test_session(temp_campaigns_dir, "001")
+
+        resp = await client.get("/api/sessions/001/images/not-a-uuid/download")
+        assert resp.status_code == 400
+        assert "Invalid image ID format" in resp.json()["detail"]
+
+    @pytest.mark.anyio
+    async def test_download_nonexistent_image_returns_404(
+        self,
+        client: AsyncClient,
+        temp_campaigns_dir: Path,
+    ) -> None:
+        """Returns 404 when image file doesn't exist."""
+        _create_test_session(temp_campaigns_dir, "001")
+
+        resp = await client.get(
+            "/api/sessions/001/images/a1b2c3d4-e5f6-7890-abcd-ef1234567890/download"
+        )
+        assert resp.status_code == 404
+        assert "Image not found" in resp.json()["detail"]
+
+    @pytest.mark.anyio
+    async def test_download_nonexistent_session_returns_404(
+        self,
+        client: AsyncClient,
+        temp_campaigns_dir: Path,
+    ) -> None:
+        """Returns 404 for a session that doesn't exist."""
+        resp = await client.get(
+            "/api/sessions/999/images/a1b2c3d4-e5f6-7890-abcd-ef1234567890/download"
+        )
+        assert resp.status_code == 404
+
+    @pytest.mark.anyio
+    async def test_download_without_metadata_uses_defaults(
+        self,
+        client: AsyncClient,
+        temp_campaigns_dir: Path,
+    ) -> None:
+        """When JSON sidecar is missing, defaults to turn 1 and 'scene' mode."""
+        _create_test_session(temp_campaigns_dir, "001", name="Test")
+        image_id = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+
+        # Create only the PNG file, no JSON sidecar
+        images_dir = temp_campaigns_dir / "session_001" / "images"
+        images_dir.mkdir(parents=True, exist_ok=True)
+        png_path = images_dir / f"{image_id}.png"
+        png_path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+
+        resp = await client.get(f"/api/sessions/001/images/{image_id}/download")
+        assert resp.status_code == 200
+        content_disp = resp.headers["content-disposition"]
+        assert "Test_turn_1_scene.png" in content_disp
+
+
+# =============================================================================
+# Bulk Download (Zip) Endpoint Tests (Story 17-6)
+# =============================================================================
+
+
+class TestDownloadAllSessionImages:
+    """Tests for GET /api/sessions/{session_id}/images/download-all."""
+
+    @pytest.mark.anyio
+    async def test_download_all_returns_zip(
+        self,
+        client: AsyncClient,
+        temp_campaigns_dir: Path,
+    ) -> None:
+        """Returns a zip file with correct content type."""
+        import zipfile
+        from io import BytesIO
+
+        _create_test_session(temp_campaigns_dir, "001", name="Test Session")
+        _create_image_metadata(
+            temp_campaigns_dir,
+            "001",
+            image_id="a0000000-0000-0000-0000-000000000001",
+            turn_number=1,
+            generation_mode="current",
+        )
+        _create_image_metadata(
+            temp_campaigns_dir,
+            "001",
+            image_id="a0000000-0000-0000-0000-000000000002",
+            turn_number=5,
+            generation_mode="best",
+        )
+
+        resp = await client.get("/api/sessions/001/images/download-all")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "application/zip"
+        content_disp = resp.headers["content-disposition"]
+        assert "attachment" in content_disp
+        assert "Test_Session_images.zip" in content_disp
+
+        # Verify zip contents
+        zf = zipfile.ZipFile(BytesIO(resp.content))
+        names = zf.namelist()
+        assert len(names) == 2
+        assert "Test_Session_turn_2_current.png" in names
+        assert "Test_Session_turn_6_best.png" in names
+        zf.close()
+
+    @pytest.mark.anyio
+    async def test_download_all_empty_session_returns_404(
+        self,
+        client: AsyncClient,
+        temp_campaigns_dir: Path,
+    ) -> None:
+        """Returns 404 with message when session has no images."""
+        _create_test_session(temp_campaigns_dir, "001")
+
+        resp = await client.get("/api/sessions/001/images/download-all")
+        assert resp.status_code == 404
+        assert "No images to download" in resp.json()["detail"]
+
+    @pytest.mark.anyio
+    async def test_download_all_no_images_dir_returns_404(
+        self,
+        client: AsyncClient,
+        temp_campaigns_dir: Path,
+    ) -> None:
+        """Returns 404 when images directory doesn't exist."""
+        _create_test_session(temp_campaigns_dir, "001")
+
+        resp = await client.get("/api/sessions/001/images/download-all")
+        assert resp.status_code == 404
+        assert "No images to download" in resp.json()["detail"]
+
+    @pytest.mark.anyio
+    async def test_download_all_nonexistent_session_returns_404(
+        self,
+        client: AsyncClient,
+        temp_campaigns_dir: Path,
+    ) -> None:
+        """Returns 404 for a session that doesn't exist."""
+        resp = await client.get("/api/sessions/999/images/download-all")
+        assert resp.status_code == 404
+
+    @pytest.mark.anyio
+    async def test_download_all_sanitizes_session_name(
+        self,
+        client: AsyncClient,
+        temp_campaigns_dir: Path,
+    ) -> None:
+        """Zip filename uses sanitized session name."""
+        _create_test_session(
+            temp_campaigns_dir, "001", name="My Campaign: Part 2!"
+        )
+        _create_image_metadata(
+            temp_campaigns_dir,
+            "001",
+            image_id="a0000000-0000-0000-0000-000000000001",
+            turn_number=0,
+        )
+
+        resp = await client.get("/api/sessions/001/images/download-all")
+        assert resp.status_code == 200
+        content_disp = resp.headers["content-disposition"]
+        assert "My_Campaign_Part_2_images.zip" in content_disp
+
+    @pytest.mark.anyio
+    async def test_download_all_without_metadata_uses_defaults(
+        self,
+        client: AsyncClient,
+        temp_campaigns_dir: Path,
+    ) -> None:
+        """Images without JSON sidecar use default turn_number=0 and mode=scene."""
+        import zipfile
+        from io import BytesIO
+
+        _create_test_session(temp_campaigns_dir, "001", name="Test")
+        images_dir = temp_campaigns_dir / "session_001" / "images"
+        images_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create a PNG without JSON sidecar
+        image_id = "a0000000-0000-0000-0000-000000000001"
+        png_path = images_dir / f"{image_id}.png"
+        png_path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+
+        resp = await client.get("/api/sessions/001/images/download-all")
+        assert resp.status_code == 200
+
+        zf = zipfile.ZipFile(BytesIO(resp.content))
+        names = zf.namelist()
+        assert len(names) == 1
+        assert "Test_turn_1_scene.png" in names
+        zf.close()
+
+    @pytest.mark.anyio
+    async def test_download_all_deduplicates_filenames(
+        self,
+        client: AsyncClient,
+        temp_campaigns_dir: Path,
+    ) -> None:
+        """Zip deduplicates filenames when multiple images share turn+mode."""
+        import zipfile
+        from io import BytesIO
+
+        _create_test_session(temp_campaigns_dir, "001", name="Test")
+        # Two images with the same turn_number and generation_mode
+        _create_image_metadata(
+            temp_campaigns_dir,
+            "001",
+            image_id="a0000000-0000-0000-0000-000000000001",
+            turn_number=3,
+            generation_mode="current",
+        )
+        _create_image_metadata(
+            temp_campaigns_dir,
+            "001",
+            image_id="a0000000-0000-0000-0000-000000000002",
+            turn_number=3,
+            generation_mode="current",
+        )
+
+        resp = await client.get("/api/sessions/001/images/download-all")
+        assert resp.status_code == 200
+
+        zf = zipfile.ZipFile(BytesIO(resp.content))
+        names = zf.namelist()
+        assert len(names) == 2  # Both images should be included
+        assert "Test_turn_4_current.png" in names
+        assert "Test_turn_4_current_2.png" in names
+        zf.close()
+
+    @pytest.mark.anyio
+    async def test_download_all_route_not_caught_by_filename_pattern(
+        self,
+        client: AsyncClient,
+        temp_campaigns_dir: Path,
+    ) -> None:
+        """The download-all route is not captured by {image_filename} catch-all."""
+        _create_test_session(temp_campaigns_dir, "001")
+
+        # This should hit download_all_session_images, not serve_session_image
+        resp = await client.get("/api/sessions/001/images/download-all")
+        # Should get 404 (no images) not 400 (invalid filename format)
+        assert resp.status_code == 404
+        assert "No images to download" in resp.json()["detail"]

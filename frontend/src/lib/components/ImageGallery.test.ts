@@ -89,15 +89,18 @@ describe('ImageGallery', () => {
     expect(closeBtn!.getAttribute('aria-label')).toBe('Close gallery');
   });
 
-  it('has gallery download button per image', () => {
-    images.set([makeSceneImage({ id: 'img-a', turn_number: 3 })]);
+  it('has gallery download button per image with download URL', () => {
+    images.set([makeSceneImage({ id: 'img-a', session_id: 'sess-1', turn_number: 3 })]);
     galleryOpen.set(true);
 
     const { container } = render(ImageGallery);
-    const downloadBtn = container.querySelector('.gallery-download-btn');
+    const downloadBtn = container.querySelector('.gallery-download-btn') as HTMLAnchorElement;
     expect(downloadBtn).not.toBeNull();
     // Turn 3 (0-based) = Turn 4 (1-based)
     expect(downloadBtn!.getAttribute('aria-label')).toBe('Download image for Turn 4');
+    // Should use the download endpoint URL, not the inline serve URL
+    expect(downloadBtn!.getAttribute('href')).toBe('/api/sessions/sess-1/images/img-a/download');
+    expect(downloadBtn!.hasAttribute('download')).toBe(true);
   });
 
   it('has role="dialog" with aria-label', () => {
@@ -114,5 +117,39 @@ describe('ImageGallery', () => {
     const title = container.querySelector('.gallery-title');
     expect(title).not.toBeNull();
     expect(title!.textContent).toBe('Scene Gallery');
+  });
+
+  // Story 17-6: Download All button tests
+  it('shows "Download All" button when images exist', () => {
+    images.set([makeSceneImage({ id: 'img-a', session_id: 'sess-1' })]);
+    galleryOpen.set(true);
+
+    const { container } = render(ImageGallery);
+    const downloadAllBtn = container.querySelector('.gallery-download-all-btn') as HTMLAnchorElement;
+    expect(downloadAllBtn).not.toBeNull();
+    expect(downloadAllBtn.textContent).toContain('Download All');
+    expect(downloadAllBtn.getAttribute('href')).toBe('/api/sessions/sess-1/images/download-all');
+    expect(downloadAllBtn.hasAttribute('download')).toBe(true);
+    expect(downloadAllBtn.getAttribute('aria-label')).toBe('Download all images as zip');
+  });
+
+  it('shows disabled "Download All" when no images', () => {
+    galleryOpen.set(true);
+
+    const { container } = render(ImageGallery);
+    const downloadAllBtn = container.querySelector('.gallery-download-all-btn');
+    expect(downloadAllBtn).not.toBeNull();
+    expect(downloadAllBtn!.classList.contains('disabled')).toBe(true);
+    expect(downloadAllBtn!.getAttribute('title')).toBe('No images to download');
+    // Disabled version is a <span>, not <a>
+    expect(downloadAllBtn!.tagName).toBe('SPAN');
+  });
+
+  it('has gallery-header-actions container', () => {
+    galleryOpen.set(true);
+
+    const { container } = render(ImageGallery);
+    const actions = container.querySelector('.gallery-header-actions');
+    expect(actions).not.toBeNull();
   });
 });
