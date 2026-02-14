@@ -2095,3 +2095,38 @@ Completed in separate cycle sessions (not logged here).
 - None (fully autonomous)
 
 ---
+
+## Story: 17-2-image-generation-service
+
+**Status:** Completed
+**Phase:** create-story → dev-story → code-review → commit → done
+
+### Files Touched
+- `image_gen.py` (created) — ImageGenerator class with google-genai SDK wrapper
+- `models.py` (modified) — SceneImage, ImageGenerationConfig models + create_scene_image factory
+- `config/defaults.yaml` (modified) — image_generation config section
+- `api/schemas.py` (modified) — image gen fields in GameConfigResponse/GameConfigUpdateRequest
+- `api/routes.py` (modified) — config endpoints load/return image gen fields
+- `pyproject.toml` (modified) — google-genai + Pillow dependencies
+- `tests/test_image_gen.py` (created) — 17 unit tests
+- `tests/test_models.py` (modified) — 10 new model tests
+- `tests/test_api.py` (modified) — 5 new schema tests
+
+### Key Design Decisions
+- Used `client.aio.models.generate_images()` for async Imagen API calls
+- Default model: `imagen-4.0-generate-001` (Imagen 3 has been shut down)
+- Prompt builder uses `get_llm` factory to call Gemini Flash for narrative-to-prompt conversion
+- Image storage: `campaigns/{session}/images/{uuid}.png`
+- Config is ephemeral until GameState integration (future story)
+
+### Issues Auto-Resolved (Code Review)
+1. **HIGH:** Blocking PIL I/O in async method — wrapped with `asyncio.to_thread()`
+2. **MEDIUM:** Stale cached genai Client — added API key change detection
+3. **MEDIUM:** No prompt length validation — added MAX_PROMPT_CHARS truncation
+4. **MEDIUM:** Ephemeral config fields undocumented — added comments and debug logging
+5. **MEDIUM:** Untyped config dict returns — changed to `ImageGenerationConfig` model
+
+### User Input Required
+- None (fully autonomous)
+
+---

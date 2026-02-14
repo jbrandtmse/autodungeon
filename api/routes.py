@@ -8,9 +8,13 @@ and models.py without modifying them.
 from __future__ import annotations
 
 import asyncio
+import json as _json
 import logging
+import re as _re
 import time
+import uuid as _uuid
 from pathlib import Path
+from typing import Any, Literal
 
 import yaml
 from fastapi import APIRouter, HTTPException, Request
@@ -32,9 +36,12 @@ from api.schemas import (
     ForkRenameRequest,
     GameConfigResponse,
     GameConfigUpdateRequest,
+    ImageGenerateAccepted,
+    ImageGenerateRequest,
     ModelListResponse,
     ModuleDiscoveryResponse,
     ModuleInfoResponse,
+    SceneImageResponse,
     SessionCreateRequest,
     SessionCreateResponse,
     SessionResponse,
@@ -59,6 +66,7 @@ from persistence import (
     delete_session,
     get_checkpoint_preview,
     get_latest_checkpoint,
+    get_session_dir,
     list_checkpoint_info,
     list_forks,
     list_sessions_with_metadata,
@@ -2237,3 +2245,427 @@ async def get_character_sheet(
         conditions=_get(sheet, "conditions", []),  # type: ignore[arg-type]
         death_saves=death_resp,
     )
+
+
+# =============================================================================
+# Image Generation Endpoints (Story 17-3)
+# =============================================================================
+
+# UUID filename pattern for path traversal prevention
+_IMAGE_FILENAME_RE = _re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.png$"
+)
+
+# Track active image generation tasks per session to prevent concurrent overload.
+# Maps session_id -> set of asyncio.Task references (also keeps strong refs to tasks).
+_active_image_tasks: dict[str, set[asyncio.Task[None]]] = {}
+_MAX_CONCURRENT_IMAGE_TASKS = 3
+
+
+def _check_image_generation_enabled() -> None:
+    """Raise HTTP 400 if image generation is disabled in config.
+
+    Reads the image_generation.enabled field from defaults.yaml.
+
+    Raises:
+        HTTPException: 400 if image generation is not enabled.
+    """
+    yaml_defaults = _load_yaml_defaults()
+    img_cfg = yaml_defaults.get("image_generation", {})
+    if not img_cfg.get("enabled", False):
+        raise HTTPException(
+            status_code=400,
+            detail="Image generation is not enabled",
+        )
+
+
+def _build_download_url(session_id: str, image_id: str) -> str:
+    """Build the download URL for a generated image.
+
+    Args:
+        session_id: Session ID string.
+        image_id: Image UUID string.
+
+    Returns:
+        Relative URL path to the image file.
+    """
+    return f"/api/sessions/{session_id}/images/{image_id}.png"
+
+
+async def _generate_image_background(
+    session_id: str,
+    task_id: str,
+    log_entries: list[str],
+    characters: dict[str, Any],
+    turn_number: int,
+    generation_mode: Literal["current", "best", "specific"],
+) -> None:
+    """Background task for image generation.
+
+    Builds a scene prompt, generates an image, saves metadata,
+    and broadcasts a WebSocket event on completion.
+
+    This function MUST NOT raise exceptions -- all errors are caught
+    and logged to prevent crashing the event loop.
+
+    Args:
+        session_id: Session ID.
+        task_id: Unique task identifier for tracking.
+        log_entries: Narrative log entries for scene context.
+        characters: Character info dict.
+        turn_number: Turn number being illustrated.
+        generation_mode: How the image was requested.
+    """
+    from image_gen import ImageGenerationError, ImageGenerator
+
+    try:
+        generator = ImageGenerator()
+
+        # Step 1: Build scene prompt via LLM
+        prompt = await generator.build_scene_prompt(log_entries, characters)
+
+        # Step 2: Generate image via Imagen API
+        scene_image = await generator.generate_scene_image(
+            prompt=prompt,
+            session_id=session_id,
+            turn_number=turn_number,
+            generation_mode=generation_mode,
+        )
+
+        # Step 3: Save metadata as JSON sidecar
+        # Ensure images dir exists (defensive -- generate_scene_image creates
+        # it for the PNG, but we must guarantee it exists for the sidecar)
+        images_dir = get_session_dir(session_id) / "images"
+        images_dir.mkdir(parents=True, exist_ok=True)
+        metadata_path = images_dir / f"{scene_image.id}.json"
+        metadata_path.write_text(
+            _json.dumps(scene_image.model_dump(), indent=2),
+            encoding="utf-8",
+        )
+
+        # Step 4: Broadcast WebSocket event using schema for validation
+        from api.schemas import SceneImageResponse, WsImageReady
+        from api.websocket import manager
+
+        download_url = _build_download_url(session_id, scene_image.id)
+        ws_event = WsImageReady(
+            image=SceneImageResponse(
+                id=scene_image.id,
+                session_id=scene_image.session_id,
+                turn_number=scene_image.turn_number,
+                prompt=scene_image.prompt,
+                image_path=scene_image.image_path,
+                provider=scene_image.provider,
+                model=scene_image.model,
+                generation_mode=scene_image.generation_mode,
+                generated_at=scene_image.generated_at,
+                download_url=download_url,
+            ),
+        )
+        await manager.broadcast(session_id, ws_event.model_dump())
+
+        logger.info(
+            "Image generated for session %s turn %d (task %s): %s",
+            session_id,
+            turn_number,
+            task_id,
+            scene_image.id,
+        )
+
+    except ImageGenerationError as e:
+        logger.error(
+            "Image generation failed for session %s turn %d (task %s): %s",
+            session_id,
+            turn_number,
+            task_id,
+            e,
+        )
+        # Broadcast error to connected clients
+        from api.websocket import manager
+
+        await manager.broadcast(
+            session_id,
+            {
+                "type": "error",
+                "message": f"Image generation failed: {e}",
+                "recoverable": True,
+            },
+        )
+
+    except Exception as e:
+        logger.exception(
+            "Unexpected error in image generation background task "
+            "(session=%s, turn=%d, task=%s)",
+            session_id,
+            turn_number,
+            task_id,
+        )
+        # Broadcast generic error
+        from api.websocket import manager
+
+        await manager.broadcast(
+            session_id,
+            {
+                "type": "error",
+                "message": f"Image generation failed unexpectedly: {e}",
+                "recoverable": True,
+            },
+        )
+
+
+@router.post(
+    "/sessions/{session_id}/images/generate-current",
+    response_model=ImageGenerateAccepted,
+    status_code=202,
+)
+async def generate_current_scene_image(
+    session_id: str,
+    body: ImageGenerateRequest | None = None,
+) -> ImageGenerateAccepted:
+    """Generate an image of the current scene.
+
+    Extracts the last N log entries from the game state, builds a scene
+    prompt via LLM, and generates an image. Runs as a background task.
+
+    Args:
+        session_id: Session ID string.
+        body: Optional request with context_entries override.
+
+    Returns:
+        202 Accepted with task ID.
+    """
+    _validate_and_check_session(session_id)
+    _check_image_generation_enabled()
+
+    # Guard against too many concurrent image tasks for this session
+    active = _active_image_tasks.get(session_id, set())
+    # Prune completed tasks
+    active = {t for t in active if not t.done()}
+    _active_image_tasks[session_id] = active
+    if len(active) >= _MAX_CONCURRENT_IMAGE_TASKS:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many concurrent image generation requests "
+            f"(max {_MAX_CONCURRENT_IMAGE_TASKS}). Please wait for "
+            f"current tasks to complete.",
+        )
+
+    # Load game state
+    latest_turn = get_latest_checkpoint(session_id)
+    if latest_turn is None:
+        raise HTTPException(status_code=400, detail="Session has no checkpoints")
+
+    state = load_checkpoint(session_id, latest_turn)
+    if state is None:
+        raise HTTPException(status_code=500, detail="Failed to load latest checkpoint")
+
+    log = state.get("ground_truth_log", [])
+    if not log:
+        raise HTTPException(
+            status_code=400, detail="Session has no narrative log entries"
+        )
+
+    context_entries = body.context_entries if body else 10
+    entries = list(log[-context_entries:])
+    turn_number = len(log) - 1
+
+    characters = state.get("characters", {})
+    char_dict = {
+        k: v.model_dump() if hasattr(v, "model_dump") else v
+        for k, v in characters.items()
+    }
+
+    task_id = str(_uuid.uuid4())
+
+    # Launch background task and store reference to prevent GC
+    task = asyncio.create_task(
+        _generate_image_background(
+            session_id=session_id,
+            task_id=task_id,
+            log_entries=entries,
+            characters=char_dict,
+            turn_number=turn_number,
+            generation_mode="current",
+        )
+    )
+    active.add(task)
+    task.add_done_callback(lambda t: active.discard(t))
+
+    return ImageGenerateAccepted(
+        task_id=task_id,
+        session_id=session_id,
+        turn_number=turn_number,
+    )
+
+
+@router.post(
+    "/sessions/{session_id}/images/generate-turn/{turn_number}",
+    response_model=ImageGenerateAccepted,
+    status_code=202,
+)
+async def generate_turn_image(
+    session_id: str,
+    turn_number: int,
+) -> ImageGenerateAccepted:
+    """Generate an image for a specific turn.
+
+    Extracts log entries around the given turn (+/-5 context window),
+    builds a scene prompt, and generates an image as a background task.
+
+    Args:
+        session_id: Session ID string.
+        turn_number: Turn number to illustrate.
+
+    Returns:
+        202 Accepted with task ID.
+    """
+    _validate_and_check_session(session_id)
+    _check_image_generation_enabled()
+
+    # Guard against too many concurrent image tasks for this session
+    active = _active_image_tasks.get(session_id, set())
+    # Prune completed tasks
+    active = {t for t in active if not t.done()}
+    _active_image_tasks[session_id] = active
+    if len(active) >= _MAX_CONCURRENT_IMAGE_TASKS:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many concurrent image generation requests "
+            f"(max {_MAX_CONCURRENT_IMAGE_TASKS}). Please wait for "
+            f"current tasks to complete.",
+        )
+
+    # Load game state
+    latest_turn = get_latest_checkpoint(session_id)
+    if latest_turn is None:
+        raise HTTPException(status_code=400, detail="Session has no checkpoints")
+
+    state = load_checkpoint(session_id, latest_turn)
+    if state is None:
+        raise HTTPException(status_code=500, detail="Failed to load latest checkpoint")
+
+    log = state.get("ground_truth_log", [])
+    if not log:
+        raise HTTPException(
+            status_code=400, detail="Session has no narrative log entries"
+        )
+
+    # Validate turn_number range
+    if turn_number < 0 or turn_number >= len(log):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Turn number {turn_number} is out of range. "
+            f"Valid range: 0 to {len(log) - 1}",
+        )
+
+    # Extract context window: +/-5 entries around the turn
+    start = max(0, turn_number - 5)
+    end = min(len(log), turn_number + 6)  # +6 because slice is exclusive
+    entries = list(log[start:end])
+
+    characters = state.get("characters", {})
+    char_dict = {
+        k: v.model_dump() if hasattr(v, "model_dump") else v
+        for k, v in characters.items()
+    }
+
+    task_id = str(_uuid.uuid4())
+
+    # Launch background task and store reference to prevent GC
+    task = asyncio.create_task(
+        _generate_image_background(
+            session_id=session_id,
+            task_id=task_id,
+            log_entries=entries,
+            characters=char_dict,
+            turn_number=turn_number,
+            generation_mode="specific",
+        )
+    )
+    active.add(task)
+    task.add_done_callback(lambda t: active.discard(t))
+
+    return ImageGenerateAccepted(
+        task_id=task_id,
+        session_id=session_id,
+        turn_number=turn_number,
+    )
+
+
+@router.get(
+    "/sessions/{session_id}/images",
+    response_model=list[SceneImageResponse],
+)
+async def list_session_images(
+    session_id: str,
+) -> list[SceneImageResponse]:
+    """List all generated images for a session.
+
+    Scans the session's images directory for JSON sidecar files
+    and returns image metadata with download URLs.
+
+    Args:
+        session_id: Session ID string.
+
+    Returns:
+        List of image metadata objects.
+    """
+    _validate_and_check_session(session_id)
+
+    images_dir = get_session_dir(session_id) / "images"
+    if not images_dir.exists():
+        return []
+
+    results: list[SceneImageResponse] = []
+    for json_file in sorted(images_dir.glob("*.json")):
+        try:
+            data = _json.loads(json_file.read_text(encoding="utf-8"))
+            image_id = data.get("id", json_file.stem)
+            results.append(
+                SceneImageResponse(
+                    id=data["id"],
+                    session_id=data["session_id"],
+                    turn_number=data["turn_number"],
+                    prompt=data["prompt"],
+                    image_path=data["image_path"],
+                    provider=data["provider"],
+                    model=data["model"],
+                    generation_mode=data["generation_mode"],
+                    generated_at=data["generated_at"],
+                    download_url=_build_download_url(session_id, image_id),
+                )
+            )
+        except (KeyError, ValueError, OSError) as e:
+            logger.warning("Skipping invalid image metadata %s: %s", json_file, e)
+            continue
+
+    return results
+
+
+@router.get("/sessions/{session_id}/images/{image_filename}")
+async def serve_session_image(session_id: str, image_filename: str) -> Any:
+    """Serve a generated image file.
+
+    Args:
+        session_id: Session ID string.
+        image_filename: Image filename (e.g., "uuid.png").
+
+    Returns:
+        The image file as a FileResponse.
+    """
+    from fastapi.responses import FileResponse
+
+    _validate_and_check_session(session_id)
+
+    # Validate filename format: UUID.png only
+    if not _IMAGE_FILENAME_RE.match(image_filename):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid image filename format",
+        )
+
+    image_path = get_session_dir(session_id) / "images" / image_filename
+    if not image_path.exists():
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    return FileResponse(str(image_path), media_type="image/png")

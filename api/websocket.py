@@ -19,11 +19,13 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from api.engine import GameEngine
 from api.schemas import (
+    SceneImageResponse,
     WsAutopilotStarted,
     WsAutopilotStopped,
     WsAwaitingInput,
     WsDropIn,
     WsError,
+    WsImageReady,
     WsNudgeReceived,
     WsPaused,
     WsPong,
@@ -282,6 +284,11 @@ def _engine_event_to_schema(event: dict[str, Any]) -> dict[str, Any]:
         return WsReleaseControl().model_dump()
     elif event_type == "awaiting_input":
         return WsAwaitingInput(character=event.get("character", "")).model_dump()
+    elif event_type == "image_ready":
+        image_data = event.get("image", {})
+        return WsImageReady(
+            image=SceneImageResponse(**image_data),
+        ).model_dump()
     else:
         # Pass through unknown event types with a warning
         logger.warning(

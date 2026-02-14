@@ -610,6 +610,15 @@ class WsPong(BaseModel):
     type: Literal["pong"] = "pong"
 
 
+class WsImageReady(BaseModel):
+    """Image generation completed, broadcast to all connected clients."""
+
+    type: Literal["image_ready"] = "image_ready"
+    image: SceneImageResponse = Field(
+        ..., description="Generated image metadata with download URL"
+    )
+
+
 class WsCommandAck(BaseModel):
     """Acknowledgment that a command was received and processed."""
 
@@ -676,3 +685,47 @@ class SessionStartRequest(BaseModel):
         default=None, description="Character names to include in party"
     )
     adventure_name: str = Field(default="", description="Optional adventure name")
+
+
+# =============================================================================
+# Image Generation Schemas (Story 17-3)
+# =============================================================================
+
+
+class ImageGenerateRequest(BaseModel):
+    """Optional request body for image generation endpoints."""
+
+    context_entries: int = Field(
+        default=10,
+        ge=1,
+        le=50,
+        description="Number of log entries to use for scene context",
+    )
+
+
+class ImageGenerateAccepted(BaseModel):
+    """Response for accepted (202) image generation requests."""
+
+    task_id: str = Field(..., description="Background task ID (UUID)")
+    session_id: str = Field(..., description="Session ID")
+    turn_number: int = Field(..., ge=0, description="Turn number being illustrated")
+    status: Literal["pending"] = Field(default="pending", description="Task status")
+
+
+class SceneImageResponse(BaseModel):
+    """Response model for a generated scene image."""
+
+    id: str = Field(..., description="Unique image ID (UUID)")
+    session_id: str = Field(..., description="Session this image belongs to")
+    turn_number: int = Field(..., ge=0, description="Turn number illustrated")
+    prompt: str = Field(..., description="Text prompt used for generation")
+    image_path: str = Field(
+        ..., description="Relative path to image file within campaigns/"
+    )
+    provider: str = Field(..., description="Image generation provider")
+    model: str = Field(..., description="Image generation model name")
+    generation_mode: Literal["current", "best", "specific"] = Field(
+        ..., description="How the image was requested"
+    )
+    generated_at: str = Field(..., description="ISO timestamp of generation")
+    download_url: str = Field(..., description="URL to download the image")
