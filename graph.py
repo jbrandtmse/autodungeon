@@ -28,6 +28,7 @@ logger = logging.getLogger("autodungeon")
 __all__ = [
     "GameStateWithError",
     "MAX_COMPRESSION_PASSES",
+    "_safe_pc_turn",
     "context_manager",
     "create_game_workflow",
     "human_intervention_node",
@@ -351,6 +352,62 @@ def human_intervention_node(state: GameState) -> GameState:
     return updated_state
 
 
+def _safe_pc_turn(state: GameState, agent_name: str) -> GameState:
+    """Wrapper around pc_turn that catches LLMError for resilience.
+
+    If a PC's LLM call fails (e.g. Ollama timeout), this generates a
+    fallback "*holds position*" response instead of aborting the entire
+    round. The DM and other PCs continue normally.
+
+    Args:
+        state: Current game state.
+        agent_name: The name of the PC agent.
+
+    Returns:
+        Updated GameState — either the real PC response, or a fallback.
+    """
+    try:
+        return pc_turn(state, agent_name)
+    except LLMError as e:
+        logger.warning(
+            "PC turn failed for %s, using fallback: %s", agent_name, e
+        )
+        # Build fallback response
+        characters = state.get("characters", {})
+        char_config = characters.get(agent_name)
+        char_name = char_config.name if char_config and hasattr(char_config, "name") else agent_name.title()
+
+        fallback_entry = f"[{agent_name}]: *{char_name} holds position, watchful and alert.*"
+
+        # Append to ground truth log
+        new_log = list(state.get("ground_truth_log", []))
+        new_log.append(fallback_entry)
+
+        # Update agent memory so context stays consistent
+        from models import AgentMemory
+
+        agent_memories = state.get("agent_memories", {})
+        new_memories = {k: v.model_copy() for k, v in agent_memories.items()}
+        if agent_name in new_memories:
+            new_memories[agent_name].short_term_buffer.append(
+                f"{char_name}: *holds position, watchful and alert.*"
+            )
+        else:
+            mem = AgentMemory()
+            mem.short_term_buffer.append(
+                f"{char_name}: *holds position, watchful and alert.*"
+            )
+            new_memories[agent_name] = mem
+
+        updated: GameState = {
+            **state,
+            "ground_truth_log": new_log,
+            "agent_memories": new_memories,
+            "current_turn": agent_name,
+        }
+        return updated
+
+
 def create_game_workflow(  # type: ignore[return-value]
     turn_queue: list[str] | None = None,
 ) -> CompiledStateGraph:  # type: ignore[type-arg]
@@ -383,13 +440,14 @@ def create_game_workflow(  # type: ignore[return-value]
     workflow.add_node("dm", dm_turn)
 
     # Add PC nodes dynamically based on turn_queue
-    # Use default argument capture to avoid late binding issues with lambdas
+    # Use _safe_pc_turn wrapper for resilience: if a PC's LLM fails,
+    # the round continues with a fallback response instead of aborting.
     for agent_name in turn_queue:
         if agent_name != "dm":
             # type: ignore needed due to langgraph's complex generic typing
             workflow.add_node(
                 agent_name,
-                lambda s, name=agent_name: pc_turn(s, name),  # type: ignore[misc, arg-type]
+                lambda s, name=agent_name: _safe_pc_turn(s, name),  # type: ignore[misc, arg-type]
             )
 
     # Add human intervention node (placeholder for Epic 3)

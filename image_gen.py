@@ -35,7 +35,10 @@ Given narrative log entries from a D&D session, write a vivid visual scene
 description in 30-50 words suitable as a prompt for AI image generation.
 Focus on: setting, lighting, character poses, dramatic action, atmosphere.
 Style: digital fantasy painting, dramatic lighting, rich colors.
-Do NOT include character names. Describe what is visually happening."""
+Do NOT include character names. Instead, describe each character by their
+race, gender, and class (e.g. "a female elf wizard", "a male dwarf fighter").
+IMPORTANT: Every character visible in the scene MUST be described with their
+race and gender from the character list. This is critical for visual accuracy."""
 
 # Maximum log entries to include in scene context
 SCENE_CONTEXT_ENTRIES = 10
@@ -441,14 +444,20 @@ class ImageGenerator:
                 cls = info.get("character_class", "Adventurer")
                 race = info.get("race", "")
                 gender = info.get("gender", "")
-                parts = [name]
+                # Build a visual description string for the LLM
+                visual_parts: list[str] = []
                 if gender:
-                    parts.append(gender)
+                    visual_parts.append(gender)
                 if race:
-                    parts.append(race)
-                parts.append(cls)
-                char_desc.append(f"- {', '.join(parts)}")
-            context_parts.append("Characters:\n" + "\n".join(char_desc))
+                    visual_parts.append(race)
+                visual_parts.append(cls)
+                visual_desc = " ".join(visual_parts)
+                char_desc.append(f"- {name} = {visual_desc}")
+            context_parts.append(
+                "Character visual references (use these exact race/gender/class "
+                "descriptions when depicting characters in the scene):\n"
+                + "\n".join(char_desc)
+            )
 
         user_message = "\n\n".join(context_parts)
 

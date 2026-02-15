@@ -42,6 +42,7 @@ class GameEngine:
     MAX_ACTION_LENGTH: int = 2000
     MAX_NUDGE_LENGTH: int = 1000
     VALID_SPEEDS: frozenset[str] = frozenset({"slow", "normal", "fast"})
+    ROUND_TIMEOUT: int = 600  # 10 minutes max per round
 
     def __init__(self, session_id: str) -> None:
         """Initialize the engine for a session.
@@ -251,12 +252,50 @@ class GameEngine:
 
         self._is_generating = True
         try:
+            # Pre-flight: check Ollama health if any PC uses it
+            ollama_err = await self._check_ollama_health()
+            if ollama_err is not None:
+                await self._broadcast(ollama_err)
+                return ollama_err
+
             # Inject pending nudge into state before running turn
             if self._pending_nudge is not None:
                 self._state["pending_nudge"] = self._pending_nudge  # type: ignore[literal-required]
 
-            # Run the synchronous graph in a thread to avoid blocking
-            result = await asyncio.to_thread(run_single_round, self._state)
+            # Run the synchronous graph in a thread with a hard timeout.
+            # If a round exceeds ROUND_TIMEOUT (e.g. Ollama hangs), we
+            # bail out instead of blocking forever. The orphaned thread
+            # will eventually self-terminate at the LLM client's own
+            # timeout (ChatOllama default 300s).
+            try:
+                result = await asyncio.wait_for(
+                    asyncio.to_thread(run_single_round, self._state),
+                    timeout=self.ROUND_TIMEOUT,
+                )
+            except asyncio.TimeoutError:
+                logger.error(
+                    "Round timed out after %ds (session=%s)",
+                    self.ROUND_TIMEOUT,
+                    self._session_id,
+                )
+                timeout_error = create_user_error(
+                    error_type="timeout",
+                    provider="unknown",
+                    agent="unknown",
+                    retry_count=self._retry_count,
+                    detail_message=(
+                        f"Round exceeded {self.ROUND_TIMEOUT}s timeout. "
+                        "The LLM server may be overloaded or unresponsive."
+                    ),
+                )
+                self._last_error = timeout_error
+                error_event = {
+                    "type": "error",
+                    "message": timeout_error.message,
+                    "recoverable": True,
+                }
+                await self._broadcast(error_event)
+                return error_event
 
             # Check for error in result
             error = result.get("error")
@@ -726,13 +765,19 @@ class GameEngine:
     # Helpers
     # -------------------------------------------------------------------------
 
+    # Maximum log entries to send in the initial session_state snapshot.
+    # Large sessions (700+ turns) can exceed WebSocket proxy buffer limits,
+    # so we cap the initial payload and let subsequent turn_update events
+    # deliver the full log.
+    INITIAL_LOG_CAP: int = 200
+
     def _get_state_snapshot(self, full_log: bool = True) -> dict[str, Any]:
         """Build a state snapshot for broadcast events.
 
         Args:
-            full_log: If True, include full ground_truth_log (for initial
-                session_state). If False, omit it to keep turn_update events
-                small (the content field already has the latest entry).
+            full_log: If True, include ground_truth_log (capped to
+                INITIAL_LOG_CAP most recent entries for initial connect).
+                If False, omit it to keep turn_update events small.
 
         Returns:
             Dict with key state fields for consumers.
@@ -756,13 +801,93 @@ class GameEngine:
             },
         }
         if full_log:
-            snapshot["ground_truth_log"] = list(log)
+            # Cap to last N entries to avoid oversized WebSocket messages
+            snapshot["ground_truth_log"] = list(log[-self.INITIAL_LOG_CAP:])
         return snapshot
+
+    OLLAMA_MIN_DELAY: float = 3.0  # Minimum delay between rounds for Ollama
+    OLLAMA_HEALTH_TIMEOUT: float = 5.0  # Seconds to wait for Ollama ping
+
+    async def _check_ollama_health(self) -> dict[str, Any] | None:
+        """Ping the Ollama server before starting a round.
+
+        If any PC uses Ollama, sends a lightweight request to the Ollama
+        API to verify it's reachable. Fails fast instead of wasting
+        minutes on a doomed round.
+
+        Returns:
+            None if healthy (or no Ollama PCs), error event dict otherwise.
+        """
+        if self._state is None:
+            return None
+
+        # Find Ollama base URL from any PC character
+        ollama_url: str | None = None
+        characters = self._state.get("characters", {})
+        for name, char in characters.items():
+            if name == "dm":
+                continue
+            provider = getattr(char, "provider", "").lower() if hasattr(char, "provider") else ""
+            if provider == "ollama":
+                # Resolve base URL same way as get_llm
+                from agents import _get_effective_api_key
+                from config import get_config
+
+                config = get_config()
+                ollama_url = _get_effective_api_key("ollama") or config.ollama_base_url
+                break
+
+        if ollama_url is None:
+            return None  # No Ollama PCs, skip check
+
+        import httpx
+
+        try:
+            async with httpx.AsyncClient(timeout=self.OLLAMA_HEALTH_TIMEOUT) as client:
+                resp = await client.get(f"{ollama_url}/api/tags")
+                resp.raise_for_status()
+        except Exception as e:
+            logger.error(
+                "Ollama health check failed (url=%s): %s", ollama_url, e
+            )
+            error = create_user_error(
+                error_type="connection",
+                provider="ollama",
+                agent="health_check",
+                retry_count=self._retry_count,
+                detail_message=(
+                    f"Ollama server at {ollama_url} is not responding. "
+                    f"Error: {e}"
+                ),
+            )
+            self._last_error = error
+            return {
+                "type": "error",
+                "message": error.message,
+                "recoverable": True,
+            }
+
+        return None
 
     def _get_turn_delay(self) -> float:
         """Get the delay between turns based on current speed.
 
+        Enforces a minimum delay when any PC uses Ollama to prevent
+        saturating the remote Ollama server with back-to-back requests.
+
         Returns:
             Delay in seconds.
         """
-        return self.SPEED_DELAYS.get(self._speed, 1.0)
+        base_delay = self.SPEED_DELAYS.get(self._speed, 1.0)
+
+        # Check if any PC uses Ollama
+        if self._state is not None:
+            characters = self._state.get("characters", {})
+            for name, char in characters.items():
+                if name == "dm":
+                    continue
+                provider = getattr(char, "provider", "").lower() if hasattr(char, "provider") else ""
+                if provider == "ollama":
+                    return max(base_delay, self.OLLAMA_MIN_DELAY)
+
+        return base_delay

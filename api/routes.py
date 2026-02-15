@@ -123,8 +123,11 @@ async def list_sessions() -> list[SessionResponse]:
     Returns:
         List of session metadata objects.
     """
+    import asyncio
+
     try:
-        sessions = list_sessions_with_metadata()
+        # Offload blocking file I/O to thread to avoid blocking the event loop
+        sessions = await asyncio.to_thread(list_sessions_with_metadata)
     except OSError as e:
         raise HTTPException(
             status_code=500, detail=f"Failed to list sessions: {e}"

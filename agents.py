@@ -2478,6 +2478,11 @@ def pc_turn(state: GameState, agent_name: str) -> GameState:
     # Get character config from state
     character_config = state["characters"][agent_name]
 
+    # Inter-PC delay: give Ollama breathing room between sequential
+    # PC requests to prevent saturating the remote server.
+    if character_config.provider.lower() == "ollama":
+        _time.sleep(2.0)
+
     # Wrap agent creation and invocation in try/except for error handling (Story 4.5)
     try:
         # Create agent with tools bound
