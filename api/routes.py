@@ -117,17 +117,17 @@ _VALID_PROVIDERS = {"gemini", "anthropic", "claude", "ollama"}
 
 
 @router.get("/sessions", response_model=list[SessionResponse])
-async def list_sessions() -> list[SessionResponse]:
+def list_sessions() -> list[SessionResponse]:
     """List all sessions sorted by updated_at descending.
+
+    Uses sync def so FastAPI runs it in a threadpool, avoiding
+    event loop blocking during file I/O.
 
     Returns:
         List of session metadata objects.
     """
-    import asyncio
-
     try:
-        # Offload blocking file I/O to thread to avoid blocking the event loop
-        sessions = await asyncio.to_thread(list_sessions_with_metadata)
+        sessions = list_sessions_with_metadata()
     except OSError as e:
         raise HTTPException(
             status_code=500, detail=f"Failed to list sessions: {e}"
@@ -1609,10 +1609,12 @@ def _validate_turn_param(turn: int) -> None:
 
 
 @router.get("/sessions/{session_id}/forks", response_model=list[ForkMetadataResponse])
-async def list_session_forks(
+def list_session_forks(
     session_id: str,
 ) -> list[ForkMetadataResponse]:
     """List all forks for a session, sorted by creation time.
+
+    Uses sync def so FastAPI runs it in a threadpool.
 
     Args:
         session_id: Session ID string.
@@ -1944,10 +1946,13 @@ async def compare_fork(session_id: str, fork_id: str) -> ComparisonDataResponse:
     "/sessions/{session_id}/checkpoints",
     response_model=list[CheckpointInfoResponse],
 )
-async def list_session_checkpoints(
+def list_session_checkpoints(
     session_id: str,
 ) -> list[CheckpointInfoResponse]:
     """List all checkpoints for a session, newest first.
+
+    Uses sync def so FastAPI runs it in a threadpool, avoiding
+    event loop blocking during file I/O.
 
     Args:
         session_id: Session ID string.
@@ -2905,13 +2910,14 @@ async def generate_best_scene_image(
     "/sessions/{session_id}/images",
     response_model=list[SceneImageResponse],
 )
-async def list_session_images(
+def list_session_images(
     session_id: str,
 ) -> list[SceneImageResponse]:
     """List all generated images for a session.
 
     Scans the session's images directory for JSON sidecar files
-    and returns image metadata with download URLs.
+    and returns image metadata with download URLs. Uses sync def
+    so FastAPI runs it in a threadpool.
 
     Args:
         session_id: Session ID string.
