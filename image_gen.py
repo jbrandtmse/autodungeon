@@ -440,7 +440,10 @@ class ImageGenerator:
                     continue
                 cls = info.get("character_class", "Adventurer")
                 race = info.get("race", "")
+                gender = info.get("gender", "")
                 parts = [name]
+                if gender:
+                    parts.append(gender)
                 if race:
                     parts.append(race)
                 parts.append(cls)

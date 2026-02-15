@@ -2533,13 +2533,14 @@ async def generate_current_scene_image(
         for k, v in characters.items()
     }
 
-    # Merge race from character sheets into char_dict for image prompts
+    # Merge race/gender from character sheets into char_dict for image prompts
     sheets = state.get("character_sheets", {})
     for name, sheet in sheets.items():
         sheet_data = sheet.model_dump() if hasattr(sheet, "model_dump") else sheet
         if name in char_dict:
-            if "race" not in char_dict[name] and "race" in sheet_data:
-                char_dict[name]["race"] = sheet_data["race"]
+            for field in ("race", "gender"):
+                if field not in char_dict[name] and field in sheet_data:
+                    char_dict[name][field] = sheet_data[field]
         else:
             char_dict[name] = sheet_data
 
@@ -2637,13 +2638,14 @@ async def generate_turn_image(
         for k, v in characters.items()
     }
 
-    # Merge race from character sheets into char_dict for image prompts
+    # Merge race/gender from character sheets into char_dict for image prompts
     sheets = state.get("character_sheets", {})
     for name, sheet in sheets.items():
         sheet_data = sheet.model_dump() if hasattr(sheet, "model_dump") else sheet
         if name in char_dict:
-            if "race" not in char_dict[name] and "race" in sheet_data:
-                char_dict[name]["race"] = sheet_data["race"]
+            for field in ("race", "gender"):
+                if field not in char_dict[name] and field in sheet_data:
+                    char_dict[name][field] = sheet_data[field]
         else:
             char_dict[name] = sheet_data
 
@@ -2865,13 +2867,14 @@ async def generate_best_scene_image(
         for k, v in characters.items()
     }
 
-    # Merge race from character sheets into char_dict for image prompts
+    # Merge race/gender from character sheets into char_dict for image prompts
     sheets = state.get("character_sheets", {})
     for name, sheet in sheets.items():
         sheet_data = sheet.model_dump() if hasattr(sheet, "model_dump") else sheet
         if name in char_dict:
-            if "race" not in char_dict[name] and "race" in sheet_data:
-                char_dict[name]["race"] = sheet_data["race"]
+            for field in ("race", "gender"):
+                if field not in char_dict[name] and field in sheet_data:
+                    char_dict[name][field] = sheet_data[field]
         else:
             char_dict[name] = sheet_data
 

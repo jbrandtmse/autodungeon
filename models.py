@@ -189,6 +189,8 @@ class CharacterConfig(BaseModel):
     character_class: str = Field(..., description="D&D class")
     personality: str = Field(..., description="Personality traits")
     color: str = Field(..., description="Hex color for UI (e.g., #6B8E6B)")
+    race: str = Field(default="Human", description="Character race (e.g., Human, Elf)")
+    gender: str = Field(default="", description="Character gender (e.g., Male, Female)")
     provider: str = Field(default="gemini", description="LLM provider")
     model: str = Field(default="gemini-1.5-flash", description="Model name")
     token_limit: int = Field(
@@ -1711,6 +1713,7 @@ class CharacterSheet(BaseModel):
     # ==========================================================================
     name: str = Field(..., min_length=1, description="Character name")
     race: str = Field(..., min_length=1, description="Character race")
+    gender: str = Field(default="", description="Character gender (e.g., Male, Female)")
     character_class: str = Field(..., min_length=1, description="Character class")
     level: int = Field(default=1, ge=1, le=20, description="Character level (1-20)")
     background: str = Field(default="", description="Character background")
@@ -2483,7 +2486,8 @@ def generate_character_sheet_from_config(config: CharacterConfig) -> CharacterSh
 
     return CharacterSheet(
         name=config.name,
-        race="Human",
+        race=config.race,
+        gender=config.gender,
         character_class=char_class,
         level=1,
         background="Adventurer",
@@ -2578,9 +2582,11 @@ def load_character_sheet_from_library(
     # Overlay library data onto the generated sheet
     overrides: dict[str, Any] = {}
 
-    # Race and background
+    # Race, gender, and background
     if "race" in lib_data:
         overrides["race"] = str(lib_data["race"])
+    if "gender" in lib_data:
+        overrides["gender"] = str(lib_data["gender"])
     if "background" in lib_data:
         overrides["background"] = str(lib_data["background"])
 
