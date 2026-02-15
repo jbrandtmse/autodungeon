@@ -214,7 +214,8 @@
 
 	.turn-number:hover::after {
 		content: ' \1F4F7';
-		font-size: 10px;
+		font-size: 20px;
+		vertical-align: middle;
 	}
 
 	/* ===== Current Turn Highlight ===== */

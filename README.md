@@ -1,8 +1,5 @@
 # autodungeon
 
-> **Under Heavy Development**
-> This project is actively being built. Features may be incomplete, broken, or change without notice. Not yet ready for production use.
-
 **Multi-agent D&D game engine where AI plays Dungeons & Dragons together.**
 
 *"Nostalgia for D&D, made accessible for people who can't coordinate 4 friends."*
@@ -19,10 +16,19 @@ autodungeon creates a self-playing D&D party where multiple AI agents roleplay a
 
 ### Key Features
 
-- **Watch Mode** - AI party plays autonomously; watch the story unfold
-- **Drop-In Mode** - Take control of any character at any moment, then leave when you want
+- **Watch Mode** - AI party plays autonomously; watch the story unfold in real time
+- **Drop-In Mode** - Take control of any character at any moment, then release when you're done
+- **AI Scene Illustrations** - Hover any turn number to reveal a camera icon; click to generate fantasy artwork via Google Imagen/Gemini
 - **True Party Dynamics** - Multiple LLMs interact as distinct characters with independent memories
-- **Emergent Storytelling** - Improv principles ("Yes, and...") create genuine surprises
+- **Combat System** - Narrative (story-first) or Tactical (full D&D 5e initiative with per-NPC turns)
+- **Fork Timeline** - Branch your adventure at any decision point and explore alternate storylines
+- **Character Library** - Create, customize, and save characters with race, gender, class, abilities, and equipment
+- **Module Selection** - Choose official D&D-style modules or embark on freeform adventures
+- **DM Whisper & Secrets** - Send private suggestions or questions to the DM mid-game
+- **Story Thread Tracking** - Narrative element extraction surfaces callbacks, foreshadowing, and plot threads
+- **Memory & Summarization** - Asymmetric memory isolation with automatic long-term compression
+- **Session Persistence** - Full checkpoint save/load with per-turn snapshots and transcript export
+- **Multi-Provider LLMs** - Mix Gemini, Claude, and Ollama (local) models across agents
 - **Full Transcript Logging** - Research-ready logs for studying multi-agent narrative behavior
 
 ## Tech Stack
@@ -36,16 +42,17 @@ autodungeon creates a self-playing D&D party where multiple AI agents roleplay a
 | UI (Legacy) | Streamlit (backward-compatible) |
 | Data Models | Pydantic |
 | LLM Providers | Google Gemini, Anthropic Claude, Ollama (local) |
+| Image Generation | Google Imagen / Gemini Image (via google-genai SDK) |
 
 ## Project Status
 
-**Status: In Development (v2.0)**
+**Status: v2.1 - AI Scene Image Generation complete**
 
-This project has completed comprehensive planning and architecture design. The v2.0 UI framework migration (FastAPI + SvelteKit) is complete.
+All 17 epics (92 functional requirements) have been implemented across 4 major releases.
 
 ### Epic Progress
 
-#### MVP (v1.0) - Complete
+#### MVP (v1.0)
 
 | Epic | Description | Status |
 |------|-------------|--------|
@@ -56,7 +63,7 @@ This project has completed comprehensive planning and architecture design. The v
 | 5 | Memory & Narrative Continuity | Done |
 | 6 | LLM Configuration UI | Done |
 
-#### Enhancements (v1.1) - Complete
+#### Enhancements (v1.1)
 
 | Epic | Description | Status |
 |------|-------------|--------|
@@ -66,37 +73,34 @@ This project has completed comprehensive planning and architecture design. The v
 | 10 | DM Whisper & Secrets System | Done |
 | 11 | Callback Tracker | Done |
 | 12 | Fork Gameplay | Done |
-
-#### Integration Fix (v1.1)
-
-| Epic | Description | Status |
-|------|-------------|--------|
 | 13 | Adventure Setup & Party Management | Done |
 
-#### Performance & UX Polish (v1.2)
+#### Performance & Combat (v1.2)
 
 | Epic | Description | Status |
 |------|-------------|--------|
 | 14 | Performance & UX Polish | Done |
-
-#### Combat Initiative System (v1.2)
-
-| Epic | Description | Status |
-|------|-------------|--------|
 | 15 | Combat Initiative System | Done |
 
 #### UI Framework Migration (v2.0)
 
 | Epic | Description | Status |
 |------|-------------|--------|
-| 16 | UI Framework Migration (FastAPI + SvelteKit) | Done |
+| 16 | FastAPI + SvelteKit UI | Done |
+
+#### AI Scene Image Generation (v2.1)
+
+| Epic | Description | Status |
+|------|-------------|--------|
+| 17 | AI Scene Image Generation | Done |
 
 See the [planning artifacts](_bmad-output/planning-artifacts/) for:
 
-- [Product Requirements Document](_bmad-output/planning-artifacts/prd.md) - 55 functional requirements
+- [Product Requirements Document](_bmad-output/planning-artifacts/prd.md) - 92 functional requirements
 - [Architecture Decisions](_bmad-output/planning-artifacts/architecture.md) - Technical design choices
-- [Epic/Story Breakdown (MVP)](_bmad-output/planning-artifacts/epics.md) - v1.0 implementation roadmap
+- [Epic/Story Breakdown (MVP)](_bmad-output/planning-artifacts/epics.md) - v1.0 roadmap
 - [Epic/Story Breakdown (v1.1)](_bmad-output/planning-artifacts/epics-v1.1.md) - Enhancement roadmap
+- [Epic/Story Breakdown (v2.1)](_bmad-output/planning-artifacts/epics-v2.1.md) - AI image generation
 
 ## Getting Started
 
@@ -168,7 +172,7 @@ Then open http://localhost:8501 in your browser.
 - **Characters**: `config/characters/*.yaml`
 - **User Overrides**: `user-settings.yaml` (auto-generated by the UI)
 
-All agent models, token limits, and API keys can be configured from the Configuration modal in either the SvelteKit or Streamlit UI. Changes are saved to `user-settings.yaml` and take effect on the next turn.
+All agent models, token limits, API keys, and image generation settings can be configured from the Configuration modal in either the SvelteKit or Streamlit UI. Changes are saved to `user-settings.yaml` and take effect on the next turn.
 
 #### Recommended Starting Configuration
 
@@ -209,6 +213,32 @@ autodungeon supports two combat modes, configurable per-session in the Configura
 **Narrative mode** is story-first: when the DM starts combat, no mechanics are activated. The DM narrates all NPC actions as part of their own turn and the party order stays fixed. Best for roleplay-heavy sessions where combat is dramatic flavor rather than tactical challenge.
 
 **Tactical mode** activates the full D&D 5e initiative system. When combat starts, initiative is rolled (`1d20 + modifier`) for every PC and NPC. The turn order is reordered by initiative, NPCs get individual turns interleaved with PCs, and a DM "bookend" turn opens each round to set the scene. When combat ends, the original turn queue is restored.
+
+### AI Scene Illustrations
+
+autodungeon can generate fantasy artwork for any turn in your adventure using Google's image generation models. Hover over any turn number in the narrative to reveal a camera icon, then click to generate an illustration.
+
+**Three generation modes:**
+
+| Mode | Description |
+|------|-------------|
+| **Illustrate Turn** | Click the camera icon on any turn number to illustrate that specific moment |
+| **Illustrate Current Scene** | Generate an image of the current scene using surrounding context |
+| **Best Scene** | An LLM scans the full session history and picks the most visually compelling moment |
+
+**Supported models:**
+
+| Model | Description |
+|-------|-------------|
+| `gemini-2.5-flash-image` | Fast image generation via Gemini (default) |
+| `gemini-3-pro-image-preview` | Higher quality Gemini image generation |
+| `imagen-4.0-generate-001` | Google Imagen 4 |
+| `imagen-4-fast` | Imagen 4 Fast |
+| `imagen-4-ultra` | Imagen 4 Ultra |
+
+Image generation is configured in the Settings tab of the Configuration modal. Generated images are stored in the campaign directory alongside turn data and can be downloaded individually or in bulk.
+
+The prompt builder automatically includes character race and gender from their character sheets when referenced in the scene, producing more accurate illustrations.
 
 ## Architecture Overview
 
@@ -284,14 +314,16 @@ autodungeon/
 ├── agents.py               # Agent definitions, LLM factory
 ├── memory.py               # MemoryManager, summarization
 ├── models.py               # Pydantic models (GameState, etc.)
+├── image_gen.py            # AI scene image generation service
+├── image_scanner.py        # LLM-powered best scene selection
 ├── tools.py                # Function tools (dice rolling, etc.)
 ├── persistence.py          # Checkpoint save/load, transcript
 ├── config.py               # Configuration loading
 ├── config/                 # YAML configs
 │   ├── defaults.yaml
-│   └── characters/
+│   └── characters/         # Character configs + library/
 ├── styles/                 # CSS theming (Streamlit legacy)
-├── campaigns/              # Saved game data (JSON per turn)
+├── campaigns/              # Saved game data, images, transcripts
 ├── tests/                  # Python test suite
 ├── dev.sh                  # Dev startup script (Bash)
 ├── dev.ps1                 # Dev startup script (PowerShell)
@@ -318,7 +350,7 @@ Full transcript logging enables research into:
 
 ## Contributing
 
-This project is in early development. Contributions, ideas, and feedback are welcome!
+Contributions, ideas, and feedback are welcome!
 
 ## License
 
