@@ -496,6 +496,12 @@ class UserSettingsResponse(BaseModel):
         default_factory=dict,
         description="Token limit overrides keyed by agent name",
     )
+    image_generation_enabled: bool = Field(
+        default=False, description="Whether image generation is enabled"
+    )
+    image_model: str = Field(
+        default="imagen-4.0-generate-001", description="Image generation model"
+    )
 
 
 class UserSettingsUpdateRequest(BaseModel):
@@ -513,6 +519,12 @@ class UserSettingsUpdateRequest(BaseModel):
     token_limit_overrides: dict[str, int] | None = Field(
         default=None,
         description="Token limit overrides keyed by agent name",
+    )
+    image_generation_enabled: bool | None = Field(
+        default=None, description="Whether image generation is enabled"
+    )
+    image_model: str | None = Field(
+        default=None, description="Image generation model"
     )
 
 

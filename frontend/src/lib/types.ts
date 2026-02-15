@@ -37,6 +37,8 @@ export interface UserSettings {
   anthropic_api_key_configured: boolean;
   ollama_url: string;
   token_limit_overrides: Record<string, number>;
+  image_generation_enabled: boolean;
+  image_model: string;
 }
 
 export interface UserSettingsUpdate {
@@ -44,6 +46,8 @@ export interface UserSettingsUpdate {
   anthropic_api_key?: string;
   ollama_url?: string;
   token_limit_overrides?: Record<string, number>;
+  image_generation_enabled?: boolean;
+  image_model?: string;
 }
 
 export interface Character {

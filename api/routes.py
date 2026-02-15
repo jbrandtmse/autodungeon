@@ -685,6 +685,15 @@ async def get_user_settings() -> UserSettingsResponse:
         google_env = False
         anthropic_env = False
 
+    # Image generation: user-settings overrides yaml defaults
+    yaml_defaults = _load_yaml_defaults()
+    img_cfg = yaml_defaults.get("image_generation", {})
+    img_enabled = settings.get("image_generation_enabled", img_cfg.get("enabled", False))
+
+    img_model = settings.get(
+        "image_model", img_cfg.get("image_model", "imagen-4.0-generate-001")
+    )
+
     return UserSettingsResponse(
         google_api_key_configured=bool(api_keys.get("google")) or google_env,
         anthropic_api_key_configured=bool(api_keys.get("anthropic")) or anthropic_env,
@@ -692,6 +701,8 @@ async def get_user_settings() -> UserSettingsResponse:
         token_limit_overrides={
             k: v for k, v in token_limits.items() if isinstance(v, int)
         },
+        image_generation_enabled=bool(img_enabled),
+        image_model=str(img_model),
     )
 
 
@@ -737,6 +748,12 @@ async def update_user_settings(body: UserSettingsUpdateRequest) -> UserSettingsR
     if body.token_limit_overrides is not None:
         token_limits.update(body.token_limit_overrides)
 
+    # Merge image generation settings
+    if body.image_generation_enabled is not None:
+        settings["image_generation_enabled"] = body.image_generation_enabled
+    if body.image_model is not None:
+        settings["image_model"] = body.image_model
+
     settings["api_keys"] = api_keys
     settings["token_limit_overrides"] = token_limits
     save_user_settings(settings)
@@ -757,6 +774,8 @@ async def update_user_settings(body: UserSettingsUpdateRequest) -> UserSettingsR
         token_limit_overrides={
             k: v for k, v in token_limits.items() if isinstance(v, int)
         },
+        image_generation_enabled=bool(settings.get("image_generation_enabled", False)),
+        image_model=str(settings.get("image_model", "imagen-4.0-generate-001")),
     )
 
 
@@ -2274,18 +2293,25 @@ _MAX_CONCURRENT_IMAGE_TASKS = 3
 def _check_image_generation_enabled() -> None:
     """Raise HTTP 400 if image generation is disabled in config.
 
-    Reads the image_generation.enabled field from defaults.yaml.
+    Checks user-settings.yaml first (UI toggle), then falls back to
+    defaults.yaml for the default value.
 
     Raises:
         HTTPException: 400 if image generation is not enabled.
     """
-    yaml_defaults = _load_yaml_defaults()
-    img_cfg = yaml_defaults.get("image_generation", {})
-    if not img_cfg.get("enabled", False):
-        raise HTTPException(
-            status_code=400,
-            detail="Image generation is not enabled",
-        )
+    settings = load_user_settings()
+    if "image_generation_enabled" in settings:
+        if settings["image_generation_enabled"]:
+            return
+    else:
+        yaml_defaults = _load_yaml_defaults()
+        img_cfg = yaml_defaults.get("image_generation", {})
+        if img_cfg.get("enabled", False):
+            return
+    raise HTTPException(
+        status_code=400,
+        detail="Image generation is not enabled. Enable it in Settings.",
+    )
 
 
 def _build_download_url(session_id: str, image_id: str) -> str:
@@ -2507,6 +2533,16 @@ async def generate_current_scene_image(
         for k, v in characters.items()
     }
 
+    # Merge race from character sheets into char_dict for image prompts
+    sheets = state.get("character_sheets", {})
+    for name, sheet in sheets.items():
+        sheet_data = sheet.model_dump() if hasattr(sheet, "model_dump") else sheet
+        if name in char_dict:
+            if "race" not in char_dict[name] and "race" in sheet_data:
+                char_dict[name]["race"] = sheet_data["race"]
+        else:
+            char_dict[name] = sheet_data
+
     task_id = str(_uuid.uuid4())
 
     # Launch background task and store reference to prevent GC
@@ -2600,6 +2636,16 @@ async def generate_turn_image(
         k: v.model_dump() if hasattr(v, "model_dump") else v
         for k, v in characters.items()
     }
+
+    # Merge race from character sheets into char_dict for image prompts
+    sheets = state.get("character_sheets", {})
+    for name, sheet in sheets.items():
+        sheet_data = sheet.model_dump() if hasattr(sheet, "model_dump") else sheet
+        if name in char_dict:
+            if "race" not in char_dict[name] and "race" in sheet_data:
+                char_dict[name]["race"] = sheet_data["race"]
+        else:
+            char_dict[name] = sheet_data
 
     task_id = str(_uuid.uuid4())
 
@@ -2818,6 +2864,16 @@ async def generate_best_scene_image(
         k: v.model_dump() if hasattr(v, "model_dump") else v
         for k, v in characters.items()
     }
+
+    # Merge race from character sheets into char_dict for image prompts
+    sheets = state.get("character_sheets", {})
+    for name, sheet in sheets.items():
+        sheet_data = sheet.model_dump() if hasattr(sheet, "model_dump") else sheet
+        if name in char_dict:
+            if "race" not in char_dict[name] and "race" in sheet_data:
+                char_dict[name]["race"] = sheet_data["race"]
+        else:
+            char_dict[name] = sheet_data
 
     task_id = str(_uuid.uuid4())
 

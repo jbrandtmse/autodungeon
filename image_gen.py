@@ -20,6 +20,7 @@ import json
 import logging
 import re
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
@@ -187,26 +188,33 @@ class ImageGenerator:
         )
 
     def _get_image_config(self) -> ImageGenerationConfig:
-        """Load image generation config from defaults.yaml.
+        """Load image generation config from defaults.yaml + user-settings.
 
-        Parses raw YAML dict through the ImageGenerationConfig Pydantic model
-        for validation and type safety, falling back to model defaults if the
-        YAML section is missing or has invalid values.
+        User-settings overrides (image_model, image_provider) take precedence
+        over YAML defaults when present.
 
         Returns:
             Validated ImageGenerationConfig instance.
         """
-        from config import _load_yaml_defaults
+        from config import _load_yaml_defaults, load_user_settings
 
         defaults = _load_yaml_defaults()
         raw = defaults.get("image_generation", {})
         try:
-            return ImageGenerationConfig(**raw)
+            config = ImageGenerationConfig(**raw)
         except Exception:
             logger.warning(
                 "Invalid image_generation config in defaults.yaml, using defaults"
             )
-            return ImageGenerationConfig()
+            config = ImageGenerationConfig()
+
+        # Apply user-settings overrides
+        user_settings = load_user_settings()
+        if "image_model" in user_settings:
+            config.image_model = user_settings["image_model"]
+        if "image_provider" in user_settings:
+            config.image_provider = user_settings["image_provider"]
+        return config
 
     def _ensure_images_dir(self, session_id: str) -> Path:
         """Ensure the images directory exists for a session.
@@ -278,23 +286,15 @@ class ImageGenerator:
 
         client = self._get_client()
 
-        try:
-            response = await client.aio.models.generate_images(
-                model=model,
-                prompt=prompt,
-                config=types.GenerateImagesConfig(
-                    number_of_images=1,
-                    aspect_ratio="16:9",
-                ),
-            )
-        except Exception as e:
-            logger.error("Image generation failed: %s", e)
-            raise ImageGenerationError(f"Image generation failed: {e}") from e
+        # Gemini image models (e.g. gemini-2.5-flash-image) use generate_content,
+        # while Imagen models (e.g. imagen-4*) use generate_images.
+        is_gemini_image_model = model.startswith("gemini-")
+        image_bytes: bytes
 
-        if not response.generated_images:
-            raise ImageGenerationError("No images returned by the API")
-
-        image_bytes = response.generated_images[0].image.image_bytes
+        if is_gemini_image_model:
+            image_bytes = await self._generate_via_gemini(client, model, prompt)
+        else:
+            image_bytes = await self._generate_via_imagen(client, model, prompt, types)
 
         # Save as PNG -- offload blocking PIL I/O to a thread to avoid
         # blocking the FastAPI event loop
@@ -307,7 +307,10 @@ class ImageGenerator:
         # Build relative path for storage (portable across systems)
         rel_path = f"session_{session_id}/images/{image_id}.png"
 
-        return create_scene_image(
+        # Use the same image_id for the SceneImage so the metadata JSON
+        # filename matches the PNG filename (both use image_id).
+        return SceneImage(
+            id=image_id,
             session_id=session_id,
             turn_number=turn_number,
             prompt=prompt,
@@ -315,7 +318,85 @@ class ImageGenerator:
             provider=provider,
             model=model,
             generation_mode=generation_mode,
+            generated_at=datetime.now(timezone.utc).isoformat() + "Z",
         )
+
+    async def _generate_via_imagen(
+        self, client: Any, model: str, prompt: str, types: Any
+    ) -> bytes:
+        """Generate an image using the Imagen API (generate_images).
+
+        Args:
+            client: google.genai.Client instance.
+            model: Imagen model ID (e.g. "imagen-4.0-generate-001").
+            prompt: Visual scene description.
+            types: google.genai.types module.
+
+        Returns:
+            Raw image bytes.
+
+        Raises:
+            ImageGenerationError: On API failure or empty response.
+        """
+        try:
+            response = await client.aio.models.generate_images(
+                model=model,
+                prompt=prompt,
+                config=types.GenerateImagesConfig(
+                    number_of_images=1,
+                    aspect_ratio="16:9",
+                ),
+            )
+        except Exception as e:
+            logger.error("Imagen generation failed: %s", e)
+            raise ImageGenerationError(f"Image generation failed: {e}") from e
+
+        if not response.generated_images:
+            raise ImageGenerationError("No images returned by the API")
+
+        return response.generated_images[0].image.image_bytes
+
+    async def _generate_via_gemini(
+        self, client: Any, model: str, prompt: str
+    ) -> bytes:
+        """Generate an image using the Gemini content API (generate_content).
+
+        Used for models like gemini-2.5-flash-image (Nano Banana) and
+        gemini-3-pro-image-preview (Nano Banana Pro) that use the Gemini
+        generate_content endpoint with response_modalities=["IMAGE"].
+
+        Args:
+            client: google.genai.Client instance.
+            model: Gemini image model ID (e.g. "gemini-2.5-flash-image").
+            prompt: Visual scene description.
+
+        Returns:
+            Raw image bytes.
+
+        Raises:
+            ImageGenerationError: On API failure or no image in response.
+        """
+        from google.genai import types
+
+        try:
+            response = await client.aio.models.generate_content(
+                model=model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_modalities=["IMAGE"],
+                ),
+            )
+        except Exception as e:
+            logger.error("Gemini image generation failed: %s", e)
+            raise ImageGenerationError(f"Image generation failed: {e}") from e
+
+        # Extract image bytes from the Gemini response parts
+        if response.candidates:
+            for part in response.candidates[0].content.parts:
+                if part.inline_data and part.inline_data.mime_type.startswith("image/"):
+                    return part.inline_data.data
+
+        raise ImageGenerationError("No image returned in Gemini response")
 
     async def build_scene_prompt(
         self,
@@ -354,12 +435,16 @@ class ImageGenerator:
         if characters:
             char_desc: list[str] = []
             for name, info in characters.items():
-                cls = (
-                    info.get("character_class", "Adventurer")
-                    if isinstance(info, dict)
-                    else "Adventurer"
-                )
-                char_desc.append(f"- {name}: {cls}")
+                if not isinstance(info, dict):
+                    char_desc.append(f"- {name}: Adventurer")
+                    continue
+                cls = info.get("character_class", "Adventurer")
+                race = info.get("race", "")
+                parts = [name]
+                if race:
+                    parts.append(race)
+                parts.append(cls)
+                char_desc.append(f"- {', '.join(parts)}")
             context_parts.append("Characters:\n" + "\n".join(char_desc))
 
         user_message = "\n\n".join(context_parts)
@@ -376,9 +461,14 @@ class ImageGenerator:
                 return content.strip()
             # Handle list-type content (some providers return list of blocks)
             if isinstance(content, list):
-                text_parts = [
-                    block if isinstance(block, str) else str(block) for block in content
-                ]
+                text_parts: list[str] = []
+                for block in content:
+                    if isinstance(block, str):
+                        text_parts.append(block)
+                    elif isinstance(block, dict) and "text" in block:
+                        text_parts.append(block["text"])
+                    else:
+                        text_parts.append(str(block))
                 return " ".join(text_parts).strip()
             return str(content).strip()
         except Exception as e:

@@ -66,12 +66,16 @@
 	// Original token limits for change detection
 	let origSummarizerTokenLimit = $state(4000);
 	let origExtractorTokenLimit = $state(4000);
+	let origImageGenerationEnabled = $state(false);
+	let origImageModel = $state('imagen-4.0-generate-001');
 
 	// Form values — Settings
 	let combatMode = $state<'Narrative' | 'Tactical'>('Narrative');
 	let maxCombatRounds = $state(50);
 	let partySize = $state(4);
 	let narrativeDisplayLimit = $state(50);
+	let imageGenerationEnabled = $state(false);
+	let imageModel = $state('imagen-4.0-generate-001');
 
 	// Change detection
 	let hasChanges = $derived.by(() => {
@@ -84,12 +88,17 @@
 			summarizerTokenLimit !== origSummarizerTokenLimit ||
 			extractorTokenLimit !== origExtractorTokenLimit;
 
+		const imageGenChanges =
+			imageGenerationEnabled !== origImageGenerationEnabled ||
+			imageModel !== origImageModel;
+
 		if (!originalConfig) {
-			return apiKeyChanges || tokenLimitChanges;
+			return apiKeyChanges || tokenLimitChanges || imageGenChanges;
 		}
 		return (
 			apiKeyChanges ||
 			tokenLimitChanges ||
+			imageGenChanges ||
 			dmProvider !== originalConfig.dm_provider ||
 			dmModel !== originalConfig.dm_model ||
 			dmTokenLimit !== originalConfig.dm_token_limit ||
@@ -128,6 +137,8 @@
 				maxCombatRounds = 50;
 				partySize = 4;
 				narrativeDisplayLimit = 50;
+				imageGenerationEnabled = false;
+				imageModel = 'imagen-4.0-generate-001';
 			}
 		}
 	});
@@ -143,6 +154,8 @@
 			// Load token limit overrides from server
 			summarizerTokenLimit = settings.token_limit_overrides?.summarizer ?? 4000;
 			extractorTokenLimit = settings.token_limit_overrides?.extractor ?? 4000;
+			imageGenerationEnabled = settings.image_generation_enabled ?? false;
+			imageModel = settings.image_model ?? 'imagen-4.0-generate-001';
 		} catch {
 			// Fallback to localStorage if backend unavailable
 			googleKeyConfigured = false;
@@ -154,6 +167,8 @@
 			}
 			summarizerTokenLimit = 4000;
 			extractorTokenLimit = 4000;
+			imageGenerationEnabled = false;
+			imageModel = 'imagen-4.0-generate-001';
 		}
 
 		// API key fields always start empty (we never expose raw keys)
@@ -165,6 +180,8 @@
 		origOllamaUrl = ollamaUrl;
 		origSummarizerTokenLimit = summarizerTokenLimit;
 		origExtractorTokenLimit = extractorTokenLimit;
+		origImageGenerationEnabled = imageGenerationEnabled;
+		origImageModel = imageModel;
 	}
 
 	async function loadConfig(): Promise<void> {
@@ -185,6 +202,7 @@
 			maxCombatRounds = config.max_combat_rounds;
 			partySize = config.party_size;
 			narrativeDisplayLimit = config.narrative_display_limit;
+			imageGenerationEnabled = config.image_generation_enabled ?? false;
 		} catch (e) {
 			saveError = e instanceof ApiError ? e.message : 'Failed to load configuration';
 		} finally {
@@ -207,6 +225,8 @@
 					summarizer: summarizerTokenLimit,
 					extractor: extractorTokenLimit,
 				};
+				settingsUpdate.image_generation_enabled = imageGenerationEnabled;
+				settingsUpdate.image_model = imageModel;
 				await updateUserSettings(settingsUpdate as Parameters<typeof updateUserSettings>[0]);
 			} catch {
 				try {
@@ -233,6 +253,7 @@
 				dm_provider: dmProvider,
 				dm_model: dmModel,
 				dm_token_limit: dmTokenLimit,
+				image_generation_enabled: imageGenerationEnabled,
 			});
 		})();
 
@@ -248,6 +269,8 @@
 		origOllamaUrl = ollamaUrl;
 		origSummarizerTokenLimit = summarizerTokenLimit;
 		origExtractorTokenLimit = extractorTokenLimit;
+		origImageGenerationEnabled = imageGenerationEnabled;
+		origImageModel = imageModel;
 
 		// Check session config result
 		if (configResult.status === 'rejected') {
@@ -324,7 +347,7 @@
 	const tabs: { id: TabId; label: string; requiresSession?: boolean }[] = [
 		{ id: 'api-keys', label: 'API Keys' },
 		{ id: 'models', label: 'Models', requiresSession: true },
-		{ id: 'settings', label: 'Settings', requiresSession: true },
+		{ id: 'settings', label: 'Settings' },
 	];
 </script>
 
@@ -375,7 +398,7 @@
 
 			<!-- Tab content -->
 			<div class="tab-content">
-				{#if loadingConfig}
+				{#if loadingConfig && activeTab !== 'settings'}
 					<div class="loading-state">
 						<span class="spinner" aria-hidden="true"></span>
 						<span class="loading-text">Loading configuration...</span>
@@ -415,14 +438,19 @@
 						/>
 					{:else if activeTab === 'settings'}
 						<SettingsTab
+							hasSession={!!sessionId}
 							{combatMode}
 							{maxCombatRounds}
 							{partySize}
 							{narrativeDisplayLimit}
+							{imageGenerationEnabled}
+							{imageModel}
 							onCombatModeChange={(v) => (combatMode = v)}
 							onMaxCombatRoundsChange={(v) => (maxCombatRounds = v)}
 							onPartySizeChange={(v) => (partySize = v)}
 							onNarrativeDisplayLimitChange={(v) => (narrativeDisplayLimit = v)}
+							onImageGenerationEnabledChange={(v) => (imageGenerationEnabled = v)}
+							onImageModelChange={(v) => (imageModel = v)}
 						/>
 					{/if}
 				{/if}

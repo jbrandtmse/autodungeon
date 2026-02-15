@@ -1,24 +1,34 @@
 <script lang="ts">
 	interface Props {
+		hasSession: boolean;
 		combatMode: 'Narrative' | 'Tactical';
 		maxCombatRounds: number;
 		partySize: number;
 		narrativeDisplayLimit: number;
+		imageGenerationEnabled: boolean;
+		imageModel: string;
 		onCombatModeChange: (value: 'Narrative' | 'Tactical') => void;
 		onMaxCombatRoundsChange: (value: number) => void;
 		onPartySizeChange: (value: number) => void;
 		onNarrativeDisplayLimitChange: (value: number) => void;
+		onImageGenerationEnabledChange: (value: boolean) => void;
+		onImageModelChange: (value: string) => void;
 	}
 
 	let {
+		hasSession,
 		combatMode,
 		maxCombatRounds,
 		partySize,
 		narrativeDisplayLimit,
+		imageGenerationEnabled,
+		imageModel,
 		onCombatModeChange,
 		onMaxCombatRoundsChange,
 		onPartySizeChange,
 		onNarrativeDisplayLimitChange,
+		onImageGenerationEnabledChange,
+		onImageModelChange,
 	}: Props = $props();
 
 	function clamp(value: number, min: number, max: number): number {
@@ -49,6 +59,7 @@
 </script>
 
 <div class="settings-tab">
+	{#if hasSession}
 	<!-- Combat Settings -->
 	<h4 class="section-header">Combat</h4>
 
@@ -140,6 +151,50 @@
 				restoreOnBlur(e, narrativeDisplayLimit, 10, 1000, onNarrativeDisplayLimitChange)}
 		/>
 	</div>
+
+	<hr class="settings-divider" />
+	{/if}
+
+	<!-- Image Generation -->
+	<h4 class="section-header">Image Generation</h4>
+
+	<div class="setting-row">
+		<label class="setting-label" for="image-generation-enabled">
+			Enable Image Generation
+			<span class="setting-help">Generate AI scene illustrations from narrative text using Imagen</span>
+		</label>
+		<button
+			id="image-generation-enabled"
+			role="switch"
+			class="toggle-switch"
+			class:active={imageGenerationEnabled}
+			aria-checked={imageGenerationEnabled}
+			onclick={() => onImageGenerationEnabledChange(!imageGenerationEnabled)}
+		>
+			<span class="toggle-knob"></span>
+		</button>
+	</div>
+
+	{#if imageGenerationEnabled}
+		<div class="setting-row">
+			<label class="setting-label" for="image-model">
+				Image Model
+				<span class="setting-help">AI model for generating scene illustrations</span>
+			</label>
+			<select
+				id="image-model"
+				class="setting-select"
+				value={imageModel}
+				onchange={(e) => onImageModelChange((e.target as HTMLSelectElement).value)}
+			>
+				<option value="gemini-2.5-flash-image">Nano Banana</option>
+				<option value="gemini-3-pro-image-preview">Nano Banana Pro</option>
+				<option value="imagen-4.0-generate-001">Imagen 4</option>
+				<option value="imagen-4-fast">Imagen 4 Fast</option>
+				<option value="imagen-4-ultra">Imagen 4 Ultra</option>
+			</select>
+		</div>
+	{/if}
 </div>
 
 <style>
@@ -238,5 +293,49 @@
 		border: none;
 		border-top: 1px solid rgba(184, 168, 150, 0.1);
 		margin: var(--space-sm) 0;
+	}
+
+	.toggle-switch {
+		position: relative;
+		width: 44px;
+		height: 24px;
+		background: rgba(184, 168, 150, 0.2);
+		border: 1px solid rgba(184, 168, 150, 0.3);
+		border-radius: 12px;
+		cursor: pointer;
+		padding: 0;
+		flex-shrink: 0;
+		transition:
+			background var(--transition-fast),
+			border-color var(--transition-fast);
+	}
+
+	.toggle-switch.active {
+		background: var(--accent-warm);
+		border-color: var(--accent-warm);
+	}
+
+	.toggle-switch:hover {
+		border-color: var(--accent-warm);
+	}
+
+	.toggle-switch:focus-visible {
+		outline: 2px solid var(--accent-warm);
+		outline-offset: 2px;
+	}
+
+	.toggle-knob {
+		position: absolute;
+		top: 2px;
+		left: 2px;
+		width: 18px;
+		height: 18px;
+		background: var(--text-primary);
+		border-radius: 50%;
+		transition: transform var(--transition-fast);
+	}
+
+	.toggle-switch.active .toggle-knob {
+		transform: translateX(20px);
 	}
 </style>

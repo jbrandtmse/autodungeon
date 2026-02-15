@@ -91,7 +91,11 @@ def image_gen_disabled_config(tmp_path: Path) -> Generator[Path, None, None]:
     config_data = {"image_generation": {"enabled": False}}
     defaults_path.write_text(yaml.safe_dump(config_data), encoding="utf-8")
 
-    with patch("config.PROJECT_ROOT", tmp_path):
+    with (
+        patch("config.PROJECT_ROOT", tmp_path),
+        patch("config.load_user_settings", return_value={}),
+        patch("api.routes.load_user_settings", return_value={}),
+    ):
         yield tmp_path
 
 
@@ -869,7 +873,10 @@ class TestImageHelpers:
         defaults_path.parent.mkdir(parents=True, exist_ok=True)
         defaults_path.write_text(yaml.safe_dump({}), encoding="utf-8")
 
-        with patch("config.PROJECT_ROOT", tmp_path):
+        with (
+            patch("config.PROJECT_ROOT", tmp_path),
+            patch("api.routes.load_user_settings", return_value={}),
+        ):
             with pytest.raises(HTTPException) as exc_info:
                 _check_image_generation_enabled()
             assert exc_info.value.status_code == 400

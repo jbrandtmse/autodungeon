@@ -28,7 +28,11 @@ def image_generator() -> ImageGenerator:
 
 @pytest.fixture
 def mock_genai_client() -> MagicMock:
-    """Create a mock google genai client with async image generation."""
+    """Create a mock google genai client with async image generation.
+
+    Supports both the Imagen path (generate_images) and the Gemini
+    path (generate_content) so tests work regardless of configured model.
+    """
     # Create a minimal PNG image in memory for the mock response
     from PIL import Image
 
@@ -37,19 +41,37 @@ def mock_genai_client() -> MagicMock:
     img.save(buf, format="PNG")
     png_bytes = buf.getvalue()
 
-    # Build mock response structure
+    # Build mock Imagen response structure
     mock_image = MagicMock()
     mock_image.image_bytes = png_bytes
 
     mock_generated = MagicMock()
     mock_generated.image = mock_image
 
-    mock_response = MagicMock()
-    mock_response.generated_images = [mock_generated]
+    mock_imagen_response = MagicMock()
+    mock_imagen_response.generated_images = [mock_generated]
 
-    # Build async client mock
+    # Build mock Gemini generate_content response structure
+    mock_inline_data = MagicMock()
+    mock_inline_data.mime_type = "image/png"
+    mock_inline_data.data = png_bytes
+
+    mock_part = MagicMock()
+    mock_part.inline_data = mock_inline_data
+
+    mock_content = MagicMock()
+    mock_content.parts = [mock_part]
+
+    mock_candidate = MagicMock()
+    mock_candidate.content = mock_content
+
+    mock_gemini_response = MagicMock()
+    mock_gemini_response.candidates = [mock_candidate]
+
+    # Build async client mock with both APIs
     mock_aio_models = AsyncMock()
-    mock_aio_models.generate_images = AsyncMock(return_value=mock_response)
+    mock_aio_models.generate_images = AsyncMock(return_value=mock_imagen_response)
+    mock_aio_models.generate_content = AsyncMock(return_value=mock_gemini_response)
 
     mock_aio = MagicMock()
     mock_aio.models = mock_aio_models
@@ -206,6 +228,9 @@ class TestGenerateSceneImage:
         mock_genai_client.aio.models.generate_images = AsyncMock(
             side_effect=RuntimeError("API quota exceeded")
         )
+        mock_genai_client.aio.models.generate_content = AsyncMock(
+            side_effect=RuntimeError("API quota exceeded")
+        )
         image_generator._client = mock_genai_client
         image_generator._client_api_key = "test-key"
 
@@ -227,17 +252,24 @@ class TestGenerateSceneImage:
         mock_genai_client: MagicMock,
     ) -> None:
         """Raises error when API returns empty image list."""
+        # Imagen path: empty generated_images
         mock_response = MagicMock()
         mock_response.generated_images = []
         mock_genai_client.aio.models.generate_images = AsyncMock(
             return_value=mock_response
+        )
+        # Gemini path: no candidates
+        mock_gemini_resp = MagicMock()
+        mock_gemini_resp.candidates = []
+        mock_genai_client.aio.models.generate_content = AsyncMock(
+            return_value=mock_gemini_resp
         )
         image_generator._client = mock_genai_client
         image_generator._client_api_key = "test-key"
 
         with (
             patch.object(image_generator, "_get_api_key", return_value="test-key"),
-            pytest.raises(ImageGenerationError, match="No images returned"),
+            pytest.raises(ImageGenerationError, match="No image"),
         ):
             await image_generator.generate_scene_image(
                 prompt="test",
@@ -497,7 +529,10 @@ class TestGetImageConfig:
                 "image_model": "imagen-4.0-fast-generate-001",
             }
         }
-        with patch("config._load_yaml_defaults", return_value=mock_defaults):
+        with (
+            patch("config._load_yaml_defaults", return_value=mock_defaults),
+            patch("config.load_user_settings", return_value={}),
+        ):
             config = image_generator._get_image_config()
 
         assert isinstance(config, ImageGenerationConfig)
@@ -508,7 +543,10 @@ class TestGetImageConfig:
         self, image_generator: ImageGenerator
     ) -> None:
         """Returns default ImageGenerationConfig when YAML section is missing."""
-        with patch("config._load_yaml_defaults", return_value={}):
+        with (
+            patch("config._load_yaml_defaults", return_value={}),
+            patch("config.load_user_settings", return_value={}),
+        ):
             config = image_generator._get_image_config()
 
         assert isinstance(config, ImageGenerationConfig)
