@@ -30,16 +30,18 @@ export function handleServerMessage(msg: WsServerEvent): void {
 			isThinking.set(false);
 			awaitingInput.set(false);
 			awaitingInputCharacter.set('');
-			// Sync full ground_truth_log from backend state snapshot.
-			// A single graph round processes multiple agents (DM + PCs),
-			// so the event's state.ground_truth_log contains all entries,
-			// not just the last agent's.
+			// Append new log entries from this round. The backend sends
+			// `new_entries` (the delta since the last broadcast) so we
+			// don't need the full log in every event.
 			gameState.update((state) => {
 				if (!state) return state;
-				const serverLog = msg.state?.ground_truth_log as string[] | undefined;
+				const newEntries = msg.new_entries;
+				const updatedLog = newEntries?.length
+					? [...state.ground_truth_log, ...newEntries]
+					: state.ground_truth_log;
 				return {
 					...state,
-					ground_truth_log: serverLog ?? state.ground_truth_log,
+					ground_truth_log: updatedLog,
 					current_turn: msg.agent,
 					turn_number: msg.turn,
 				};

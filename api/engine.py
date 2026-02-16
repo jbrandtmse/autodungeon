@@ -262,6 +262,12 @@ class GameEngine:
             if self._pending_nudge is not None:
                 self._state["pending_nudge"] = self._pending_nudge  # type: ignore[literal-required]
 
+            # Record log length before the round so we can compute the
+            # delta (new entries) to send to the frontend.
+            pre_round_log_len = len(
+                self._state.get("ground_truth_log", [])
+            )
+
             # Run the synchronous graph in a thread with a hard timeout.
             # If a round exceeds ROUND_TIMEOUT (e.g. Ollama hangs), we
             # bail out instead of blocking forever. The orphaned thread
@@ -325,19 +331,22 @@ class GameEngine:
             self._last_error = None
             self._retry_count = 0
 
-            # Build turn event
+            # Build turn event with new log entries (delta since last round)
             log = self._state.get("ground_truth_log", [])
             turn_number = len(log)
             current_turn = self._state.get("current_turn", "dm")
             last_entry = log[-1] if log else ""
+            new_entries = log[pre_round_log_len:]
 
             turn_event: dict[str, Any] = {
                 "type": "turn_update",
                 "turn": turn_number,
                 "agent": current_turn,
                 "content": last_entry,
+                "new_entries": new_entries,
                 "state": self._get_state_snapshot(full_log=False),
             }
+
             await self._broadcast(turn_event)
             return turn_event
 

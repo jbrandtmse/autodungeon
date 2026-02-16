@@ -547,6 +547,10 @@ class WsTurnUpdate(BaseModel):
     turn: int = Field(..., description="Turn number")
     agent: str = Field(..., description="Agent that acted")
     content: str = Field(..., description="Turn content text")
+    new_entries: list[str] = Field(
+        default_factory=list,
+        description="New log entries added this round (delta)",
+    )
     state: dict[str, Any] = Field(..., description="Updated state snapshot")
 
 

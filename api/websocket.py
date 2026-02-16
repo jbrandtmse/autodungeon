@@ -267,6 +267,7 @@ def _engine_event_to_schema(event: dict[str, Any]) -> dict[str, Any]:
             turn=event.get("turn", 0),
             agent=event.get("agent", ""),
             content=event.get("content", ""),
+            new_entries=event.get("new_entries", []),
             state=event.get("state", {}),
         ).model_dump()
     elif event_type == "autopilot_started":

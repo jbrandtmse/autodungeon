@@ -1001,6 +1001,8 @@ class TestBroadcastCallback:
         assert "turn" in event
         assert "agent" in event
         assert "content" in event
+        assert "new_entries" in event
+        assert isinstance(event["new_entries"], list)
         assert "state" in event
 
     @pytest.mark.anyio

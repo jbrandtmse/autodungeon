@@ -152,6 +152,7 @@ export interface WsTurnUpdate {
   turn: number;
   agent: string;
   content: string;
+  new_entries?: string[];
   state: Record<string, unknown>;
 }
 

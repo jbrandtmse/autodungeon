@@ -43,16 +43,15 @@ describe('gameStore', () => {
   });
 
   describe('handleServerMessage — turn_update', () => {
-    it('syncs ground_truth_log from server state snapshot', () => {
+    it('appends new_entries to existing ground_truth_log', () => {
       gameState.set(makeGameState({ ground_truth_log: ['[dm]: Start'] }));
       handleServerMessage({
         type: 'turn_update',
-        turn: 2,
+        turn: 3,
         agent: 'fighter',
         content: '[fighter]: I attack the goblin',
-        state: {
-          ground_truth_log: ['[dm]: Start', '[dm]: The round begins', '[fighter]: I attack the goblin'],
-        },
+        new_entries: ['[dm]: The round begins', '[fighter]: I attack the goblin'],
+        state: {},
       });
       const gs = get(gameState);
       expect(gs!.ground_truth_log).toEqual([
@@ -61,12 +60,12 @@ describe('gameStore', () => {
         '[fighter]: I attack the goblin',
       ]);
       expect(gs!.current_turn).toBe('fighter');
-      expect(gs!.turn_number).toBe(2);
+      expect(gs!.turn_number).toBe(3);
     });
 
-    it('includes all agents from a full round', () => {
+    it('appends all agents from a full round via new_entries', () => {
       gameState.set(makeGameState({ ground_truth_log: [] }));
-      const fullLog = [
+      const newEntries = [
         '[dm]: The adventure begins',
         '[Brother Aldric]: I cast a spell',
         '[Elara]: I examine the runes',
@@ -78,14 +77,15 @@ describe('gameStore', () => {
         turn: 5,
         agent: 'Thorin',
         content: '[Thorin]: I take point',
-        state: { ground_truth_log: fullLog },
+        new_entries: newEntries,
+        state: {},
       });
       const gs = get(gameState);
-      expect(gs!.ground_truth_log).toEqual(fullLog);
+      expect(gs!.ground_truth_log).toEqual(newEntries);
       expect(gs!.ground_truth_log).toHaveLength(5);
     });
 
-    it('falls back to existing log when state has no ground_truth_log', () => {
+    it('keeps existing log when new_entries is missing', () => {
       gameState.set(makeGameState({ ground_truth_log: ['[dm]: Start'] }));
       handleServerMessage({
         type: 'turn_update',
@@ -122,7 +122,8 @@ describe('gameStore', () => {
         turn: 1,
         agent: 'dm',
         content: 'The adventure begins',
-        state: { ground_truth_log: ['[dm]: The adventure begins'] },
+        new_entries: ['[dm]: The adventure begins'],
+        state: {},
       });
 
       expect(get(isThinking)).toBe(false);
