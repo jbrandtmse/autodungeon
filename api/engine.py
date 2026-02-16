@@ -160,10 +160,15 @@ class GameEngine:
         """
         from persistence import get_latest_checkpoint, load_checkpoint
 
-        # Try to load existing checkpoint
-        latest_turn = get_latest_checkpoint(self._session_id)
+        # Try to load existing checkpoint (run in thread to avoid blocking
+        # the event loop — checkpoint files for large sessions can be 10+ MB).
+        latest_turn = await asyncio.to_thread(
+            get_latest_checkpoint, self._session_id
+        )
         if latest_turn is not None:
-            loaded = load_checkpoint(self._session_id, latest_turn)
+            loaded = await asyncio.to_thread(
+                load_checkpoint, self._session_id, latest_turn
+            )
             if loaded is not None:
                 self._state = loaded
                 # Sync human state from loaded state
@@ -203,7 +208,9 @@ class GameEngine:
 
             turn_number = len(self._state.get("ground_truth_log", []))
             try:
-                save_checkpoint(self._state, self._session_id, turn_number)
+                await asyncio.to_thread(
+                    save_checkpoint, self._state, self._session_id, turn_number
+                )
             except OSError:
                 logger.exception("Failed to save checkpoint on stop_session")
 
@@ -795,6 +802,11 @@ class GameEngine:
             return {}
 
         log = self._state.get("ground_truth_log", [])
+
+        # Build game_config dict for frontend (includes image_generation_enabled
+        # from user-settings so the UI can show/hide image features).
+        game_config_snapshot = self._build_game_config_snapshot()
+
         snapshot: dict[str, Any] = {
             "session_id": self._session_id,
             "turn_number": len(log),
@@ -808,11 +820,44 @@ class GameEngine:
                 k: v.model_dump() if hasattr(v, "model_dump") else v
                 for k, v in self._state.get("characters", {}).items()
             },
+            "game_config": game_config_snapshot,
         }
         if full_log:
             # Cap to last N entries to avoid oversized WebSocket messages
             snapshot["ground_truth_log"] = list(log[-self.INITIAL_LOG_CAP:])
         return snapshot
+
+    def _build_game_config_snapshot(self) -> dict[str, Any]:
+        """Build a game_config dict for the state snapshot.
+
+        Merges the GameConfig from the checkpoint with user-settings
+        overrides (e.g. image_generation_enabled) so the frontend has
+        an accurate view.
+
+        Returns:
+            Dict with game config fields for the frontend.
+        """
+        from config import _load_yaml_defaults, load_user_settings
+
+        game_config = self._state.get("game_config") if self._state else None
+        result: dict[str, Any] = {}
+        if game_config is not None and hasattr(game_config, "model_dump"):
+            result = game_config.model_dump()
+        elif game_config is not None and isinstance(game_config, dict):
+            result = dict(game_config)
+
+        # Overlay image_generation_enabled from user-settings (authoritative)
+        user_settings = load_user_settings()
+        if "image_generation_enabled" in user_settings:
+            result["image_generation_enabled"] = bool(
+                user_settings["image_generation_enabled"]
+            )
+        else:
+            yaml_defaults = _load_yaml_defaults()
+            img_cfg = yaml_defaults.get("image_generation", {})
+            result["image_generation_enabled"] = bool(img_cfg.get("enabled", False))
+
+        return result
 
     OLLAMA_MIN_DELAY: float = 3.0  # Minimum delay between rounds for Ollama
     OLLAMA_HEALTH_TIMEOUT: float = 5.0  # Seconds to wait for Ollama ping

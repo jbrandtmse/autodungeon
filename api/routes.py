@@ -82,6 +82,41 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api")
 
+
+# =============================================================================
+# Async I/O Wrappers
+# =============================================================================
+# All persistence / config helpers below perform blocking file I/O.  Running
+# them inside ``asyncio.to_thread()`` prevents them from stalling the uvicorn
+# event loop – especially critical for large checkpoints (1 000+ turns).
+
+
+async def _aio_load_checkpoint(session_id: str, turn: int) -> Any:
+    return await asyncio.to_thread(load_checkpoint, session_id, turn)
+
+
+async def _aio_save_checkpoint(
+    state: Any, session_id: str, turn: int, **kwargs: Any
+) -> None:
+    await asyncio.to_thread(save_checkpoint, state, session_id, turn, **kwargs)
+
+
+async def _aio_get_latest_checkpoint(session_id: str) -> int | None:
+    return await asyncio.to_thread(get_latest_checkpoint, session_id)
+
+
+async def _aio_load_session_metadata(session_id: str) -> Any:
+    return await asyncio.to_thread(load_session_metadata, session_id)
+
+
+async def _aio_load_user_settings() -> dict[str, Any]:
+    return await asyncio.to_thread(load_user_settings)
+
+
+async def _aio_load_yaml_defaults() -> dict[str, Any]:
+    return await asyncio.to_thread(_load_yaml_defaults)
+
+
 # =============================================================================
 # Model Listing Cache
 # =============================================================================
@@ -194,7 +229,7 @@ async def get_session(session_id: str) -> SessionResponse:
             status_code=400, detail=f"Invalid session ID: {session_id}"
         ) from None
 
-    metadata = load_session_metadata(session_id)
+    metadata = await _aio_load_session_metadata(session_id)
     if metadata is None:
         raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
 
@@ -227,12 +262,12 @@ async def delete_session_endpoint(session_id: str) -> None:
             status_code=400, detail=f"Invalid session ID: {session_id}"
         ) from None
 
-    metadata = load_session_metadata(session_id)
+    metadata = await _aio_load_session_metadata(session_id)
     if metadata is None:
         raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
 
     try:
-        deleted = delete_session(session_id)
+        deleted = await asyncio.to_thread(delete_session, session_id)
     except OSError as e:
         raise HTTPException(
             status_code=500, detail=f"Failed to delete session: {e}"
@@ -343,7 +378,7 @@ async def start_session_endpoint(
             status_code=400, detail=f"Invalid session ID: {session_id}"
         ) from None
 
-    metadata = load_session_metadata(session_id)
+    metadata = await _aio_load_session_metadata(session_id)
     if metadata is None:
         raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
 
@@ -443,18 +478,27 @@ async def get_session_config(session_id: str) -> GameConfigResponse:
         ) from None
 
     # Check session exists
-    metadata = load_session_metadata(session_id)
+    metadata = await _aio_load_session_metadata(session_id)
     if metadata is None:
         raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
 
-    # Load image generation defaults from YAML
-    yaml_defaults = _load_yaml_defaults()
+    # Load image generation defaults from YAML, then overlay user-settings
+    yaml_defaults = await _aio_load_yaml_defaults()
     img_cfg = yaml_defaults.get("image_generation", {})
+    user_settings = await _aio_load_user_settings()
+    img_enabled = (
+        user_settings["image_generation_enabled"]
+        if "image_generation_enabled" in user_settings
+        else img_cfg.get("enabled", False)
+    )
+    img_model = user_settings.get(
+        "image_model", img_cfg.get("image_model", "imagen-4.0-generate-001")
+    )
 
     # Try loading from latest checkpoint
-    latest_turn = get_latest_checkpoint(session_id)
+    latest_turn = await _aio_get_latest_checkpoint(session_id)
     if latest_turn is not None:
-        state = load_checkpoint(session_id, latest_turn)
+        state = await _aio_load_checkpoint(session_id, latest_turn)
         if state is not None:
             game_config = state["game_config"]
             dm_config = state.get("dm_config")
@@ -472,9 +516,9 @@ async def get_session_config(session_id: str) -> GameConfigResponse:
                 dm_provider=dm_config.provider,
                 dm_model=dm_config.model,
                 dm_token_limit=dm_config.token_limit,
-                image_generation_enabled=img_cfg.get("enabled", False),
+                image_generation_enabled=bool(img_enabled),
                 image_provider=img_cfg.get("image_provider", "gemini"),
-                image_model=img_cfg.get("image_model", "imagen-4.0-generate-001"),
+                image_model=str(img_model),
                 image_scanner_provider=img_cfg.get("scanner_provider", "gemini"),
                 image_scanner_model=img_cfg.get(
                     "scanner_model", "gemini-3-flash-preview"
@@ -497,9 +541,9 @@ async def get_session_config(session_id: str) -> GameConfigResponse:
         dm_provider=dm_defaults.provider,
         dm_model=dm_defaults.model,
         dm_token_limit=dm_defaults.token_limit,
-        image_generation_enabled=img_cfg.get("enabled", False),
+        image_generation_enabled=bool(img_enabled),
         image_provider=img_cfg.get("image_provider", "gemini"),
-        image_model=img_cfg.get("image_model", "imagen-4.0-generate-001"),
+        image_model=str(img_model),
         image_scanner_provider=img_cfg.get("scanner_provider", "gemini"),
         image_scanner_model=img_cfg.get("scanner_model", "gemini-3-flash-preview"),
         image_scanner_token_limit=img_cfg.get("scanner_token_limit", 4000),
@@ -534,15 +578,15 @@ async def update_session_config(
         ) from None
 
     # Check session exists
-    metadata = load_session_metadata(session_id)
+    metadata = await _aio_load_session_metadata(session_id)
     if metadata is None:
         raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
 
     # Load existing state or create minimal one
     state = None
-    latest_turn = get_latest_checkpoint(session_id)
+    latest_turn = await _aio_get_latest_checkpoint(session_id)
     if latest_turn is not None:
-        state = load_checkpoint(session_id, latest_turn)
+        state = await _aio_load_checkpoint(session_id, latest_turn)
 
     if state is None:
         # Create minimal initial state
@@ -618,11 +662,18 @@ async def update_session_config(
     # Save
     if latest_turn is None:
         latest_turn = 0
-    save_checkpoint(state, session_id, latest_turn)
+    await _aio_save_checkpoint(state, session_id, latest_turn)
 
-    # Load image generation defaults, merge with any submitted overrides
-    yaml_defaults = _load_yaml_defaults()
+    # Load image generation defaults, merge with any submitted overrides.
+    # User-settings is the authoritative source for image_generation_enabled.
+    yaml_defaults = await _aio_load_yaml_defaults()
     img_cfg = yaml_defaults.get("image_generation", {})
+    user_settings = await _aio_load_user_settings()
+    default_img_enabled = (
+        user_settings["image_generation_enabled"]
+        if "image_generation_enabled" in user_settings
+        else img_cfg.get("enabled", False)
+    )
 
     return GameConfigResponse(
         combat_mode=new_config.combat_mode,
@@ -636,9 +687,9 @@ async def update_session_config(
         dm_provider=new_dm.provider,
         dm_model=new_dm.model,
         dm_token_limit=new_dm.token_limit,
-        image_generation_enabled=image_gen_fields.get(
-            "image_generation_enabled", img_cfg.get("enabled", False)
-        ),
+        image_generation_enabled=bool(image_gen_fields.get(
+            "image_generation_enabled", default_img_enabled
+        )),
         image_provider=image_gen_fields.get(
             "image_provider", img_cfg.get("image_provider", "gemini")
         ),
@@ -675,7 +726,7 @@ async def get_user_settings() -> UserSettingsResponse:
     """
     from config import get_config
 
-    settings = load_user_settings()
+    settings = await _aio_load_user_settings()
     api_keys = settings.get("api_keys", {})
     token_limits = settings.get("token_limit_overrides", {})
 
@@ -689,7 +740,7 @@ async def get_user_settings() -> UserSettingsResponse:
         anthropic_env = False
 
     # Image generation: user-settings overrides yaml defaults
-    yaml_defaults = _load_yaml_defaults()
+    yaml_defaults = await _aio_load_yaml_defaults()
     img_cfg = yaml_defaults.get("image_generation", {})
     img_enabled = settings.get("image_generation_enabled", img_cfg.get("enabled", False))
 
@@ -724,7 +775,7 @@ async def update_user_settings(body: UserSettingsUpdateRequest) -> UserSettingsR
     """
     from config import get_config
 
-    settings = load_user_settings()
+    settings = await _aio_load_user_settings()
     api_keys = settings.get("api_keys", {})
     token_limits = settings.get("token_limit_overrides", {})
 
@@ -759,7 +810,7 @@ async def update_user_settings(body: UserSettingsUpdateRequest) -> UserSettingsR
 
     settings["api_keys"] = api_keys
     settings["token_limit_overrides"] = token_limits
-    save_user_settings(settings)
+    await asyncio.to_thread(save_user_settings, settings)
 
     # Build response (never return raw keys)
     try:
@@ -894,9 +945,9 @@ async def list_models(provider: str) -> ModelListResponse:
                 provider=normalized, models=models, source=source, error=None
             )
 
-    # Try live API
+    # Try live API (blocking HTTP calls — run in thread)
     try:
-        models = _fetch_models_from_api(provider)
+        models = await asyncio.to_thread(_fetch_models_from_api, provider)
         _model_cache[normalized] = (models, "api", time.time())
         return ModelListResponse(
             provider=normalized, models=models, source="api", error=None
@@ -1665,14 +1716,14 @@ async def create_session_fork(
     _validate_and_check_session(session_id)
 
     # Load latest checkpoint to get game state
-    latest_turn = get_latest_checkpoint(session_id)
+    latest_turn = await _aio_get_latest_checkpoint(session_id)
     if latest_turn is None:
         raise HTTPException(
             status_code=400,
             detail="Session has no checkpoints to fork from",
         )
 
-    state = load_checkpoint(session_id, latest_turn)
+    state = await _aio_load_checkpoint(session_id, latest_turn)
     if state is None:
         raise HTTPException(
             status_code=500,
@@ -1680,7 +1731,9 @@ async def create_session_fork(
         )
 
     try:
-        fork_meta = create_fork(state=state, session_id=session_id, fork_name=body.name)
+        fork_meta = await asyncio.to_thread(
+            create_fork, state=state, session_id=session_id, fork_name=body.name
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from None
     except OSError as e:
@@ -1720,7 +1773,7 @@ async def rename_session_fork(
     _validate_fork_id_param(fork_id)
 
     try:
-        fork_meta = rename_fork(session_id, fork_id, body.name)
+        fork_meta = await asyncio.to_thread(rename_fork, session_id, fork_id, body.name)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from None
     except OSError as e:
@@ -1785,14 +1838,14 @@ async def switch_to_fork(session_id: str, fork_id: str) -> dict[str, str]:
     _validate_and_check_session(session_id)
     _validate_fork_id_param(fork_id)
 
-    latest_turn = get_latest_fork_checkpoint(session_id, fork_id)
+    latest_turn = await asyncio.to_thread(get_latest_fork_checkpoint, session_id, fork_id)
     if latest_turn is None:
         raise HTTPException(
             status_code=404,
             detail=f"Fork '{fork_id}' not found or has no checkpoints",
         )
 
-    state = load_fork_checkpoint(session_id, fork_id, latest_turn)
+    state = await asyncio.to_thread(load_fork_checkpoint, session_id, fork_id, latest_turn)
     if state is None:
         raise HTTPException(
             status_code=500,
@@ -1823,7 +1876,7 @@ async def promote_session_fork(session_id: str, fork_id: str) -> dict[str, objec
     _validate_fork_id_param(fork_id)
 
     try:
-        latest_turn = promote_fork(session_id, fork_id)
+        latest_turn = await asyncio.to_thread(promote_fork, session_id, fork_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from None
     except OSError as e:
@@ -1851,14 +1904,14 @@ async def return_to_main_timeline(
     """
     _validate_and_check_session(session_id)
 
-    latest_turn = get_latest_checkpoint(session_id)
+    latest_turn = await _aio_get_latest_checkpoint(session_id)
     if latest_turn is None:
         raise HTTPException(
             status_code=400,
             detail="Session has no main timeline checkpoints",
         )
 
-    state = load_checkpoint(session_id, latest_turn)
+    state = await _aio_load_checkpoint(session_id, latest_turn)
     if state is None:
         raise HTTPException(
             status_code=500,
@@ -1886,7 +1939,7 @@ async def compare_fork(session_id: str, fork_id: str) -> ComparisonDataResponse:
     _validate_fork_id_param(fork_id)
 
     try:
-        comparison = build_comparison_data(session_id, fork_id)
+        comparison = await asyncio.to_thread(build_comparison_data, session_id, fork_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from None
     except OSError as e:
@@ -1998,7 +2051,7 @@ async def preview_checkpoint(session_id: str, turn: int) -> CheckpointPreviewRes
     _validate_turn_param(turn)
 
     try:
-        entries = get_checkpoint_preview(session_id, turn)
+        entries = await asyncio.to_thread(get_checkpoint_preview, session_id, turn)
     except OSError as e:
         raise HTTPException(
             status_code=500, detail=f"Failed to load checkpoint preview: {e}"
@@ -2031,7 +2084,7 @@ async def restore_checkpoint(session_id: str, turn: int) -> dict[str, object]:
     _validate_and_check_session(session_id)
     _validate_turn_param(turn)
 
-    state = load_checkpoint(session_id, turn)
+    state = await _aio_load_checkpoint(session_id, turn)
     if state is None:
         raise HTTPException(
             status_code=404,
@@ -2040,7 +2093,7 @@ async def restore_checkpoint(session_id: str, turn: int) -> dict[str, object]:
 
     # Save restored state as current
     try:
-        save_checkpoint(state, session_id, turn, update_metadata=False)
+        await _aio_save_checkpoint(state, session_id, turn, update_metadata=False)
     except OSError as e:
         raise HTTPException(
             status_code=500,
@@ -2083,14 +2136,14 @@ async def get_character_sheet(
         )
 
     # Load latest checkpoint
-    latest_turn = get_latest_checkpoint(session_id)
+    latest_turn = await _aio_get_latest_checkpoint(session_id)
     if latest_turn is None:
         raise HTTPException(
             status_code=404,
             detail="Session has no checkpoints",
         )
 
-    state = load_checkpoint(session_id, latest_turn)
+    state = await _aio_load_checkpoint(session_id, latest_turn)
     if state is None:
         raise HTTPException(
             status_code=500,
@@ -2517,11 +2570,11 @@ async def generate_current_scene_image(
         )
 
     # Load game state
-    latest_turn = get_latest_checkpoint(session_id)
+    latest_turn = await _aio_get_latest_checkpoint(session_id)
     if latest_turn is None:
         raise HTTPException(status_code=400, detail="Session has no checkpoints")
 
-    state = load_checkpoint(session_id, latest_turn)
+    state = await _aio_load_checkpoint(session_id, latest_turn)
     if state is None:
         raise HTTPException(status_code=500, detail="Failed to load latest checkpoint")
 
@@ -2613,11 +2666,11 @@ async def generate_turn_image(
         )
 
     # Load game state
-    latest_turn = get_latest_checkpoint(session_id)
+    latest_turn = await _aio_get_latest_checkpoint(session_id)
     if latest_turn is None:
         raise HTTPException(status_code=400, detail="Session has no checkpoints")
 
-    state = load_checkpoint(session_id, latest_turn)
+    state = await _aio_load_checkpoint(session_id, latest_turn)
     if state is None:
         raise HTTPException(status_code=500, detail="Failed to load latest checkpoint")
 
@@ -2852,11 +2905,11 @@ async def generate_best_scene_image(
         )
 
     # Load game state
-    latest_turn = get_latest_checkpoint(session_id)
+    latest_turn = await _aio_get_latest_checkpoint(session_id)
     if latest_turn is None:
         raise HTTPException(status_code=400, detail="Session has no checkpoints")
 
-    state = load_checkpoint(session_id, latest_turn)
+    state = await _aio_load_checkpoint(session_id, latest_turn)
     if state is None:
         raise HTTPException(status_code=500, detail="Failed to load latest checkpoint")
 

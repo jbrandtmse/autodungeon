@@ -39,7 +39,7 @@
 </script>
 
 {#if isGenerating && !sceneImage}
-	<ImageGenerating turnNumber={message.index} mode="specific" />
+	<ImageGenerating turnNumber={turnNumber} mode="specific" />
 {/if}
 
 {#if sceneImage}

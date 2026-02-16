@@ -74,14 +74,16 @@
 
 	async function handleIllustrateTurn(turnIndex: number): Promise<void> {
 		if (!sessionId) return;
+		// Convert local array index to global backend turn index
+		const globalIndex = logOffset + turnIndex;
 		try {
-			startGeneration(turnIndex);
-			await generateTurnImage(sessionId, turnIndex);
+			startGeneration(globalIndex);
+			await generateTurnImage(sessionId, globalIndex);
 		} catch (e) {
 			console.error('[Narrative] Failed to generate image:', e);
 			generatingTurns.update((s) => {
 				const next = new Set(s);
-				next.delete(turnIndex);
+				next.delete(globalIndex);
 				return next;
 			});
 		}
@@ -236,8 +238,8 @@
 					message={msg}
 					characterInfo={getCharInfo(msg)}
 					isCurrent={msg.index === parsedMessages.length - 1}
-					sceneImage={imagesByTurn[msg.index]}
-					isGenerating={currentGenerating.has(msg.index)}
+					sceneImage={imagesByTurn[logOffset + msg.index]}
+					isGenerating={currentGenerating.has(logOffset + msg.index)}
 					onIllustrateTurn={handleIllustrateTurn}
 					{logOffset}
 				/>
