@@ -32,6 +32,12 @@
 	const currentTurnAgent = $derived($gameState?.current_turn ?? '');
 	const sessionId = $derived($gameState?.session_id ?? '');
 
+	// Offset for real turn numbering: when the log is capped on initial load,
+	// turn_number (total entries in backend) > ground_truth_log.length (capped).
+	const logOffset = $derived(
+		($gameState?.turn_number ?? parsedMessages.length) - parsedMessages.length,
+	);
+
 	// Paginated view
 	const totalToShow = $derived(displayLimit + displayOffset);
 	const startIndex = $derived(Math.max(0, parsedMessages.length - totalToShow));
@@ -233,6 +239,7 @@
 					sceneImage={imagesByTurn[msg.index]}
 					isGenerating={currentGenerating.has(msg.index)}
 					onIllustrateTurn={handleIllustrateTurn}
+					{logOffset}
 				/>
 			{/each}
 		{/if}

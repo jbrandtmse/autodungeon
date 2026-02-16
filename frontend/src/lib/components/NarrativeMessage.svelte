@@ -12,6 +12,7 @@
 		sceneImage = undefined,
 		isGenerating = false,
 		onIllustrateTurn = undefined,
+		logOffset = 0,
 	}: {
 		message: ParsedMessage;
 		characterInfo?: CharacterInfo;
@@ -19,11 +20,12 @@
 		sceneImage?: SceneImageType | undefined;
 		isGenerating?: boolean;
 		onIllustrateTurn?: ((turnIndex: number) => void) | undefined;
+		logOffset?: number;
 	} = $props();
 
 	const formattedContent = $derived(formatMessageContent(message.content, message.messageType));
 	const classSlug = $derived(characterInfo?.classSlug ?? 'adventurer');
-	const turnNumber = $derived(message.index + 1);
+	const turnNumber = $derived(logOffset + message.index + 1);
 
 	function handleTurnClick(): void {
 		onIllustrateTurn?.(message.index);
