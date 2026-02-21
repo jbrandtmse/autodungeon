@@ -301,7 +301,7 @@ class ImageGenerator:
 
         # Save as PNG -- offload blocking PIL I/O to a thread to avoid
         # blocking the FastAPI event loop
-        images_dir = self._ensure_images_dir(session_id)
+        images_dir = await asyncio.to_thread(self._ensure_images_dir, session_id)
         image_id = str(uuid.uuid4())
         image_path = images_dir / f"{image_id}.png"
 

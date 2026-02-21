@@ -2453,11 +2453,13 @@ async def _generate_image_background(
 
         # Step 3: Save metadata as JSON sidecar
         # Ensure images dir exists (defensive -- generate_scene_image creates
-        # it for the PNG, but we must guarantee it exists for the sidecar)
+        # it for the PNG, but we must guarantee it exists for the sidecar).
+        # Offload blocking file I/O to a thread to avoid stalling the event loop.
         images_dir = get_session_dir(session_id) / "images"
-        images_dir.mkdir(parents=True, exist_ok=True)
+        await asyncio.to_thread(images_dir.mkdir, parents=True, exist_ok=True)
         metadata_path = images_dir / f"{scene_image.id}.json"
-        metadata_path.write_text(
+        await asyncio.to_thread(
+            metadata_path.write_text,
             _json.dumps(scene_image.model_dump(), indent=2),
             encoding="utf-8",
         )
@@ -2790,11 +2792,13 @@ async def _scan_and_generate_best_image(
             generation_mode="best",
         )
 
-        # Phase 5: Save metadata as JSON sidecar
+        # Phase 5: Save metadata as JSON sidecar.
+        # Offload blocking file I/O to a thread to avoid stalling the event loop.
         images_dir = get_session_dir(session_id) / "images"
-        images_dir.mkdir(parents=True, exist_ok=True)
+        await asyncio.to_thread(images_dir.mkdir, parents=True, exist_ok=True)
         metadata_path = images_dir / f"{scene_image.id}.json"
-        metadata_path.write_text(
+        await asyncio.to_thread(
+            metadata_path.write_text,
             _json.dumps(scene_image.model_dump(), indent=2),
             encoding="utf-8",
         )
