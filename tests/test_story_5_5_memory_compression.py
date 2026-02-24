@@ -1418,10 +1418,14 @@ class TestUnicodeAndSpecialCharacters:
 class TestRecoveryAfterFailedCompression:
     """Tests for system behavior after compression failures."""
 
-    def test_buffer_unchanged_on_summarizer_failure(
+    def test_buffer_trimmed_on_summarizer_failure(
         self, empty_game_state: GameState
     ) -> None:
-        """Test that buffer remains unchanged when summarizer fails."""
+        """Test that emergency buffer trim activates when summarizer fails.
+
+        When summarization fails, compress_buffer applies an emergency trim
+        that drops the oldest entries, keeping only retain_count (3) most recent.
+        """
         state = empty_game_state
         original_buffer = ["Event 1", "Event 2", "Event 3", "Event 4", "Event 5"]
         state["agent_memories"]["dm"] = AgentMemory(
@@ -1439,8 +1443,10 @@ class TestRecoveryAfterFailedCompression:
 
             result = manager.compress_buffer("dm")
 
-        # Buffer should be unchanged
-        assert state["agent_memories"]["dm"].short_term_buffer == original_buffer
+        # Emergency trim keeps most recent entries
+        assert state["agent_memories"]["dm"].short_term_buffer == [
+            "Event 3", "Event 4", "Event 5"
+        ]
         assert result == ""
 
     def test_summary_unchanged_on_recompression_failure(
@@ -1512,7 +1518,10 @@ class TestRecoveryAfterFailedCompression:
     def test_graceful_degradation_with_empty_return(
         self, empty_game_state: GameState
     ) -> None:
-        """Test graceful degradation when summarizer returns empty (simulating error)."""
+        """Test graceful degradation when summarizer returns empty (simulating error).
+
+        Emergency buffer trim drops oldest entries to prevent unbounded growth.
+        """
         state = empty_game_state
         state["agent_memories"]["dm"] = AgentMemory(
             short_term_buffer=["event"] * 10,
@@ -1529,9 +1538,9 @@ class TestRecoveryAfterFailedCompression:
 
             result = manager.compress_buffer("dm")
 
-        # Should return empty string, buffer unchanged
+        # Should return empty string; emergency trim keeps retain_count (3) entries
         assert result == ""
-        assert len(state["agent_memories"]["dm"].short_term_buffer) == 10
+        assert len(state["agent_memories"]["dm"].short_term_buffer) == 3
 
 
 # =============================================================================

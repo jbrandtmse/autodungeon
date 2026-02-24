@@ -404,15 +404,15 @@ class TestBuildPCSystemPromptExpanded:
         from models import CharacterConfig
 
         config = CharacterConfig(
-            name="TestBarbarian",
-            character_class="Barbarian",  # Not in CLASS_GUIDANCE
-            personality="Rage incarnate",
+            name="TestBloodHunter",
+            character_class="Blood Hunter",  # Not in CLASS_GUIDANCE
+            personality="Grim determination",
             color="#FF0000",
         )
 
         prompt = build_pc_system_prompt(config)
-        assert "TestBarbarian" in prompt
-        assert "Barbarian" in prompt
+        assert "TestBloodHunter" in prompt
+        assert "Blood Hunter" in prompt
         # Should use default guidance
         assert "class abilities" in prompt.lower()
 

@@ -377,6 +377,46 @@ CLASS_GUIDANCE: dict[str, str] = {
 - Channel divine power through faith
 - Consider the moral and spiritual aspects of situations
 - Offer guidance, healing, and wisdom""",
+    "Barbarian": """As a Barbarian, you:
+- Lead with instinct and raw physicality over careful planning
+- Express emotions intensely — rage, loyalty, joy, frustration
+- Distrust complex magic and prefer straightforward solutions
+- Protect your companions with fierce, unwavering determination""",
+    "Ranger": """As a Ranger, you:
+- Observe before acting — read the environment and track details others miss
+- Prefer pragmatic, efficient solutions over showy ones
+- Feel most at home in wilderness and uncomfortable in cities
+- Guard the party's flanks and scout ahead naturally""",
+    "Bard": """As a Bard, you:
+- Use charm, wit, and performance to navigate situations
+- Collect and share stories — everything is material for a tale
+- Inspire and support allies through words, music, and morale
+- Find creative, unconventional solutions through social skill""",
+    "Sorcerer": """As a Sorcerer, you:
+- Channel innate magical power — magic is part of your body, not learned from books
+- React instinctively to magical phenomena and feel magic viscerally
+- Balance raw power with the risk of losing control
+- Approach problems with intuitive magical insight rather than academic study""",
+    "Paladin": """As a Paladin, you:
+- Uphold your oath above all else — it defines your actions and choices
+- Protect the innocent and confront evil directly
+- Lead by example with courage and conviction
+- Wield divine power as an extension of your sworn purpose""",
+    "Warlock": """As a Warlock, you:
+- Navigate the tension between your patron's desires and your own goals
+- Use your limited but potent magic strategically and decisively
+- Keep secrets — your power comes with strings others may not understand
+- Seek forbidden knowledge and hidden truths""",
+    "Druid": """As a Druid, you:
+- See the world through the lens of natural balance and cycles
+- Prefer solutions that work with nature rather than against it
+- Shapeshift and adapt — flexibility is your greatest strength
+- Speak for creatures and places that cannot speak for themselves""",
+    "Monk": """As a Monk, you:
+- Act with discipline, precision, and economy of motion
+- Seek inner balance and approach conflict with centered calm
+- Prefer unarmed solutions and minimal use of material possessions
+- Observe deeply before striking decisively""",
 }
 
 # Default guidance for classes not in CLASS_GUIDANCE
@@ -1468,7 +1508,7 @@ def _build_pc_context(state: GameState, agent_name: str) -> str:
 
 
 # Maximum characters to include from the last DM narration in the turn prompt
-_DM_EXCERPT_MAX_CHARS = 300
+_DM_EXCERPT_MAX_CHARS = 600
 
 
 def _build_pc_turn_prompt(state: GameState, character_name: str) -> str:
@@ -1531,7 +1571,25 @@ def _build_pc_turn_prompt(state: GameState, character_name: str) -> str:
                 if name != character_name and name not in ("DM", "SHEET"):
                     other_pc_actions.append(name)
 
-    parts = [f'The DM said: "{excerpt}"']
+    # Build "previously on..." context from the character's long-term summary
+    agent_memories = state.get("agent_memories", {})
+    # Normalize character name to agent key (lowercase, no spaces)
+    agent_key = character_name.lower().replace(" ", "_")
+    pc_memory = agent_memories.get(agent_key)
+    previously_on = ""
+    if pc_memory and pc_memory.long_term_summary:
+        # Extract just the first 2 sentences for a brief recap
+        summary = pc_memory.long_term_summary.strip()
+        sentences = summary.replace(".\n", ". ").split(". ")
+        recap = ". ".join(sentences[:2]).strip()
+        if recap and not recap.endswith("."):
+            recap += "."
+        previously_on = f"Previously: {recap}"
+
+    parts = []
+    if previously_on:
+        parts.append(previously_on)
+    parts.append(f'The DM said: "{excerpt}"')
     if other_pc_actions:
         parts.append(f"{', '.join(other_pc_actions)} already responded.")
     parts.append(

@@ -1049,6 +1049,7 @@ class TestModelConstants:
         """Test that GEMINI_MODELS contains valid model names."""
         from config import GEMINI_MODELS
 
+        assert "gemini-3-flash-preview" in GEMINI_MODELS
         assert "gemini-1.5-flash" in GEMINI_MODELS
         assert "gemini-1.5-pro" in GEMINI_MODELS
         assert "gemini-2.0-flash" in GEMINI_MODELS
@@ -1145,6 +1146,7 @@ class TestProviderChangeHandlerExtended:
         overrides = mock_st.session_state["agent_model_overrides"]
         assert overrides["dm"]["provider"] == "gemini"
         assert overrides["dm"]["model"] in [
+            "gemini-3-flash-preview",
             "gemini-1.5-flash",
             "gemini-1.5-pro",
             "gemini-2.0-flash",

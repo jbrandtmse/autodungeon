@@ -624,8 +624,8 @@ class TestGameStateInitialization:
 
         state = populate_game_state()
 
-        # DM should have 8000 (from dm.yaml)
-        assert state["agent_memories"]["dm"].token_limit == 8000
+        # DM should have 32000 (from config/characters/dm.yaml)
+        assert state["agent_memories"]["dm"].token_limit == 32000
 
         # PC agents should have their configured limits
         for char_name, char_config in state["characters"].items():

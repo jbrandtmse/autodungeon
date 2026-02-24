@@ -1379,7 +1379,8 @@ class TestContextManagerErrorHandling:
         """Test that internal LLM errors in compress_buffer return empty string.
 
         The MemoryManager.compress_buffer method catches LLM errors internally
-        and returns "" without modifying state. This is the graceful degradation.
+        and returns "". When summarization fails, the emergency buffer trim
+        drops the oldest entries to prevent unbounded growth.
         """
         from unittest.mock import MagicMock, patch
 
@@ -1407,8 +1408,10 @@ class TestContextManagerErrorHandling:
 
         # Should return empty string (graceful degradation)
         assert result == ""
-        # Buffer should be unchanged
-        assert len(state["agent_memories"]["dm"].short_term_buffer) == 5
+        # Emergency buffer trim keeps only the most recent entries (retain_count=3)
+        buffer = state["agent_memories"]["dm"].short_term_buffer
+        assert len(buffer) == 3
+        assert buffer == ["Event 3", "Event 4", "Event 5"]
 
         # Clean up
         memory._summarizer_cache.clear()

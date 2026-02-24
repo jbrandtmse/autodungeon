@@ -118,6 +118,36 @@ async def _aio_load_yaml_defaults() -> dict[str, Any]:
 
 
 # =============================================================================
+# In-Memory State Helper (Image Generation)
+# =============================================================================
+
+
+async def _get_state_for_image_gen(
+    session_id: str, request: Request
+) -> dict[str, Any]:
+    """Get game state for image generation, preferring in-memory engine state.
+
+    Falls back to loading the latest checkpoint from disk when no active
+    engine exists (e.g., viewing a historical session).
+    """
+    engines: dict[str, Any] = getattr(request.app.state, "engines", {})
+    engine = engines.get(session_id)
+    if engine is not None and getattr(engine, "state", None) is not None:
+        return engine.state  # Zero I/O - already in memory
+
+    # Fallback: load from disk
+    latest_turn = await _aio_get_latest_checkpoint(session_id)
+    if latest_turn is None:
+        raise HTTPException(status_code=400, detail="Session has no checkpoints")
+    state = await _aio_load_checkpoint(session_id, latest_turn)
+    if state is None:
+        raise HTTPException(
+            status_code=500, detail="Failed to load latest checkpoint"
+        )
+    return state
+
+
+# =============================================================================
 # Model Listing Cache
 # =============================================================================
 
@@ -2541,6 +2571,7 @@ async def _generate_image_background(
 )
 async def generate_current_scene_image(
     session_id: str,
+    request: Request,
     body: ImageGenerateRequest | None = None,
 ) -> ImageGenerateAccepted:
     """Generate an image of the current scene.
@@ -2571,14 +2602,8 @@ async def generate_current_scene_image(
             f"current tasks to complete.",
         )
 
-    # Load game state
-    latest_turn = await _aio_get_latest_checkpoint(session_id)
-    if latest_turn is None:
-        raise HTTPException(status_code=400, detail="Session has no checkpoints")
-
-    state = await _aio_load_checkpoint(session_id, latest_turn)
-    if state is None:
-        raise HTTPException(status_code=500, detail="Failed to load latest checkpoint")
+    # Load game state (prefer in-memory engine state to avoid large checkpoint I/O)
+    state = await _get_state_for_image_gen(session_id, request)
 
     log = state.get("ground_truth_log", [])
     if not log:
@@ -2638,6 +2663,7 @@ async def generate_current_scene_image(
 async def generate_turn_image(
     session_id: str,
     turn_number: int,
+    request: Request,
 ) -> ImageGenerateAccepted:
     """Generate an image for a specific turn.
 
@@ -2667,14 +2693,8 @@ async def generate_turn_image(
             f"current tasks to complete.",
         )
 
-    # Load game state
-    latest_turn = await _aio_get_latest_checkpoint(session_id)
-    if latest_turn is None:
-        raise HTTPException(status_code=400, detail="Session has no checkpoints")
-
-    state = await _aio_load_checkpoint(session_id, latest_turn)
-    if state is None:
-        raise HTTPException(status_code=500, detail="Failed to load latest checkpoint")
+    # Load game state (prefer in-memory engine state to avoid large checkpoint I/O)
+    state = await _get_state_for_image_gen(session_id, request)
 
     log = state.get("ground_truth_log", [])
     if not log:
@@ -2877,6 +2897,7 @@ async def _scan_and_generate_best_image(
 )
 async def generate_best_scene_image(
     session_id: str,
+    request: Request,
 ) -> BestSceneAccepted:
     """Generate an image of the most visually dramatic scene in the session.
 
@@ -2908,14 +2929,8 @@ async def generate_best_scene_image(
             f"current tasks to complete.",
         )
 
-    # Load game state
-    latest_turn = await _aio_get_latest_checkpoint(session_id)
-    if latest_turn is None:
-        raise HTTPException(status_code=400, detail="Session has no checkpoints")
-
-    state = await _aio_load_checkpoint(session_id, latest_turn)
-    if state is None:
-        raise HTTPException(status_code=500, detail="Failed to load latest checkpoint")
+    # Load game state (prefer in-memory engine state to avoid large checkpoint I/O)
+    state = await _get_state_for_image_gen(session_id, request)
 
     log = state.get("ground_truth_log", [])
     if not log:

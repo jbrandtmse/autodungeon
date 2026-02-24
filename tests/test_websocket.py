@@ -210,13 +210,12 @@ class TestConnectionLifecycle:
             assert "Invalid session ID" in data["message"]
             assert data["recoverable"] is False
 
-    def test_connect_session_not_found(self, empty_client: TestClient) -> None:
-        """Non-existent session closes with 4004 and error message."""
+    def test_connect_session_auto_creates_engine(self, empty_client: TestClient) -> None:
+        """Connecting to a session with no engine auto-creates one."""
         with empty_client.websocket_connect("/ws/game/999") as ws:
             data = ws.receive_json()
-            assert data["type"] == "error"
-            assert "not found" in data["message"]
-            assert data["recoverable"] is False
+            # Auto-create sends initial session_state, not an error
+            assert data["type"] == "session_state"
 
     def test_connect_registers_in_connection_manager(
         self, client_with_engine: TestClient, mock_engine: MagicMock

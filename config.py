@@ -661,7 +661,7 @@ def validate_ollama_connection(base_url: str) -> ValidationResult:
 # These represent the maximum tokens a model can accept as input context
 MODEL_MAX_CONTEXT: dict[str, int] = {
     # Gemini models (as of 2024-2025)
-    "gemini-3-flash-preview": 1_000_000,
+    "gemini-1.5-flash": 1_000_000,
     "gemini-1.5-pro": 2_000_000,
     "gemini-2.0-flash": 1_000_000,
     "gemini-2.5-flash-preview-05-20": 1_000_000,
@@ -845,11 +845,11 @@ def get_default_token_limit(provider: str, model: str) -> int:
 # Model lists by provider (static for Gemini/Claude, dynamic for Ollama)
 GEMINI_MODELS: list[str] = [
     "gemini-3-flash-preview",
+    "gemini-1.5-flash",
     "gemini-1.5-pro",
     "gemini-2.0-flash",
     "gemini-2.5-flash-preview-05-20",
     "gemini-2.5-pro-preview-05-06",
-    "gemini-3-flash-preview",
     "gemini-3-pro-preview",
 ]
 
