@@ -69,6 +69,14 @@ user-settings.yaml
 tests/integration_config.py
 test-screenshots/
 
+# Temp/debug snapshots
+tmp_*.json
+tmp_*.txt
+snap-*.txt
+snapshot-*.txt
+monitor_log.txt
+monitor_output.txt
+
 # Frontend (SvelteKit)
 frontend/node_modules/
 frontend/build/
