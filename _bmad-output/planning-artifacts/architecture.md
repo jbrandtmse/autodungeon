@@ -951,6 +951,7 @@ POST /api/sessions/{session_id}/images/generate-turn/{turn_number}  # Generate i
 GET  /api/sessions/{session_id}/images                     # List all generated images
 GET  /api/sessions/{session_id}/images/{image_id}/download # Download single image (PNG)
 GET  /api/sessions/{session_id}/images/download-all        # Bulk download as zip
+GET  /api/sessions/images/summary                          # Lightweight summary: [{session_id, session_name, image_count}]
 ```
 
 **Configuration Extension** (`config/defaults.yaml`):

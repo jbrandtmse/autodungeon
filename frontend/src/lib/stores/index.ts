@@ -24,6 +24,8 @@ export {
 	generatingTurns,
 	generatingBest,
 	galleryOpen,
+	lightboxIndex,
+	compareImages,
 	handleImageReady,
 	startGeneration,
 	startBestGeneration,

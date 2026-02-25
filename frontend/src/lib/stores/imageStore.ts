@@ -14,6 +14,21 @@ export const generatingBest = writable<boolean>(false);
 /** Gallery panel visibility. */
 export const galleryOpen = writable<boolean>(false);
 
+/** Index of the image currently open in lightbox (null = closed). */
+export const lightboxIndex = writable<number | null>(null);
+
+/**
+ * Sort comparator for gallery images: ascending by turn_number,
+ * then by generated_at timestamp for stable ordering when multiple
+ * images share the same turn_number (e.g., "current" + "best" mode).
+ * MUST be used by both GalleryGrid and ImageLightbox to keep
+ * lightboxIndex consistent between the two components.
+ */
+export function compareImages(a: SceneImage, b: SceneImage): number {
+	if (a.turn_number !== b.turn_number) return a.turn_number - b.turn_number;
+	return a.generated_at.localeCompare(b.generated_at);
+}
+
 /**
  * Called when a WebSocket image_ready event arrives.
  * Appends the image and clears generation state.
@@ -73,4 +88,5 @@ export function resetImageStore(): void {
 	generatingTurns.set(new Set());
 	generatingBest.set(false);
 	galleryOpen.set(false);
+	lightboxIndex.set(null);
 }

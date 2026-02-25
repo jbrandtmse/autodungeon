@@ -8,8 +8,10 @@ inputDocuments:
   - 'planning-artifacts/epics-v1.1.md'
 date: 2026-01-24
 lastUpdated: 2026-02-01
-lastEdited: '2026-02-11'
+lastEdited: '2026-02-24'
 editHistory:
+  - date: '2026-02-24'
+    changes: 'Illustration Gallery Enhancement: Replaced side-panel gallery with centered modal + lightbox, added cross-session browsing, adventures list entry point, keyboard shortcuts. Per Sprint Change Proposal 2026-02-24.'
   - date: '2026-02-14'
     changes: 'AI Scene Image Generation: Added v2.1 feature section for image generation UI, turn number display, image download/export. Per Sprint Change Proposal 2026-02-14.'
   - date: '2026-02-11'
@@ -28,6 +30,9 @@ v2_1_features:
   - turn-number-display
   - image-generation-ui
   - image-download-export
+  - illustration-gallery-modal
+  - image-lightbox
+  - cross-session-gallery
 ---
 
 # UX Design Specification - autodungeon
@@ -3474,44 +3479,131 @@ Turn numbers are clickable. Hovering shows a camera icon overlay:
 }
 ```
 
-### Image Gallery Panel
+### Illustration Gallery (Enhanced)
 
-**Access via:** "View Image Gallery" in illustration menu or sidebar
+**Access via:** "View Gallery" in illustration menu, `G` keyboard shortcut, or gallery icon on adventures list session cards
 
-**Layout:** Slide-out panel from right (520px width)
+#### Gallery Modal (GalleryModal)
+
+**Layout:** Centered overlay, 80vw x 80vh, dark backdrop (replaces previous 520px side panel)
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│ [X]  🖼️ Scene Gallery                        [⬇️ Download All]│
-├──────────────────────────────────────────────────────────────┤
-│                                                              │
-│  ┌─────────────────────┐  ┌─────────────────────┐           │
-│  │                     │  │                     │           │
-│  │  [Scene Image 1]    │  │  [Scene Image 2]    │           │
-│  │                     │  │                     │           │
-│  │  Turn 42 • Current  │  │  Turn 28 • Best     │           │
-│  │  [⬇️]               │  │  [⬇️]               │           │
-│  └─────────────────────┘  └─────────────────────┘           │
-│                                                              │
-│  ┌─────────────────────┐  ┌─────────────────────┐           │
-│  │                     │  │                     │           │
-│  │  [Scene Image 3]    │  │  [Scene Image 4]    │           │
-│  │                     │  │                     │           │
-│  │  Turn 15 • Specific │  │  Turn 8 • Current   │           │
-│  │  [⬇️]               │  │  [⬇️]               │           │
-│  └─────────────────────┘  └─────────────────────┘           │
-│                                                              │
-└──────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│ [Session Name       ▼]                      [⬇️ Download All]  [X]      │
+├──────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐        │
+│  │            │  │            │  │            │  │            │        │
+│  │ [Thumb 1]  │  │ [Thumb 2]  │  │ [Thumb 3]  │  │ [Thumb 4]  │        │
+│  │            │  │            │  │            │  │            │        │
+│  │ T8 Current │  │ T15 Best   │  │ T28 Spec.  │  │ T42 Curr.  │        │
+│  └────────────┘  └────────────┘  └────────────┘  └────────────┘        │
+│                                                                          │
+│  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐        │
+│  │            │  │            │  │            │  │            │        │
+│  │ [Thumb 5]  │  │ [Thumb 6]  │  │ [Thumb 7]  │  │ [Thumb 8]  │        │
+│  │            │  │            │  │            │  │            │        │
+│  │ T55 Curr.  │  │ T71 Best   │  │ T89 Spec.  │  │ T102 Curr. │        │
+│  └────────────┘  └────────────┘  └────────────┘  └────────────┘        │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
+
+**Session Switcher Dropdown:**
+- Top-left of gallery header
+- Lists all sessions with images: "Session Name (N images)"
+- Current session pre-selected and highlighted
+- Selecting switches gallery to that session's images
+
+**Thumbnail Grid (GalleryGrid):**
+- 3-4 responsive columns of square-cropped thumbnails
+- Sorted chronologically by turn_number ascending
+- Hover: tooltip showing generation prompt text + formatted timestamp
+- Each card: turn number badge, generation mode badge (current/best/specific), timestamp
+
+**Empty State:** Friendly message when session has no illustrations
+
+#### Image Lightbox (ImageLightbox)
+
+**Triggered by:** Clicking any thumbnail in gallery grid (or pressing Enter on focused thumbnail)
+
+**Layout:** Full-screen overlay above gallery modal
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│                                                              [⬇️] [X]   │
+│                                                                          │
+│                                                                          │
+│   [◀]              ┌────────────────────────┐              [▶]          │
+│                    │                        │                            │
+│                    │                        │                            │
+│                    │    Full-Size Image     │                            │
+│                    │                        │                            │
+│                    │                        │                            │
+│                    └────────────────────────┘                            │
+│                                                                          │
+│  Turn 42 • Current Scene • 2026-02-14 14:30                             │
+│  Prompt: "Digital fantasy painting. In a volcanic mine..."              │
+│  Model: gemini-3-pro-image-preview                                      │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+**Features:**
+- Large image centered, max-width/max-height constrained to viewport
+- Download button (full-resolution PNG)
+- Metadata panel: turn number, prompt text, generation mode, timestamp, model
+- Left/right arrow buttons + keyboard navigation for prev/next
+- Close: ESC, backdrop click, or X button
+
+#### Adventures List Entry Point
+
+**Location:** Session cards on adventures list page (`+page.svelte`)
+
+- Gallery icon button on each session card (visible only when session has images)
+- Small image count badge (e.g., "12 images")
+- Click opens gallery modal pre-loaded with that session's images
+- Session switcher works from this entry point too
 
 **CSS Specification:**
 
 ```css
-.image-gallery {
+.gallery-modal {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    background: rgba(0, 0, 0, 0.8);
+}
+
+.gallery-content {
+    width: 80vw;
+    height: 80vh;
+    background: var(--bg-primary);
+    border-radius: 12px;
+    border: 1px solid var(--bg-message);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.gallery-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--space-md);
+    border-bottom: 1px solid var(--bg-message);
+}
+
+.gallery-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
     gap: var(--space-md);
     padding: var(--space-md);
+    overflow-y: auto;
+    flex: 1;
 }
 
 .gallery-card {
@@ -3520,6 +3612,7 @@ Turn numbers are clickable. Hovering shows a camera icon overlay:
     overflow: hidden;
     border: 1px solid var(--bg-message);
     transition: all 0.15s ease;
+    cursor: pointer;
 }
 
 .gallery-card:hover {
@@ -3528,9 +3621,9 @@ Turn numbers are clickable. Hovering shows a camera icon overlay:
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
-.gallery-image {
+.gallery-thumbnail {
     width: 100%;
-    aspect-ratio: 16 / 9;
+    aspect-ratio: 1;
     object-fit: cover;
 }
 
@@ -3556,6 +3649,61 @@ Turn numbers are clickable. Hovering shows a camera icon overlay:
     color: var(--accent-warm);
 }
 
+.gallery-tooltip {
+    position: absolute;
+    background: var(--bg-primary);
+    border: 1px solid var(--accent-warm);
+    border-radius: 6px;
+    padding: var(--space-sm);
+    font-size: 12px;
+    max-width: 300px;
+    z-index: 1001;
+    pointer-events: none;
+}
+
+.lightbox-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1100;
+    background: rgba(0, 0, 0, 0.95);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+.lightbox-image {
+    max-width: 90vw;
+    max-height: 70vh;
+    object-fit: contain;
+    border-radius: 4px;
+}
+
+.lightbox-nav-btn {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    background: rgba(255, 255, 255, 0.1);
+    border: none;
+    color: var(--text-primary);
+    font-size: 24px;
+    padding: 12px 16px;
+    cursor: pointer;
+    border-radius: 4px;
+}
+
+.lightbox-nav-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.lightbox-meta {
+    padding: var(--space-md);
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 13px;
+    max-width: 600px;
+}
+
 .bulk-download-btn {
     background: transparent;
     border: 1px solid var(--accent-warm);
@@ -3570,6 +3718,15 @@ Turn numbers are clickable. Hovering shows a camera icon overlay:
 .bulk-download-btn:hover {
     background: var(--accent-warm);
     color: var(--bg-primary);
+}
+
+.session-image-badge {
+    font-family: JetBrains Mono;
+    font-size: 11px;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 4px;
 }
 ```
 
@@ -3606,10 +3763,16 @@ Turn numbers are clickable. Hovering shows a camera icon overlay:
 
 ### Keyboard Shortcuts (v2.1)
 
-| Shortcut | Action |
-|----------|--------|
-| `I` | Open illustration menu |
-| `G` | Open image gallery |
+| Shortcut | Context | Action |
+|----------|---------|--------|
+| `I` | Game page | Open illustration menu |
+| `G` | Game page | Toggle gallery open/close |
+| `ESC` | Gallery open | Close gallery (or close lightbox first) |
+| `ESC` | Lightbox open | Close lightbox, return to grid |
+| `Left` / `Right` | Lightbox open | Previous / next image |
+| `Enter` | Thumbnail focused | Open lightbox |
+| `D` | Lightbox open | Download current image |
+| `Tab` | Gallery | Focus trap within modal |
 
 ### Accessibility
 
@@ -3617,6 +3780,11 @@ Turn numbers are clickable. Hovering shows a camera icon overlay:
 |---------|-------------------|
 | Scene Image | `alt` text generated from image prompt |
 | Download Button | `aria-label="Download scene image for Turn N"` |
-| Gallery | `role="grid"` with image cards as grid items |
+| Gallery Modal | `role="dialog"`, `aria-modal="true"`, `aria-label="Illustration Gallery"` |
+| Gallery Grid | `role="grid"` with image cards as grid items |
+| Gallery Thumbnail | `role="button"`, `aria-label="View Turn N illustration"` |
+| Lightbox | `role="dialog"`, `aria-modal="true"`, focus trap |
+| Lightbox Nav | `aria-label="Previous image"` / `aria-label="Next image"` |
+| Session Switcher | `aria-label="Switch gallery session"` |
 | Turn Number Link | `aria-label="Illustrate Turn N"`, `role="button"` |
 | Generation Loading | `aria-live="polite"` for status updates |

@@ -209,11 +209,13 @@ development_status:
   # v2.1 AI SCENE IMAGE GENERATION
   # ===========================================
 
-  # Epic 17: AI Scene Image Generation (6 stories)
-  epic-17: done
+  # Epic 17: AI Scene Image Generation (8 stories)
+  epic-17: in-progress
   17-1-turn-number-display: done
   17-2-image-generation-service: done
   17-3-current-scene-specific-turn-api: done
   17-4-best-scene-scanner: done
   17-5-image-generation-ui: done
   17-6-image-export-download: done
+  17-7-enhanced-gallery-lightbox: review
+  17-8-cross-session-gallery: backlog

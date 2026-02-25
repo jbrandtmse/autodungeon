@@ -4,7 +4,7 @@
 
 This document provides the epic and story breakdown for autodungeon v2.1: AI Scene Image Generation, building on the completed v2.0 (Epics 1-16).
 
-**Summary:** 1 New Epic, 6 Stories
+**Summary:** 1 New Epic, 8 Stories
 
 ## New Functional Requirements
 
@@ -19,11 +19,19 @@ This document provides the epic and story breakdown for autodungeon v2.1: AI Sce
 - FR91: User can download an individual generated image or bulk-download all images for a session
 - FR92: Generated images are stored in the campaign directory for persistence
 
+**Illustration Gallery (FR93-FR97):**
+
+- FR93: User can browse all session illustrations in a modal gallery with thumbnail grid, hover-to-view prompt, and card metadata (turn number, generation mode, timestamp)
+- FR94: User can click a gallery thumbnail to open a full-size lightbox view with image navigation (prev/next), metadata panel, and download button
+- FR95: User can switch between sessions within the gallery modal to browse illustrations from other adventures
+- FR96: User can access the illustration gallery from the adventures list page, with image count badges on session cards
+- FR97: Backend provides a lightweight session image summary endpoint for gallery population and image count badges
+
 ## Epic List
 
 | Epic | Title | Stories | FRs |
 |------|-------|---------|-----|
-| 17 | AI Scene Image Generation | 6 | 8 |
+| 17 | AI Scene Image Generation | 8 | 13 |
 
 ---
 
@@ -33,7 +41,7 @@ This document provides the epic and story breakdown for autodungeon v2.1: AI Sce
 
 **User Outcome:** "I'm watching an epic battle scene unfold. I click 'Illustrate Current Scene' and 10 seconds later there's a gorgeous fantasy painting of the scene right there in the narrative. I download it and send it to my D&D friends."
 
-**FRs Covered:** FR85-FR92 (8 FRs)
+**FRs Covered:** FR85-FR97 (13 FRs)
 
 **Dependencies:**
 - `google-genai` Python package (new dependency)
@@ -45,8 +53,9 @@ This document provides the epic and story breakdown for autodungeon v2.1: AI Sce
 ```
 17-1 (Turn Numbers) ---------------+
                                     +---> 17-5 (UI) ---> 17-6 (Export)
-17-2 (Service) ---> 17-3 (API) ---+
-                +---> 17-4 (Scanner) ---> 17-5
+17-2 (Service) ---> 17-3 (API) ---+                          |
+                +---> 17-4 (Scanner) ---> 17-5               v
+                                                   17-7 (Gallery) ---> 17-8 (Cross-Session)
 ```
 
 ---
@@ -338,6 +347,132 @@ So that **I can share campaign illustrations with friends or use them for conten
 
 ---
 
+### Story 17.7: Enhanced Gallery with Lightbox
+
+As a **user browsing illustrations**,
+I want **a modal gallery with thumbnail grid, hover prompts, and full-size lightbox view**,
+So that **I can browse, preview, and download my campaign illustrations in a rich visual experience**.
+
+**Acceptance Criteria:**
+
+**Given** the gallery is opened (via `G` shortcut or IllustrateMenu "View Gallery")
+**When** displayed
+**Then** it opens as a centered modal overlay (80vw x 80vh) with dark backdrop, replacing the current 520px side panel
+
+**Given** the gallery modal body
+**When** rendered
+**Then** it displays a responsive thumbnail grid (3-4 columns) of square-cropped image previews sorted by turn_number ascending
+
+**Given** a thumbnail in the gallery grid
+**When** hovered
+**Then** a tooltip appears showing the generation prompt text and formatted timestamp
+
+**Given** a thumbnail card in the gallery grid
+**When** rendered
+**Then** it shows turn number badge, generation mode badge (current/best/specific), and formatted timestamp
+
+**Given** a thumbnail in the gallery grid
+**When** clicked (or Enter pressed while focused)
+**Then** a full-screen lightbox overlay opens above the gallery modal with:
+- Large image display (max-width/max-height constrained to viewport)
+- Download button for the full-resolution PNG
+- Metadata panel showing turn number, prompt text, generation mode, timestamp, and model
+- Left/right arrow navigation (keyboard arrows + clickable buttons) for prev/next image
+- Close via ESC key, backdrop click, or X button
+
+**Given** the lightbox is open
+**When** user presses ESC
+**Then** the lightbox closes, returning to the gallery grid (not closing the gallery entirely)
+
+**Given** the lightbox is open
+**When** user presses Left/Right arrow keys
+**Then** the previous/next image is displayed
+
+**Given** the lightbox is open
+**When** user presses `D`
+**Then** the current image downloads as a full-resolution PNG
+
+**Given** the gallery modal
+**When** rendered
+**Then** focus is trapped within the modal; all interactive elements have aria-labels
+
+**Given** a session with no illustrations
+**When** the gallery opens
+**Then** a friendly empty state message is displayed
+
+**Given** the gallery modal header
+**When** rendered
+**Then** the "Download All" button is present (retained from current implementation)
+
+**Technical Notes:**
+- Refactor existing `ImageGallery.svelte` (370 lines) into: `GalleryModal.svelte` (modal wrapper + header), `GalleryGrid.svelte` (thumbnail grid + hover tooltips), `ImageLightbox.svelte` (full-size view + navigation)
+- Add `lightboxIndex` store to `imageStore.ts` (number | null — index of currently viewed image, null = lightbox closed)
+- Reuse existing `getImageDownloadUrl()` for lightbox download button
+- Existing `G` keyboard shortcut and IllustrateMenu "View Gallery" entry point remain unchanged
+
+**FRs:** FR93, FR94
+
+**Dependencies:** Story 17.5 (existing UI), Story 17.6 (existing export)
+
+---
+
+### Story 17.8: Cross-Session Gallery & Adventures Entry Point
+
+As a **user with multiple adventures**,
+I want **to browse illustrations across sessions and access the gallery from the adventures list**,
+So that **I can revisit campaign artwork without entering each session individually**.
+
+**Acceptance Criteria:**
+
+**Given** the gallery modal header
+**When** rendered
+**Then** a session switcher dropdown appears showing the current session name
+
+**Given** the session switcher dropdown
+**When** opened
+**Then** it lists all sessions that have at least one illustration, in format: "Session Name (N images)"
+
+**Given** the session switcher dropdown
+**When** a different session is selected
+**Then** the gallery loads that session's images via `loadSessionImages(newSessionId)`
+
+**Given** the session switcher dropdown
+**When** rendered
+**Then** the current session is highlighted/pre-selected
+
+**Given** the API
+**When** `GET /api/sessions/images/summary` is called
+**Then** it returns `[{session_id: str, session_name: str, image_count: int}]` for all sessions with images
+
+**Given** the adventures list page (`+page.svelte`)
+**When** rendered
+**Then** each session card that has images shows a gallery icon button with small image count badge (e.g., "12 images")
+
+**Given** a session card on the adventures list
+**When** the user clicks the gallery icon button
+**Then** the gallery modal opens pre-loaded with that session's images
+
+**Given** the gallery modal component
+**When** mounted
+**Then** it works on both the game page and adventures list page (shared component)
+
+**Given** the session switcher
+**When** used from either entry point
+**Then** it can navigate to any session's illustrations regardless of which page the gallery was opened from
+
+**Technical Notes:**
+- Add `gallerySessionId` store (string | null) and `sessionImageSummaries` store to `imageStore.ts`
+- New API endpoint in `api/routes.py`: scan `campaigns/` directory for sessions with images subdirectory, count JSON metadata files, return lightweight summary
+- Update `SessionCard.svelte` to show gallery button + image count badge (conditionally, only when image_count > 0)
+- Import and mount `GalleryModal` on adventures list `+page.svelte`
+- Session summary data can be fetched once when gallery opens and cached in the store
+
+**FRs:** FR95, FR96, FR97
+
+**Dependencies:** Story 17.7 (enhanced gallery modal must exist first)
+
+---
+
 ## Implementation Priority
 
 **Recommended Order:**
@@ -348,10 +483,13 @@ So that **I can share campaign illustrations with friends or use them for conten
 4. **Story 17.4** (Best Scene Scanner) — Depends on 17.2
 5. **Story 17.5** (Image Generation UI) — Depends on 17.1, 17.3, 17.4
 6. **Story 17.6** (Image Export & Download) — Depends on 17.5
+7. **Story 17.7** (Enhanced Gallery with Lightbox) — Depends on 17.5, 17.6
+8. **Story 17.8** (Cross-Session Gallery & Adventures Entry Point) — Depends on 17.7
 
 **Notes:**
 - Stories 17.1 and 17.2 can be developed in parallel
 - Stories 17.3 and 17.4 can be developed in parallel (both depend on 17.2)
+- Stories 17.7 and 17.8 must be sequential (17.8 builds on 17.7's refactored components)
 
 ---
 

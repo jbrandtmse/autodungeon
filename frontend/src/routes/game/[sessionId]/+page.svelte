@@ -4,11 +4,11 @@
 	import NarrativePanel from '$lib/components/NarrativePanel.svelte';
 	import ForkComparison from '$lib/components/ForkComparison.svelte';
 	import CharacterSheetModal from '$lib/components/CharacterSheetModal.svelte';
-	import ImageGallery from '$lib/components/ImageGallery.svelte';
+	import GalleryModal from '$lib/components/GalleryModal.svelte';
 	import { createGameConnection, type GameConnection } from '$lib/ws';
 	import { connectionStatus, lastError, wsSend, sendCommand } from '$lib/stores/connectionStore';
 	import { handleServerMessage, resetStores, gameState } from '$lib/stores/gameStore';
-	import { galleryOpen, loadSessionImages } from '$lib/stores/imageStore';
+	import { galleryOpen, lightboxIndex, loadSessionImages } from '$lib/stores/imageStore';
 	import { uiState } from '$lib/stores';
 
 	const sessionId = $derived($page.params.sessionId ?? '');
@@ -47,7 +47,10 @@
 		} else if (event.key === 'i' || event.key === 'I') {
 			narrativePanelRef?.toggleIllustrate();
 		} else if (event.key === 'g' || event.key === 'G') {
-			galleryOpen.update((v) => !v);
+			galleryOpen.update((v) => {
+				if (v) lightboxIndex.set(null); // Clear lightbox when closing gallery via shortcut
+				return !v;
+			});
 		}
 	}
 
@@ -124,7 +127,7 @@
 	onClose={closeCharacterSheet}
 />
 
-<ImageGallery />
+<GalleryModal />
 
 <style>
 	.game-view {

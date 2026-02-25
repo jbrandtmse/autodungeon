@@ -3,6 +3,8 @@ stepsCompleted: ['step-01-init', 'step-02-discovery', 'step-03-success', 'step-0
 workflowCompleted: '2026-01-24'
 lastEdited: '2026-02-11'
 editHistory:
+  - date: '2026-02-24'
+    changes: 'Illustration Gallery Enhancement: Added FR93-FR97, updated growth features table. Per Sprint Change Proposal 2026-02-24.'
   - date: '2026-02-14'
     changes: 'AI Scene Image Generation: Added FR85-FR92, v2.1 growth feature. Per Sprint Change Proposal 2026-02-14.'
   - date: '2026-02-11'
@@ -680,7 +682,7 @@ The goal is to prove that watching AI agents play D&D together is genuinely fun 
 - FR83: User can compare forks side-by-side to see divergent narratives
 - FR84: User can resolve forks by selecting one branch to continue as canonical
 
-### AI Scene Illustration (v2.1)
+### AI Scene Illustration & Gallery (v2.1)
 
 - FR85: User can generate an AI illustration of the current scene
 - FR86: User can generate an AI illustration of the "best scene" from the entire session, using a configurable LLM to scan/analyze session history
@@ -690,6 +692,14 @@ The goal is to prove that watching AI agents play D&D together is genuinely fun 
 - FR90: User can configure which LLM model scans session history for "best scene" selection
 - FR91: User can download an individual generated image or bulk-download all images for a session
 - FR92: Generated images are stored in the campaign directory for persistence
+
+**Illustration Gallery (v2.1):**
+
+- FR93: User can browse all session illustrations in a modal gallery with thumbnail grid, hover-to-view prompt, and card metadata (turn number, generation mode, timestamp)
+- FR94: User can click a gallery thumbnail to open a full-size lightbox view with image navigation (prev/next), metadata panel, and download button
+- FR95: User can switch between sessions within the gallery modal to browse illustrations from other adventures
+- FR96: User can access the illustration gallery from the adventures list page, with image count badges on session cards
+- FR97: Backend provides a lightweight session image summary endpoint for gallery population and image count badges
 
 ## Non-Functional Requirements
 

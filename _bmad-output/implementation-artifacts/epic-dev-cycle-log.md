@@ -2296,3 +2296,19 @@ Completed in separate cycle sessions (not logged here).
 - Run epic retrospective: /bmad-bmm-retrospective
 - Check sprint status: /bmad-bmm-sprint-status
 - Visually verify the full flow: start a session, run a few turns, generate images, download
+
+---
+
+# Epic Development Cycle Log - 2026-02-24
+
+**Project:** autodungeon
+**Epic:** 17 - AI Scene Image Generation (Gallery Enhancement)
+**Started:** 2026-02-24
+**Stories to Process:** 17-7-enhanced-gallery-lightbox (backlog), 17-8-cross-session-gallery (backlog)
+
+## Cycle Overview
+
+| Story | Status | Phase |
+|-------|--------|-------|
+| 17-7-enhanced-gallery-lightbox | backlog | pending |
+| 17-8-cross-session-gallery | backlog | pending |

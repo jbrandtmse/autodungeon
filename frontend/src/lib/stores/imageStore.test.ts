@@ -5,6 +5,8 @@ import {
   generatingTurns,
   generatingBest,
   galleryOpen,
+  lightboxIndex,
+  compareImages,
   handleImageReady,
   startGeneration,
   startBestGeneration,
@@ -109,6 +111,7 @@ describe('imageStore', () => {
       startGeneration(3);
       startBestGeneration();
       galleryOpen.set(true);
+      lightboxIndex.set(2);
 
       resetImageStore();
 
@@ -116,6 +119,7 @@ describe('imageStore', () => {
       expect(get(generatingTurns).size).toBe(0);
       expect(get(generatingBest)).toBe(false);
       expect(get(galleryOpen)).toBe(false);
+      expect(get(lightboxIndex)).toBeNull();
     });
   });
 
@@ -159,6 +163,51 @@ describe('imageStore', () => {
       expect(get(galleryOpen)).toBe(true);
       galleryOpen.set(false);
       expect(get(galleryOpen)).toBe(false);
+    });
+  });
+
+  describe('lightboxIndex', () => {
+    it('defaults to null', () => {
+      expect(get(lightboxIndex)).toBeNull();
+    });
+
+    it('can be set to a number', () => {
+      lightboxIndex.set(3);
+      expect(get(lightboxIndex)).toBe(3);
+    });
+
+    it('can be set back to null', () => {
+      lightboxIndex.set(5);
+      lightboxIndex.set(null);
+      expect(get(lightboxIndex)).toBeNull();
+    });
+
+    it('is cleared by resetImageStore', () => {
+      lightboxIndex.set(2);
+      resetImageStore();
+      expect(get(lightboxIndex)).toBeNull();
+    });
+  });
+
+  describe('compareImages', () => {
+    it('sorts by turn_number ascending', () => {
+      const a = makeSceneImage({ turn_number: 10, generated_at: '2026-01-01T00:00:00Z' });
+      const b = makeSceneImage({ turn_number: 5, generated_at: '2026-01-01T00:00:00Z' });
+      expect(compareImages(a, b)).toBeGreaterThan(0);
+      expect(compareImages(b, a)).toBeLessThan(0);
+    });
+
+    it('uses generated_at as tiebreaker for same turn_number', () => {
+      const a = makeSceneImage({ turn_number: 5, generated_at: '2026-02-14T14:00:00Z' });
+      const b = makeSceneImage({ turn_number: 5, generated_at: '2026-02-14T12:00:00Z' });
+      expect(compareImages(a, b)).toBeGreaterThan(0);
+      expect(compareImages(b, a)).toBeLessThan(0);
+    });
+
+    it('returns 0 for identical turn_number and generated_at', () => {
+      const a = makeSceneImage({ turn_number: 5, generated_at: '2026-02-14T12:00:00Z' });
+      const b = makeSceneImage({ turn_number: 5, generated_at: '2026-02-14T12:00:00Z' });
+      expect(compareImages(a, b)).toBe(0);
     });
   });
 });
