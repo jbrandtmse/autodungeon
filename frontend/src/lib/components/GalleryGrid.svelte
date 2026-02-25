@@ -110,7 +110,9 @@
 <style>
 	.gallery-grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+		grid-template-columns: repeat(auto-fill, 220px);
+		grid-auto-rows: min-content;
+		justify-content: center;
 		gap: var(--space-md);
 		padding: var(--space-md);
 		overflow-y: auto;
