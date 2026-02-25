@@ -147,6 +147,59 @@ async def _get_state_for_image_gen(
     return state
 
 
+def _enrich_char_dict_for_images(state: dict[str, Any]) -> dict[str, Any]:
+    """Build character dict for image generation with race/gender populated.
+
+    Merges data from state['characters'], state['character_sheets'], and
+    falls back to character library YAML files on disk for any still-empty
+    race or gender fields.
+    """
+    characters = state.get("characters", {})
+    char_dict: dict[str, Any] = {
+        k: v.model_dump() if hasattr(v, "model_dump") else dict(v)
+        for k, v in characters.items()
+    }
+
+    # Merge race/gender from character sheets into char_dict
+    sheets = state.get("character_sheets", {})
+    for name, sheet in sheets.items():
+        sheet_data = sheet.model_dump() if hasattr(sheet, "model_dump") else sheet
+        if name in char_dict:
+            for field in ("race", "gender"):
+                if not char_dict[name].get(field) and sheet_data.get(field):
+                    char_dict[name][field] = sheet_data[field]
+        else:
+            char_dict[name] = sheet_data
+
+    # Fallback: fill empty race/gender from character library YAML files
+    library_dir = Path("config/characters/library")
+    if library_dir.exists():
+        # Build lookup: lowercase name -> yaml data (lazy, only if needed)
+        _yaml_cache: dict[str, dict[str, Any]] = {}
+        for name, data in char_dict.items():
+            needs_race = not data.get("race")
+            needs_gender = not data.get("gender")
+            if not needs_race and not needs_gender:
+                continue
+            # Populate cache on first miss
+            if not _yaml_cache:
+                for yf in library_dir.glob("*.yaml"):
+                    try:
+                        with open(yf, encoding="utf-8") as f:
+                            yd = yaml.safe_load(f)
+                        if yd and yd.get("name"):
+                            _yaml_cache[yd["name"].lower()] = yd
+                    except Exception:
+                        continue
+            lib = _yaml_cache.get(name.lower(), {})
+            if needs_race and lib.get("race"):
+                data["race"] = lib["race"]
+            if needs_gender and lib.get("gender"):
+                data["gender"] = lib["gender"]
+
+    return char_dict
+
+
 # =============================================================================
 # Model Listing Cache
 # =============================================================================
@@ -2615,22 +2668,7 @@ async def generate_current_scene_image(
     entries = list(log[-context_entries:])
     turn_number = len(log) - 1
 
-    characters = state.get("characters", {})
-    char_dict = {
-        k: v.model_dump() if hasattr(v, "model_dump") else v
-        for k, v in characters.items()
-    }
-
-    # Merge race/gender from character sheets into char_dict for image prompts
-    sheets = state.get("character_sheets", {})
-    for name, sheet in sheets.items():
-        sheet_data = sheet.model_dump() if hasattr(sheet, "model_dump") else sheet
-        if name in char_dict:
-            for field in ("race", "gender"):
-                if field not in char_dict[name] and field in sheet_data:
-                    char_dict[name][field] = sheet_data[field]
-        else:
-            char_dict[name] = sheet_data
+    char_dict = _enrich_char_dict_for_images(state)
 
     task_id = str(_uuid.uuid4())
 
@@ -2715,22 +2753,7 @@ async def generate_turn_image(
     end = min(len(log), turn_number + 6)  # +6 because slice is exclusive
     entries = list(log[start:end])
 
-    characters = state.get("characters", {})
-    char_dict = {
-        k: v.model_dump() if hasattr(v, "model_dump") else v
-        for k, v in characters.items()
-    }
-
-    # Merge race/gender from character sheets into char_dict for image prompts
-    sheets = state.get("character_sheets", {})
-    for name, sheet in sheets.items():
-        sheet_data = sheet.model_dump() if hasattr(sheet, "model_dump") else sheet
-        if name in char_dict:
-            for field in ("race", "gender"):
-                if field not in char_dict[name] and field in sheet_data:
-                    char_dict[name][field] = sheet_data[field]
-        else:
-            char_dict[name] = sheet_data
+    char_dict = _enrich_char_dict_for_images(state)
 
     task_id = str(_uuid.uuid4())
 
@@ -2941,22 +2964,7 @@ async def generate_best_scene_image(
     # Extract complete log (entire session history)
     all_entries = list(log)
 
-    characters = state.get("characters", {})
-    char_dict = {
-        k: v.model_dump() if hasattr(v, "model_dump") else v
-        for k, v in characters.items()
-    }
-
-    # Merge race/gender from character sheets into char_dict for image prompts
-    sheets = state.get("character_sheets", {})
-    for name, sheet in sheets.items():
-        sheet_data = sheet.model_dump() if hasattr(sheet, "model_dump") else sheet
-        if name in char_dict:
-            for field in ("race", "gender"):
-                if field not in char_dict[name] and field in sheet_data:
-                    char_dict[name][field] = sheet_data[field]
-        else:
-            char_dict[name] = sheet_data
+    char_dict = _enrich_char_dict_for_images(state)
 
     task_id = str(_uuid.uuid4())
 

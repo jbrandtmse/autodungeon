@@ -38,12 +38,14 @@ MAX_DICE_SIDES = 1000  # Maximum sides on a die
 MAX_TOTAL_DICE = 100  # Maximum total dice across all groups
 
 # Regex pattern to match dice groups with optional keep-highest/keep-lowest
-# Supports: "2d6", "d20", "2d20kh1", "2d20kl1", "2d20H1", "2d20L", "2d20h", etc.
-# Keep modes: kh/kl (D&D Beyond), H/L (Roll20 shorthand), h/l (lowercase variant)
-DICE_PATTERN = re.compile(r"(\d*)d(\d+)(?:(k[hl]|[hl])(\d+)?)?", re.IGNORECASE)
+# Supports: "2d6", "d20", "2d20kh1", "2d20kl1", "2d20H1", "2d20L", "2d20h",
+# "2d20k1" (Roll20 bare-k = keep highest), etc.
+# Keep modes: kh/kl (D&D Beyond), H/L (Roll20 shorthand), h/l (lowercase),
+#             k (bare = keep highest, Roll20 style)
+DICE_PATTERN = re.compile(r"(\d*)d(\d+)(?:(k[hl]|[hl]|k)(\d+)?)?", re.IGNORECASE)
 
 # Keep-mode suffix for notation validation
-_KEEP_SUFFIX = r"(?:(?:k[hl]|[hl])\d*)"
+_KEEP_SUFFIX = r"(?:(?:k[hl]|[hl]|k)\d*)"
 
 # Pattern to validate the entire notation (supports kh/kl/H/L suffixes)
 NOTATION_PATTERN = re.compile(
@@ -170,11 +172,12 @@ def roll_dice(notation: str | None = None) -> DiceResult:
             sides_str = dice_match.group(2)
             keep_mode_raw = dice_match.group(3)  # "kh", "kl", "h", "l", "H", "L", or None
             keep_count_str = dice_match.group(4)  # number to keep, or None
-            # Normalize keep mode: "h"/"H"/"kh" -> "kh", "l"/"L"/"kl" -> "kl"
+            # Normalize keep mode: "h"/"H"/"kh"/"k" -> "kh", "l"/"L"/"kl" -> "kl"
+            # Bare "k" (Roll20 style) defaults to keep-highest
             keep_mode = None
             if keep_mode_raw:
                 k = keep_mode_raw.lower()
-                if k in ("kh", "h"):
+                if k in ("kh", "h", "k"):
                     keep_mode = "kh"
                 elif k in ("kl", "l"):
                     keep_mode = "kl"
