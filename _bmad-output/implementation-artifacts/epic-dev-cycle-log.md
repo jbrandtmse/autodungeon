@@ -2349,3 +2349,66 @@ Completed in separate cycle sessions (not logged here).
 
 ### User Input Required
 - None (fully autonomous)
+
+---
+
+## Story: 17-8-cross-session-gallery
+
+**Status:** Completed
+**Duration:** 2026-02-24
+
+### Files Touched
+- `api/routes.py` (MODIFIED - new GET /sessions/images/summary endpoint, per-session error handling)
+- `api/schemas.py` (MODIFIED - SessionImageSummaryResponse model)
+- `frontend/src/lib/types.ts` (MODIFIED - SessionImageSummary interface)
+- `frontend/src/lib/api.ts` (MODIFIED - getSessionImageSummaries function)
+- `frontend/src/lib/stores/imageStore.ts` (MODIFIED - gallerySessionId, sessionImageSummaries stores, cache guard, cross-session WebSocket guard)
+- `frontend/src/lib/stores/index.ts` (MODIFIED - barrel exports)
+- `frontend/src/lib/components/GalleryModal.svelte` (MODIFIED - session switcher dropdown)
+- `frontend/src/lib/components/SessionCard.svelte` (MODIFIED - gallery icon + image count badge)
+- `frontend/src/routes/+page.svelte` (MODIFIED - GalleryModal mounted, image summaries loaded)
+- `tests/test_image_api.py` (MODIFIED - 8 new summary endpoint tests)
+- `frontend/src/lib/stores/imageStore.test.ts` (MODIFIED - 9 new store tests)
+- `frontend/src/lib/components/GalleryModal.test.ts` (MODIFIED - 6 new session switcher tests)
+- `frontend/src/lib/components/SessionCard.test.ts` (MODIFIED - 7 new gallery icon tests)
+
+### Key Design Decisions
+- Route ordering: summary endpoint registered before {session_id} wildcard
+- Session switcher only visible when multiple sessions have images
+- lightboxIndex cleared on session switch to prevent stale state
+- Cache guard on loadSessionImageSummaries with optional force bypass
+- Cross-session WebSocket guard prevents image contamination across sessions
+- onDestroy cleanup on adventures list page
+
+### Issues Auto-Resolved (Code Review)
+1. MEDIUM: Race condition in openGalleryForSession (async not awaited)
+2. MEDIUM: Backend per-session error resilience (OSError handling)
+3. MEDIUM: Cross-session image contamination via WebSocket events
+4. MEDIUM: Cache guard on loadSessionImageSummaries
+
+### User Input Required
+- None (fully autonomous)
+
+---
+
+# Epic 17 - Cycle Complete
+
+**Completion Time:** 2026-02-24
+**Total Stories Processed:** 2 (17-7, 17-8)
+**Epic Status:** done (all 8 stories complete)
+
+## Overall Statistics
+- Total files touched: 25 (12 new, 13 modified)
+- Total design decisions: 10
+- Total issues auto-resolved: 9 (1 HIGH + 8 MEDIUM)
+- Total user interventions: 0
+- Total new tests: ~78 (48 for 17-7 + 30 for 17-8)
+
+## Stories Completed This Cycle
+1. **17-7-enhanced-gallery-lightbox** — Refactored gallery into GalleryModal + GalleryGrid + ImageLightbox with thumbnail grid, hover prompts, and full-size lightbox
+2. **17-8-cross-session-gallery** — Session switcher, summary API endpoint, adventures list gallery entry point
+
+## Recommendations
+- Run epic retrospective: /bmad-bmm-retrospective
+- Check sprint status: /bmad-bmm-sprint-status
+- Visually verify: open adventures list, check gallery icons, switch sessions, test lightbox nav
