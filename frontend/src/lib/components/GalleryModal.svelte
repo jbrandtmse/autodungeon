@@ -1,6 +1,14 @@
 <script lang="ts">
 	import { tick } from 'svelte';
-	import { images, galleryOpen, lightboxIndex } from '$lib/stores/imageStore';
+	import {
+		images,
+		galleryOpen,
+		lightboxIndex,
+		gallerySessionId,
+		sessionImageSummaries,
+		loadSessionImageSummaries,
+		loadSessionImages,
+	} from '$lib/stores/imageStore';
 	import { getDownloadAllUrl } from '$lib/api';
 	import GalleryGrid from './GalleryGrid.svelte';
 	import ImageLightbox from './ImageLightbox.svelte';
@@ -8,7 +16,8 @@
 	let modalElement: HTMLElement | undefined = $state();
 	let previouslyFocused: HTMLElement | null = null;
 
-	const sessionId = $derived($images.length > 0 ? $images[0].session_id : '');
+	// Use gallerySessionId for Download All URL (not derived from images[0])
+	const downloadAllSessionId = $derived($gallerySessionId ?? '');
 	const hasImages = $derived($images.length > 0);
 
 	function close(): void {
@@ -54,10 +63,12 @@
 		}
 	}
 
-	// When the gallery opens, save the previously focused element and focus the close button
+	// When the gallery opens, save the previously focused element, focus close button,
+	// and load session image summaries for the switcher dropdown
 	$effect(() => {
 		if ($galleryOpen) {
 			previouslyFocused = document.activeElement as HTMLElement | null;
+			loadSessionImageSummaries();
 			tick().then(() => {
 				const closeBtn = modalElement?.querySelector<HTMLElement>('.gallery-close-btn');
 				closeBtn?.focus();
@@ -68,6 +79,15 @@
 	function handleBackdropClick(e: MouseEvent): void {
 		if (e.target === e.currentTarget) {
 			close();
+		}
+	}
+
+	function handleSessionSwitch(e: Event): void {
+		const select = e.target as HTMLSelectElement;
+		const newSessionId = select.value;
+		if (newSessionId && newSessionId !== $gallerySessionId) {
+			lightboxIndex.set(null); // Close lightbox when switching sessions
+			loadSessionImages(newSessionId);
 		}
 	}
 </script>
@@ -89,11 +109,27 @@
 		>
 			<header class="gallery-header">
 				<h3 class="gallery-title">Illustration Gallery</h3>
+
+				{#if $sessionImageSummaries.length > 1}
+					<select
+						class="session-switcher"
+						value={$gallerySessionId ?? ''}
+						onchange={handleSessionSwitch}
+						aria-label="Switch gallery session"
+					>
+						{#each $sessionImageSummaries as summary (summary.session_id)}
+							<option value={summary.session_id}>
+								{summary.session_name} ({summary.image_count} {summary.image_count === 1 ? 'image' : 'images'})
+							</option>
+						{/each}
+					</select>
+				{/if}
+
 				<div class="gallery-header-actions">
 					{#if hasImages}
 						<a
 							class="gallery-download-all-btn"
-							href={getDownloadAllUrl(sessionId)}
+							href={getDownloadAllUrl(downloadAllSessionId)}
 							download
 							aria-label="Download all images as zip"
 						>
@@ -212,6 +248,29 @@
 		font-weight: 600;
 		color: var(--color-dm);
 		margin: 0;
+	}
+
+	.session-switcher {
+		font-family: var(--font-ui);
+		font-size: 13px;
+		color: var(--text-primary);
+		background: var(--bg-primary);
+		border: 1px solid rgba(184, 168, 150, 0.3);
+		border-radius: var(--border-radius-sm);
+		padding: 4px 8px;
+		cursor: pointer;
+		max-width: 300px;
+		text-overflow: ellipsis;
+	}
+
+	.session-switcher:focus-visible {
+		outline: 2px solid var(--accent-warm);
+		outline-offset: 2px;
+	}
+
+	.session-switcher option {
+		background: var(--bg-primary);
+		color: var(--text-primary);
 	}
 
 	.gallery-header-actions {

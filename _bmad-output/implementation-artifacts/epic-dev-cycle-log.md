@@ -2310,5 +2310,42 @@ Completed in separate cycle sessions (not logged here).
 
 | Story | Status | Phase |
 |-------|--------|-------|
-| 17-7-enhanced-gallery-lightbox | backlog | pending |
+| 17-7-enhanced-gallery-lightbox | done | complete |
 | 17-8-cross-session-gallery | backlog | pending |
+
+---
+
+## Story: 17-7-enhanced-gallery-lightbox
+
+**Status:** Completed
+**Duration:** 2026-02-24
+
+### Files Touched
+- `frontend/src/lib/components/GalleryModal.svelte` (NEW - replaced ImageGallery.svelte)
+- `frontend/src/lib/components/GalleryGrid.svelte` (NEW)
+- `frontend/src/lib/components/ImageLightbox.svelte` (NEW)
+- `frontend/src/lib/stores/imageStore.ts` (MODIFIED - lightboxIndex store, compareImages())
+- `frontend/src/lib/stores/index.ts` (MODIFIED - re-exports)
+- `frontend/src/routes/game/[sessionId]/+page.svelte` (MODIFIED - import update)
+- `frontend/src/lib/components/ImageGallery.svelte` (DELETED)
+- `frontend/src/lib/components/GalleryModal.test.ts` (NEW - 17 tests)
+- `frontend/src/lib/components/GalleryGrid.test.ts` (NEW - 12 tests)
+- `frontend/src/lib/components/ImageLightbox.test.ts` (NEW - 19 tests)
+- `frontend/src/lib/components/ImageGallery.test.ts` (DELETED)
+- `frontend/src/lib/stores/imageStore.test.ts` (MODIFIED - 7 new tests)
+
+### Key Design Decisions
+- ESC routing: GalleryModal owns sole keydown listener, checks lightboxIndex to decide lightbox vs gallery close
+- Sort consistency: Shared compareImages() comparator with stable turn_number + generated_at tiebreaker
+- Tooltip positioning: Fixed positioning with viewport edge clamping
+- Z-index stack: gallery=1000, tooltip=1050, lightbox=1100
+
+### Issues Auto-Resolved (Code Review)
+1. HIGH: Duplicate sort logic — extracted shared compareImages() with tiebreaker
+2. MEDIUM: Lightbox keyboard handler missing input/textarea guard
+3. MEDIUM: Sort order mismatch risk — resolved via shared comparator
+4. MEDIUM: lightboxIndex not cleared on external gallery close via G shortcut
+5. MEDIUM: Unbounded prompt text overflow in tooltip and lightbox metadata
+
+### User Input Required
+- None (fully autonomous)

@@ -6,19 +6,24 @@ import {
   generatingBest,
   galleryOpen,
   lightboxIndex,
+  gallerySessionId,
+  sessionImageSummaries,
   compareImages,
   handleImageReady,
   startGeneration,
   startBestGeneration,
   resetImageStore,
   loadSessionImages,
+  loadSessionImageSummaries,
 } from './imageStore';
-import type { SceneImage } from '$lib/types';
+import type { SceneImage, SessionImageSummary } from '$lib/types';
 
 // Mock the API module at the top level (hoisted by Vitest)
 const mockGetSessionImages = vi.fn();
+const mockGetSessionImageSummaries = vi.fn();
 vi.mock('$lib/api', () => ({
   getSessionImages: (...args: unknown[]) => mockGetSessionImages(...args),
+  getSessionImageSummaries: (...args: unknown[]) => mockGetSessionImageSummaries(...args),
 }));
 
 function makeSceneImage(overrides: Partial<SceneImage> = {}): SceneImage {
@@ -112,6 +117,10 @@ describe('imageStore', () => {
       startBestGeneration();
       galleryOpen.set(true);
       lightboxIndex.set(2);
+      gallerySessionId.set('sess-123');
+      sessionImageSummaries.set([
+        { session_id: 'sess-123', session_name: 'Test', image_count: 5 },
+      ]);
 
       resetImageStore();
 
@@ -120,6 +129,8 @@ describe('imageStore', () => {
       expect(get(generatingBest)).toBe(false);
       expect(get(galleryOpen)).toBe(false);
       expect(get(lightboxIndex)).toBeNull();
+      expect(get(gallerySessionId)).toBeNull();
+      expect(get(sessionImageSummaries)).toEqual([]);
     });
   });
 
@@ -139,6 +150,14 @@ describe('imageStore', () => {
 
       expect(get(images)).toEqual(mockImages);
       expect(mockGetSessionImages).toHaveBeenCalledWith('session-001');
+    });
+
+    it('sets gallerySessionId when loading images', async () => {
+      mockGetSessionImages.mockResolvedValue([]);
+
+      await loadSessionImages('session-042');
+
+      expect(get(gallerySessionId)).toBe('session-042');
     });
 
     it('handles API error gracefully', async () => {
@@ -208,6 +227,82 @@ describe('imageStore', () => {
       const a = makeSceneImage({ turn_number: 5, generated_at: '2026-02-14T12:00:00Z' });
       const b = makeSceneImage({ turn_number: 5, generated_at: '2026-02-14T12:00:00Z' });
       expect(compareImages(a, b)).toBe(0);
+    });
+  });
+
+  describe('gallerySessionId', () => {
+    it('defaults to null', () => {
+      expect(get(gallerySessionId)).toBeNull();
+    });
+
+    it('can be set to a string', () => {
+      gallerySessionId.set('session-abc');
+      expect(get(gallerySessionId)).toBe('session-abc');
+    });
+
+    it('can be set back to null', () => {
+      gallerySessionId.set('session-abc');
+      gallerySessionId.set(null);
+      expect(get(gallerySessionId)).toBeNull();
+    });
+
+    it('is cleared by resetImageStore', () => {
+      gallerySessionId.set('session-abc');
+      resetImageStore();
+      expect(get(gallerySessionId)).toBeNull();
+    });
+  });
+
+  describe('sessionImageSummaries', () => {
+    it('defaults to empty array', () => {
+      expect(get(sessionImageSummaries)).toEqual([]);
+    });
+
+    it('can be set to a list of summaries', () => {
+      const summaries: SessionImageSummary[] = [
+        { session_id: '001', session_name: 'Alpha', image_count: 5 },
+        { session_id: '002', session_name: 'Beta', image_count: 3 },
+      ];
+      sessionImageSummaries.set(summaries);
+      expect(get(sessionImageSummaries)).toEqual(summaries);
+    });
+
+    it('is cleared by resetImageStore', () => {
+      sessionImageSummaries.set([
+        { session_id: '001', session_name: 'Alpha', image_count: 5 },
+      ]);
+      resetImageStore();
+      expect(get(sessionImageSummaries)).toEqual([]);
+    });
+  });
+
+  describe('loadSessionImageSummaries', () => {
+    beforeEach(() => {
+      mockGetSessionImageSummaries.mockReset();
+    });
+
+    it('populates sessionImageSummaries from API', async () => {
+      const mockSummaries: SessionImageSummary[] = [
+        { session_id: '001', session_name: 'Alpha', image_count: 5 },
+        { session_id: '002', session_name: 'Beta', image_count: 3 },
+      ];
+      mockGetSessionImageSummaries.mockResolvedValue(mockSummaries);
+
+      await loadSessionImageSummaries();
+
+      expect(get(sessionImageSummaries)).toEqual(mockSummaries);
+      expect(mockGetSessionImageSummaries).toHaveBeenCalled();
+    });
+
+    it('handles API error gracefully', async () => {
+      mockGetSessionImageSummaries.mockRejectedValue(new Error('Network error'));
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      await loadSessionImageSummaries();
+
+      // Should not throw, summaries remain empty
+      expect(get(sessionImageSummaries)).toEqual([]);
+      consoleSpy.mockRestore();
     });
   });
 });

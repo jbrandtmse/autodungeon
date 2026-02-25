@@ -745,6 +745,14 @@ class BestSceneAccepted(BaseModel):
     )
 
 
+class SessionImageSummaryResponse(BaseModel):
+    """Lightweight summary of a session's images for gallery population."""
+
+    session_id: str = Field(..., description="Session ID string")
+    session_name: str = Field(default="", description="User-friendly session name")
+    image_count: int = Field(..., ge=0, description="Number of generated images")
+
+
 class SceneImageResponse(BaseModel):
     """Response model for a generated scene image."""
 

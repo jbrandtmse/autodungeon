@@ -30,5 +30,8 @@ export {
 	startGeneration,
 	startBestGeneration,
 	loadSessionImages,
+	loadSessionImageSummaries,
 	resetImageStore,
+	gallerySessionId,
+	sessionImageSummaries,
 } from './imageStore';

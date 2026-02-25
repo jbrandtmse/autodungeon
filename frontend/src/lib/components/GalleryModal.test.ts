@@ -1,15 +1,25 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, fireEvent } from '@testing-library/svelte';
 import GalleryModal from './GalleryModal.svelte';
-import { images, galleryOpen, lightboxIndex, resetImageStore } from '$lib/stores/imageStore';
+import {
+  images,
+  galleryOpen,
+  lightboxIndex,
+  gallerySessionId,
+  sessionImageSummaries,
+  resetImageStore,
+} from '$lib/stores/imageStore';
 import { get } from 'svelte/store';
-import type { SceneImage } from '$lib/types';
+import type { SceneImage, SessionImageSummary } from '$lib/types';
 
 // Mock the API module
+const mockGetSessionImageSummaries = vi.fn().mockResolvedValue([]);
 vi.mock('$lib/api', () => ({
   getDownloadAllUrl: (sessionId: string) => `/api/sessions/${sessionId}/images/download-all`,
   getImageDownloadUrl: (sessionId: string, imageId: string) =>
     `/api/sessions/${sessionId}/images/${imageId}/download`,
+  getSessionImageSummaries: (...args: unknown[]) => mockGetSessionImageSummaries(...args),
+  getSessionImages: vi.fn().mockResolvedValue([]),
 }));
 
 function makeSceneImage(overrides: Partial<SceneImage> = {}): SceneImage {
@@ -100,6 +110,7 @@ describe('GalleryModal', () => {
 
   it('shows "Download All" button when images exist', () => {
     images.set([makeSceneImage({ id: 'img-a', session_id: 'sess-1' })]);
+    gallerySessionId.set('sess-1');
     galleryOpen.set(true);
     const { container } = render(GalleryModal);
     const downloadAllBtn = container.querySelector(
@@ -185,5 +196,78 @@ describe('GalleryModal', () => {
     await fireEvent.click(closeBtn);
     expect(get(lightboxIndex)).toBeNull();
     expect(get(galleryOpen)).toBe(false);
+  });
+
+  describe('session switcher', () => {
+    const twoSummaries: SessionImageSummary[] = [
+      { session_id: '001', session_name: 'Adventure Alpha', image_count: 5 },
+      { session_id: '002', session_name: 'Adventure Beta', image_count: 3 },
+    ];
+
+    beforeEach(() => {
+      mockGetSessionImageSummaries.mockResolvedValue([]);
+    });
+
+    it('renders dropdown when more than one session has images', () => {
+      sessionImageSummaries.set(twoSummaries);
+      gallerySessionId.set('001');
+      galleryOpen.set(true);
+      const { container } = render(GalleryModal);
+      const select = container.querySelector('.session-switcher') as HTMLSelectElement;
+      expect(select).not.toBeNull();
+      expect(select.getAttribute('aria-label')).toBe('Switch gallery session');
+    });
+
+    it('does not render dropdown when only one session has images', () => {
+      sessionImageSummaries.set([twoSummaries[0]]);
+      gallerySessionId.set('001');
+      galleryOpen.set(true);
+      const { container } = render(GalleryModal);
+      const select = container.querySelector('.session-switcher');
+      expect(select).toBeNull();
+    });
+
+    it('does not render dropdown when no sessions have images', () => {
+      sessionImageSummaries.set([]);
+      galleryOpen.set(true);
+      const { container } = render(GalleryModal);
+      const select = container.querySelector('.session-switcher');
+      expect(select).toBeNull();
+    });
+
+    it('shows session names with image counts in options', () => {
+      sessionImageSummaries.set(twoSummaries);
+      gallerySessionId.set('001');
+      galleryOpen.set(true);
+      const { container } = render(GalleryModal);
+      const options = container.querySelectorAll('.session-switcher option');
+      expect(options).toHaveLength(2);
+      expect(options[0].textContent).toContain('Adventure Alpha');
+      expect(options[0].textContent).toContain('5 images');
+      expect(options[1].textContent).toContain('Adventure Beta');
+      expect(options[1].textContent).toContain('3 images');
+    });
+
+    it('shows singular "image" for count of 1', () => {
+      sessionImageSummaries.set([
+        { session_id: '001', session_name: 'Alpha', image_count: 1 },
+        { session_id: '002', session_name: 'Beta', image_count: 2 },
+      ]);
+      gallerySessionId.set('001');
+      galleryOpen.set(true);
+      const { container } = render(GalleryModal);
+      const options = container.querySelectorAll('.session-switcher option');
+      expect(options[0].textContent).toContain('1 image)');
+      expect(options[1].textContent).toContain('2 images)');
+    });
+
+    it('pre-selects the current session', () => {
+      sessionImageSummaries.set(twoSummaries);
+      gallerySessionId.set('002');
+      galleryOpen.set(true);
+      const { container } = render(GalleryModal);
+      const select = container.querySelector('.session-switcher') as HTMLSelectElement;
+      expect(select.value).toBe('002');
+    });
   });
 });

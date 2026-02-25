@@ -7,9 +7,11 @@
 		session: Session;
 		deleting?: boolean;
 		onDelete: (sessionId: string) => void;
+		imageCount?: number;
+		onOpenGallery?: (sessionId: string) => void;
 	}
 
-	let { session, deleting = false, onDelete }: Props = $props();
+	let { session, deleting = false, onDelete, imageCount = 0, onOpenGallery }: Props = $props();
 
 	let displayName = $derived(session.name || 'Unnamed Adventure');
 
@@ -50,20 +52,37 @@
 >
 	<div class="card-header">
 		<h3 class="session-title">Session {toRomanNumeral(session.session_number)}</h3>
-		<button
-			class="delete-btn"
-			onclick={handleDelete}
-			disabled={deleting}
-			aria-label="Delete session {displayName}"
-			title="Delete session"
-		>
-			<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-				<polyline points="3 6 5 6 21 6" />
-				<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-				<line x1="10" y1="11" x2="10" y2="17" />
-				<line x1="14" y1="11" x2="14" y2="17" />
-			</svg>
-		</button>
+		<div class="card-actions">
+			{#if imageCount > 0 && onOpenGallery}
+				<button
+					class="gallery-btn"
+					onclick={(e) => { e.stopPropagation(); onOpenGallery(session.session_id); }}
+					aria-label="View {imageCount} illustrations for {displayName}"
+					title="{imageCount} illustrations"
+				>
+					<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+						<rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+						<circle cx="8.5" cy="8.5" r="1.5" />
+						<polyline points="21 15 16 10 5 21" />
+					</svg>
+					<span class="gallery-badge">{imageCount}</span>
+				</button>
+			{/if}
+			<button
+				class="delete-btn"
+				onclick={handleDelete}
+				disabled={deleting}
+				aria-label="Delete session {displayName}"
+				title="Delete session"
+			>
+				<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+					<polyline points="3 6 5 6 21 6" />
+					<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+					<line x1="10" y1="11" x2="10" y2="17" />
+					<line x1="14" y1="11" x2="14" y2="17" />
+				</svg>
+			</button>
+		</div>
 	</div>
 
 	<p class="session-name">{displayName}</p>
@@ -122,6 +141,46 @@
 		margin: 0;
 	}
 
+	.card-actions {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		flex-shrink: 0;
+	}
+
+	.gallery-btn {
+		display: flex;
+		align-items: center;
+		gap: 2px;
+		background: transparent;
+		border: none;
+		color: var(--text-secondary);
+		cursor: pointer;
+		padding: 4px;
+		border-radius: var(--border-radius-sm);
+		transition:
+			color var(--transition-fast),
+			background var(--transition-fast);
+		font-family: var(--font-mono);
+		font-size: 11px;
+	}
+
+	.gallery-btn:hover {
+		color: var(--accent-warm);
+		background: rgba(232, 168, 73, 0.1);
+	}
+
+	.gallery-btn:focus-visible {
+		outline: 2px solid var(--accent-warm);
+		outline-offset: 2px;
+	}
+
+	.gallery-badge {
+		font-family: var(--font-mono);
+		font-size: 10px;
+		color: var(--accent-warm);
+	}
+
 	.delete-btn {
 		background: transparent;
 		border: none;
@@ -132,7 +191,6 @@
 		transition:
 			color var(--transition-fast),
 			background var(--transition-fast);
-		flex-shrink: 0;
 	}
 
 	.delete-btn:hover {

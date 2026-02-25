@@ -5,6 +5,14 @@
 	import type { Session } from '$lib/types';
 	import SessionCard from '$lib/components/SessionCard.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
+	import GalleryModal from '$lib/components/GalleryModal.svelte';
+	import {
+		galleryOpen,
+		loadSessionImages,
+		loadSessionImageSummaries,
+		sessionImageSummaries,
+		resetImageStore,
+	} from '$lib/stores/imageStore';
 
 	let sessions = $state<Session[]>([]);
 	let loading = $state(true);
@@ -29,6 +37,16 @@
 				)
 			: sessions,
 	);
+
+	// Image count lookup map, derived from session summaries
+	let imageCounts = $derived(
+		new Map($sessionImageSummaries.map((s) => [s.session_id, s.image_count]))
+	);
+
+	async function openGalleryForSession(sessionId: string): Promise<void> {
+		await loadSessionImages(sessionId);
+		galleryOpen.set(true);
+	}
 
 	async function loadSessions(): Promise<void> {
 		loading = true;
@@ -122,10 +140,12 @@
 
 	onMount(() => {
 		loadSessions();
+		loadSessionImageSummaries();
 	});
 
 	onDestroy(() => {
 		if (successTimer) clearTimeout(successTimer);
+		resetImageStore();
 	});
 </script>
 
@@ -250,6 +270,8 @@
 					{session}
 					deleting={deletingId === session.session_id}
 					onDelete={requestDelete}
+					imageCount={imageCounts.get(session.session_id) ?? 0}
+					onOpenGallery={openGalleryForSession}
 				/>
 			{/each}
 		</div>
@@ -272,6 +294,7 @@
 	onCancel={cancelDelete}
 	error={deleteError}
 />
+<GalleryModal />
 
 <style>
 	.session-browser {

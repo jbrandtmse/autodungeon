@@ -605,3 +605,9 @@ export interface BestSceneAccepted {
   session_id: string;
   status: 'scanning';
 }
+
+export interface SessionImageSummary {
+  session_id: string;
+  session_name: string;
+  image_count: number;
+}

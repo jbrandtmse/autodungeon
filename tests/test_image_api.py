@@ -1245,3 +1245,176 @@ class TestDownloadAllSessionImages:
         # Should get 404 (no images) not 400 (invalid filename format)
         assert resp.status_code == 404
         assert "No images to download" in resp.json()["detail"]
+
+
+# =============================================================================
+# Session Image Summary Endpoint Tests (Story 17-8)
+# =============================================================================
+
+
+class TestListSessionImageSummaries:
+    """Tests for GET /api/sessions/images/summary."""
+
+    @pytest.mark.anyio
+    async def test_returns_empty_list_when_no_sessions(
+        self,
+        client: AsyncClient,
+        temp_campaigns_dir: Path,
+    ) -> None:
+        """Returns empty list when no sessions have images."""
+        resp = await client.get("/api/sessions/images/summary")
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    @pytest.mark.anyio
+    async def test_returns_empty_when_sessions_exist_but_no_images(
+        self,
+        client: AsyncClient,
+        temp_campaigns_dir: Path,
+    ) -> None:
+        """Returns empty list when sessions exist but none have images."""
+        _create_test_session(temp_campaigns_dir, "001", name="Session A")
+        _create_test_session(temp_campaigns_dir, "002", name="Session B")
+
+        resp = await client.get("/api/sessions/images/summary")
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    @pytest.mark.anyio
+    async def test_returns_correct_counts(
+        self,
+        client: AsyncClient,
+        temp_campaigns_dir: Path,
+    ) -> None:
+        """Returns correct image counts for sessions with images."""
+        _create_test_session(temp_campaigns_dir, "001", name="Adventure Alpha")
+        _create_image_metadata(
+            temp_campaigns_dir,
+            "001",
+            image_id="a0000000-0000-0000-0000-000000000001",
+            turn_number=1,
+        )
+        _create_image_metadata(
+            temp_campaigns_dir,
+            "001",
+            image_id="a0000000-0000-0000-0000-000000000002",
+            turn_number=5,
+        )
+
+        _create_test_session(temp_campaigns_dir, "002", name="Adventure Beta")
+        _create_image_metadata(
+            temp_campaigns_dir,
+            "002",
+            image_id="b0000000-0000-0000-0000-000000000001",
+            turn_number=3,
+        )
+
+        resp = await client.get("/api/sessions/images/summary")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 2
+
+        # Sorted alphabetically by session_name
+        assert data[0]["session_id"] == "001"
+        assert data[0]["session_name"] == "Adventure Alpha"
+        assert data[0]["image_count"] == 2
+        assert data[1]["session_id"] == "002"
+        assert data[1]["session_name"] == "Adventure Beta"
+        assert data[1]["image_count"] == 1
+
+    @pytest.mark.anyio
+    async def test_excludes_sessions_with_zero_images(
+        self,
+        client: AsyncClient,
+        temp_campaigns_dir: Path,
+    ) -> None:
+        """Sessions with 0 images are excluded from results."""
+        _create_test_session(temp_campaigns_dir, "001", name="Has Images")
+        _create_image_metadata(
+            temp_campaigns_dir,
+            "001",
+            image_id="a0000000-0000-0000-0000-000000000001",
+            turn_number=1,
+        )
+
+        _create_test_session(temp_campaigns_dir, "002", name="No Images")
+        # session_002 has no images directory
+
+        resp = await client.get("/api/sessions/images/summary")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["session_id"] == "001"
+
+    @pytest.mark.anyio
+    async def test_returns_correct_session_name_from_metadata(
+        self,
+        client: AsyncClient,
+        temp_campaigns_dir: Path,
+    ) -> None:
+        """Uses session name from metadata when available."""
+        _create_test_session(
+            temp_campaigns_dir, "001", name="Curse of Strahd"
+        )
+        _create_image_metadata(
+            temp_campaigns_dir,
+            "001",
+            image_id="a0000000-0000-0000-0000-000000000001",
+            turn_number=1,
+        )
+
+        resp = await client.get("/api/sessions/images/summary")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data[0]["session_name"] == "Curse of Strahd"
+
+    @pytest.mark.anyio
+    async def test_falls_back_to_session_id_when_no_name(
+        self,
+        client: AsyncClient,
+        temp_campaigns_dir: Path,
+    ) -> None:
+        """Falls back to 'Session {id}' when metadata has no name."""
+        _create_test_session(temp_campaigns_dir, "001", name="")
+        _create_image_metadata(
+            temp_campaigns_dir,
+            "001",
+            image_id="a0000000-0000-0000-0000-000000000001",
+            turn_number=1,
+        )
+
+        resp = await client.get("/api/sessions/images/summary")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data[0]["session_name"] == "Session 001"
+
+    @pytest.mark.anyio
+    async def test_empty_images_dir_excluded(
+        self,
+        client: AsyncClient,
+        temp_campaigns_dir: Path,
+    ) -> None:
+        """Sessions with empty images/ directory are excluded."""
+        _create_test_session(temp_campaigns_dir, "001", name="Empty")
+        images_dir = temp_campaigns_dir / "session_001" / "images"
+        images_dir.mkdir(parents=True, exist_ok=True)
+        # No JSON files inside
+
+        resp = await client.get("/api/sessions/images/summary")
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    @pytest.mark.anyio
+    async def test_route_not_caught_by_session_id_wildcard(
+        self,
+        client: AsyncClient,
+        temp_campaigns_dir: Path,
+    ) -> None:
+        """The /sessions/images/summary route is not swallowed by /sessions/{session_id}."""
+        # This is the critical route ordering test.
+        # If the route is registered AFTER {session_id}, FastAPI would treat
+        # "images" as a session_id and return 400/404 from get_session.
+        resp = await client.get("/api/sessions/images/summary")
+        assert resp.status_code == 200
+        # Should be a list, not an error response
+        assert isinstance(resp.json(), list)

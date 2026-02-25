@@ -45,6 +45,7 @@ from api.schemas import (
     SceneImageResponse,
     SessionCreateRequest,
     SessionCreateResponse,
+    SessionImageSummaryResponse,
     SessionResponse,
     SessionStartRequest,
     UserSettingsResponse,
@@ -290,6 +291,65 @@ async def create_session(
         session_number=session_number,
         name=name,
     )
+
+
+@router.get(
+    "/sessions/images/summary",
+    response_model=list[SessionImageSummaryResponse],
+)
+def list_session_image_summaries() -> list[SessionImageSummaryResponse]:
+    """Return lightweight image count summaries for all sessions with images.
+
+    Scans all session directories for images/ subdirectories and counts
+    JSON sidecar files. Uses sync def for threadpool execution.
+
+    Returns:
+        List of session image summaries, only including sessions with images,
+        sorted alphabetically by session name.
+    """
+    from persistence import CAMPAIGNS_DIR
+
+    results: list[SessionImageSummaryResponse] = []
+
+    if not CAMPAIGNS_DIR.exists():
+        return results
+
+    for session_dir in sorted(CAMPAIGNS_DIR.iterdir()):
+        if not session_dir.is_dir() or not session_dir.name.startswith("session_"):
+            continue
+
+        try:
+            images_dir = session_dir / "images"
+            if not images_dir.exists():
+                continue
+
+            json_count = len(list(images_dir.glob("*.json")))
+            if json_count == 0:
+                continue
+
+            session_id_str = session_dir.name.removeprefix("session_")
+            metadata = load_session_metadata(session_id_str)
+            session_name = (
+                metadata.name
+                if metadata and metadata.name
+                else f"Session {session_id_str}"
+            )
+
+            results.append(
+                SessionImageSummaryResponse(
+                    session_id=session_id_str,
+                    session_name=session_name,
+                    image_count=json_count,
+                )
+            )
+        except OSError:
+            # Skip sessions with unreadable images directories
+            continue
+
+    # Sort by session name alphabetically
+    results.sort(key=lambda s: s.session_name.lower())
+
+    return results
 
 
 @router.get("/sessions/{session_id}", response_model=SessionResponse)

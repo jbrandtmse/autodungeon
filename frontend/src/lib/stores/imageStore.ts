@@ -1,6 +1,6 @@
-import { writable } from 'svelte/store';
-import type { SceneImage } from '$lib/types';
-import { getSessionImages } from '$lib/api';
+import { get, writable } from 'svelte/store';
+import type { SceneImage, SessionImageSummary } from '$lib/types';
+import { getSessionImages, getSessionImageSummaries } from '$lib/api';
 
 /** All generated images for the current session. */
 export const images = writable<SceneImage[]>([]);
@@ -17,6 +17,12 @@ export const galleryOpen = writable<boolean>(false);
 /** Index of the image currently open in lightbox (null = closed). */
 export const lightboxIndex = writable<number | null>(null);
 
+/** Which session the gallery is currently showing (null = not set). */
+export const gallerySessionId = writable<string | null>(null);
+
+/** Cached session image summaries for session switcher dropdown. */
+export const sessionImageSummaries = writable<SessionImageSummary[]>([]);
+
 /**
  * Sort comparator for gallery images: ascending by turn_number,
  * then by generated_at timestamp for stable ordering when multiple
@@ -32,8 +38,18 @@ export function compareImages(a: SceneImage, b: SceneImage): number {
 /**
  * Called when a WebSocket image_ready event arrives.
  * Appends the image and clears generation state.
+ * Ignores images from sessions other than the one currently displayed
+ * in the gallery (prevents cross-session contamination when the gallery
+ * is showing a different session via the session switcher).
  */
 export function handleImageReady(image: SceneImage): void {
+	// Cross-session guard: only append if the image belongs to the session
+	// currently being viewed, or if no gallery session is set yet.
+	// Prevents WebSocket image_ready from a different session contaminating
+	// the gallery when the user has switched sessions via the session switcher.
+	const currentSessionId = get(gallerySessionId);
+	if (currentSessionId && image.session_id !== currentSessionId) return;
+
 	images.update((list) => {
 		// Deduplicate: skip if an image with the same id already exists
 		// (guards against WebSocket reconnect re-delivery or race with loadSessionImages)
@@ -75,8 +91,24 @@ export async function loadSessionImages(sessionId: string): Promise<void> {
 	try {
 		const list = await getSessionImages(sessionId);
 		images.set(list);
+		gallerySessionId.set(sessionId);
 	} catch (e) {
 		console.error('[ImageStore] Failed to load images:', e);
+	}
+}
+
+/**
+ * Load session image summaries from the REST API (for session switcher dropdown).
+ * Uses a simple cache: skips the API call if summaries are already populated.
+ * Pass `force: true` to bypass the cache (e.g., after generating a new image).
+ */
+export async function loadSessionImageSummaries(force = false): Promise<void> {
+	if (!force && get(sessionImageSummaries).length > 0) return;
+	try {
+		const summaries = await getSessionImageSummaries();
+		sessionImageSummaries.set(summaries);
+	} catch (e) {
+		console.error('[ImageStore] Failed to load image summaries:', e);
 	}
 }
 
@@ -89,4 +121,6 @@ export function resetImageStore(): void {
 	generatingBest.set(false);
 	galleryOpen.set(false);
 	lightboxIndex.set(null);
+	gallerySessionId.set(null);
+	sessionImageSummaries.set([]);
 }

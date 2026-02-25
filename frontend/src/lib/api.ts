@@ -19,6 +19,7 @@ import type {
   SceneImage,
   ImageGenerateAccepted,
   BestSceneAccepted,
+  SessionImageSummary,
 } from './types';
 
 const BASE_URL = '';  // Empty — Vite proxy handles /api routing
@@ -365,4 +366,12 @@ export function getImageDownloadUrl(sessionId: string, imageId: string): string 
  */
 export function getDownloadAllUrl(sessionId: string): string {
   return `/api/sessions/${encodeURIComponent(sessionId)}/images/download-all`;
+}
+
+/**
+ * Fetch lightweight image count summaries for all sessions with images.
+ * Used by the session switcher dropdown in the gallery modal.
+ */
+export async function getSessionImageSummaries(): Promise<SessionImageSummary[]> {
+  return request<SessionImageSummary[]>('/api/sessions/images/summary');
 }
