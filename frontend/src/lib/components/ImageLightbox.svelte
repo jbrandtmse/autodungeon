@@ -62,7 +62,10 @@
 	}
 
 	function formatTimestamp(iso: string): string {
-		return new Date(iso).toLocaleString(undefined, {
+		const cleaned = iso.replace(/\+00:00Z$/, 'Z');
+		const d = new Date(cleaned);
+		if (isNaN(d.getTime())) return '';
+		return d.toLocaleString(undefined, {
 			month: 'short',
 			day: 'numeric',
 			year: 'numeric',

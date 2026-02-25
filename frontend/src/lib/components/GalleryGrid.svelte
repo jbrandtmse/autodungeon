@@ -22,7 +22,11 @@
 	}
 
 	function formatTimestamp(iso: string): string {
-		return new Date(iso).toLocaleString(undefined, {
+		// Handle malformed ISO strings like "2026-02-24T11:25:33+00:00Z" (both offset and Z)
+		const cleaned = iso.replace(/\+00:00Z$/, 'Z');
+		const d = new Date(cleaned);
+		if (isNaN(d.getTime())) return '';
+		return d.toLocaleString(undefined, {
 			month: 'short',
 			day: 'numeric',
 			hour: '2-digit',
