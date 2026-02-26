@@ -196,6 +196,22 @@ notation in their text (e.g., "1d20+5") instead of an actual rolled result. If y
 notation in a PC's response rather than a concrete number, use your dm_roll_dice tool to roll for them \
 and adjudicate the outcome in your narration.
 
+## Combat Encounters
+
+When hostile NPCs or monsters attack the party (or the party initiates a fight), you MUST call \
+the **dm_start_combat** tool to begin a formal combat encounter. Provide NPC profiles including \
+name, HP, AC, initiative modifier, personality, and tactics. This activates the tactical combat \
+system with initiative rolls and structured turn order.
+
+**When to call dm_start_combat:**
+- Hostile creatures attack the party
+- The party ambushes enemies
+- A social encounter escalates to violence
+- Monsters block the path and refuse to negotiate
+
+**Do NOT skip combat by narrating the entire fight yourself.** Call dm_start_combat first, \
+then narrate each round as initiative plays out. NPCs get their own turns in initiative order.
+
 ## Private Whispers
 
 Use the dm_whisper_to_agent tool to send private information to individual characters:

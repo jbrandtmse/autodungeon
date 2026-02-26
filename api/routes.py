@@ -695,7 +695,7 @@ async def get_session_config(session_id: str) -> GameConfigResponse:
 
 @router.put("/sessions/{session_id}/config", response_model=GameConfigResponse)
 async def update_session_config(
-    session_id: str, body: GameConfigUpdateRequest
+    session_id: str, body: GameConfigUpdateRequest, request: Request
 ) -> GameConfigResponse:
     """Update session config with partial data.
 
@@ -806,6 +806,17 @@ async def update_session_config(
     if latest_turn is None:
         latest_turn = 0
     await _aio_save_checkpoint(state, session_id, latest_turn)
+
+    # Propagate config changes to running engine (if any).
+    # Without this, mid-session config updates (e.g. combat_mode) only
+    # persist to the checkpoint file and are ignored by the live engine.
+    from api.engine import GameEngine
+
+    engines: dict[str, GameEngine] = request.app.state.engines
+    engine = engines.get(session_id)
+    if engine is not None and engine.state is not None:
+        engine.state["game_config"] = new_config
+        engine.state["dm_config"] = new_dm
 
     # Load image generation defaults, merge with any submitted overrides.
     # User-settings is the authoritative source for image_generation_enabled.
