@@ -889,6 +889,11 @@ class CombatState(BaseModel):
         default_factory=dict,
         description="NPC data keyed by NPC name (for DM context injection on NPC turns)",
     )
+    current_initiative_index: int = Field(
+        default=0,
+        ge=0,
+        description="Index into initiative_order for the entry currently being processed",
+    )
 
 
 # =============================================================================

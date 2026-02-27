@@ -139,7 +139,10 @@ def context_manager(state: GameState) -> GameState:
     combat = updated_state.get("combat_state")
     if combat and isinstance(combat, CombatState) and combat.active and combat.round_number >= 1:
         updated_state["combat_state"] = combat.model_copy(
-            update={"round_number": combat.round_number + 1}
+            update={
+                "round_number": combat.round_number + 1,
+                "current_initiative_index": 0,  # Reset for new round
+            }
         )
 
         # Story 15.6: Max round limit safety valve
@@ -210,20 +213,37 @@ def route_to_next_agent(state: GameState) -> str:
         if current != "dm" and current == state["controlled_character"]:
             return "human"
 
-    # Find current position in order
-    try:
-        current_idx = order.index(current)
-    except ValueError:
-        # If current agent not in order, default to DM
-        return "dm"
+    # Find current position in order.
+    # When combat is active, use current_initiative_index for reliable tracking
+    # instead of order.index(current), since multiple entries map to "dm".
+    # Semantics: current_initiative_index = index of the NEXT entry to process.
+    # Each node (dm_turn, pc_turn) advances the index after processing.
+    combat = state.get("combat_state")
+    if (
+        combat
+        and isinstance(combat, CombatState)
+        and combat.active
+        and combat.initiative_order
+    ):
+        current_idx = combat.current_initiative_index
+        # Round complete when index is past the end
+        if current_idx >= len(order):
+            return END  # type: ignore[return-value]
+        next_agent = order[current_idx]
+    else:
+        try:
+            current_idx = order.index(current)
+        except ValueError:
+            # If current agent not in order, default to DM
+            return "dm"
 
-    # Check if this is the last agent in the order (end of round)
-    if current_idx == len(order) - 1:
-        # Round complete - signal END
-        return END  # type: ignore[return-value]
+        # Check if this is the last agent in the order (end of round)
+        if current_idx == len(order) - 1:
+            # Round complete - signal END
+            return END  # type: ignore[return-value]
 
-    # Get next agent in order
-    next_agent = order[current_idx + 1]
+        # Get next agent in order (non-combat path)
+        next_agent = order[current_idx + 1]
 
     # Route NPC turns to DM node (Story 15-3)
     if next_agent.startswith("dm:"):
@@ -301,13 +321,20 @@ def human_intervention_node(state: GameState) -> GameState:
     memory_entry = f"{char_name}: {pending_action}"
     new_memories[controlled].short_term_buffer.append(memory_entry)
 
+    # Advance combat initiative index if combat is active
+    combat_for_return = state.get("combat_state", CombatState())
+    if isinstance(combat_for_return, CombatState) and combat_for_return.active:
+        combat_for_return = combat_for_return.model_copy(
+            update={"current_initiative_index": combat_for_return.current_initiative_index + 1}
+        )
+
     # Build updated state (includes combat_state passthrough for Story 15-3)
     # Clear the pending action in state dict
     updated_state: GameState = {
         **state,
         "ground_truth_log": new_log,
         "agent_memories": new_memories,
-        "combat_state": state.get("combat_state", CombatState()),
+        "combat_state": combat_for_return,
         "human_pending_action": None,
     }
 
@@ -399,11 +426,23 @@ def _safe_pc_turn(state: GameState, agent_name: str) -> GameState:
             )
             new_memories[agent_name] = mem
 
+        # Advance combat initiative index if combat is active
+        combat_st = state.get("combat_state")
+        if (
+            combat_st
+            and isinstance(combat_st, CombatState)
+            and combat_st.active
+        ):
+            combat_st = combat_st.model_copy(
+                update={"current_initiative_index": combat_st.current_initiative_index + 1}
+            )
+
         updated: GameState = {
             **state,
             "ground_truth_log": new_log,
             "agent_memories": new_memories,
             "current_turn": agent_name,
+            **({"combat_state": combat_st} if combat_st else {}),
         }
         return updated
 

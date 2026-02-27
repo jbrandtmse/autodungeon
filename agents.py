@@ -1781,7 +1781,26 @@ def dm_turn(state: GameState) -> GameState:
     import time as _time
 
     _t0 = _time.time()
-    print(f"[{_time.strftime('%H:%M:%S')}] dm_turn: START", file=sys.stderr, flush=True)
+
+    # Combat initiative tracking: set current_turn to the correct initiative
+    # entry so _get_combat_turn_type and NPC prompt building work properly.
+    combat_st = state.get("combat_state")
+    if (
+        combat_st
+        and isinstance(combat_st, CombatState)
+        and combat_st.active
+        and combat_st.initiative_order
+    ):
+        idx = combat_st.current_initiative_index
+        if idx < len(combat_st.initiative_order):
+            state["current_turn"] = combat_st.initiative_order[idx]
+
+    print(
+        f"[{_time.strftime('%H:%M:%S')}] dm_turn: START "
+        f"(current_turn={state.get('current_turn')})",
+        file=sys.stderr,
+        flush=True,
+    )
     # Get DM config and create agent
     dm_config = state["dm_config"]
 
@@ -2105,10 +2124,19 @@ def dm_turn(state: GameState) -> GameState:
         else state.get("combat_state", CombatState())
     )
     if combat_state_for_return.active:
-        # Preserve "dm" for bookend or "dm:npc_name" for NPC turns
+        # Advance initiative index: the DM just processed the entry at
+        # current_initiative_index, so move to the next one.
+        next_idx = combat_state_for_return.current_initiative_index + 1
+        combat_state_for_return = combat_state_for_return.model_copy(
+            update={"current_initiative_index": next_idx}
+        )
         return_current_turn = state["current_turn"]
     else:
         return_current_turn = "dm"
+        # Reset initiative index when combat ends
+        combat_state_for_return = combat_state_for_return.model_copy(
+            update={"current_initiative_index": 0}
+        )
 
     # Story 15.6: Restore turn queue when combat ends
     turn_queue_for_return = (
@@ -2451,7 +2479,11 @@ def _execute_start_combat(
         pc_names, character_sheets, npc_profiles
     )
 
-    # Save current turn queue and build combat state
+    # Save current turn queue and build combat state.
+    # Index starts at 0 (the "dm" bookend). dm_turn's return will advance
+    # it to 1 (first real combatant), since the DM already narrated the
+    # combat start as part of this turn. Subsequent rounds reset to 0 in
+    # context_manager so the bookend runs normally.
     combat_state = CombatState(
         active=True,
         round_number=1,
@@ -2747,6 +2779,17 @@ def pc_turn(state: GameState, agent_name: str) -> GameState:
         updated_callback_db = state.get("callback_database", NarrativeElementStore())
         updated_callback_log = state.get("callback_log", CallbackLog())
 
+    # Advance combat initiative index if combat is active
+    combat_state_for_return = state.get("combat_state", CombatState())
+    if (
+        isinstance(combat_state_for_return, CombatState)
+        and combat_state_for_return.active
+    ):
+        next_idx = combat_state_for_return.current_initiative_index + 1
+        combat_state_for_return = combat_state_for_return.model_copy(
+            update={"current_initiative_index": next_idx}
+        )
+
     # Return new state with current_turn updated to this agent's name
     # This is critical for route_to_next_agent to know who just acted
     print(
@@ -2775,7 +2818,7 @@ def pc_turn(state: GameState, agent_name: str) -> GameState:
         callback_database=updated_callback_db,
         callback_log=updated_callback_log,
         active_fork_id=state.get("active_fork_id"),
-        combat_state=state.get("combat_state", CombatState()),
+        combat_state=combat_state_for_return,
     )
 
 
