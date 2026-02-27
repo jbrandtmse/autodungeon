@@ -42,7 +42,7 @@ class GameEngine:
     MAX_ACTION_LENGTH: int = 2000
     MAX_NUDGE_LENGTH: int = 1000
     VALID_SPEEDS: frozenset[str] = frozenset({"slow", "normal", "fast"})
-    ROUND_TIMEOUT: int = 600  # 10 minutes max per round
+    ROUND_TIMEOUT: int = 1200  # 20 minutes max per round (4 Ollama PCs @ ~260s each)
 
     def __init__(self, session_id: str) -> None:
         """Initialize the engine for a session.
