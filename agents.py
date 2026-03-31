@@ -446,7 +446,7 @@ SUPPORTED_PROVIDERS: frozenset[str] = frozenset(["gemini", "claude", "ollama"])
 
 # Default models for each provider
 DEFAULT_MODELS: dict[str, str] = {
-    "gemini": "gemini-1.5-flash",
+    "gemini": "gemini-3-flash-preview",
     "claude": "claude-3-haiku-20240307",
     "ollama": "llama3",
 }

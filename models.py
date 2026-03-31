@@ -287,7 +287,7 @@ class GameConfig(BaseModel):
     """
 
     combat_mode: Literal["Narrative", "Tactical"] = Field(
-        default="Narrative",
+        default="Tactical",
         description="Combat handling mode",
     )
     max_combat_rounds: int = Field(

@@ -51,7 +51,7 @@ class GameConfigResponse(BaseModel):
     """Response for session config endpoint."""
 
     combat_mode: Literal["Narrative", "Tactical"] = Field(
-        default="Narrative", description="Combat handling mode"
+        default="Tactical", description="Combat handling mode"
     )
     max_combat_rounds: int = Field(
         default=50,
@@ -62,7 +62,7 @@ class GameConfigResponse(BaseModel):
         default="gemini", description="Provider for memory compression"
     )
     summarizer_model: str = Field(
-        default="gemini-1.5-flash", description="Model for memory compression"
+        default="gemini-3-flash-preview", description="Model for memory compression"
     )
     extractor_provider: str = Field(
         default="gemini", description="Provider for narrative extraction"
@@ -80,7 +80,7 @@ class GameConfigResponse(BaseModel):
         description="Max messages to render in narrative area",
     )
     dm_provider: str = Field(default="gemini", description="DM agent LLM provider")
-    dm_model: str = Field(default="gemini-1.5-flash", description="DM agent model name")
+    dm_model: str = Field(default="gemini-3-flash-preview", description="DM agent model name")
     dm_token_limit: int = Field(
         default=8000, ge=1, description="DM agent context token limit"
     )

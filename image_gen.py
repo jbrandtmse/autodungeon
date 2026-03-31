@@ -32,13 +32,19 @@ logger = logging.getLogger("autodungeon")
 # Scene prompt builder system prompt
 SCENE_PROMPT_SYSTEM = """You are an art director for a fantasy tabletop RPG.
 Given narrative log entries from a D&D session, write a vivid visual scene
-description in 30-50 words suitable as a prompt for AI image generation.
+description in 40-60 words suitable as a prompt for AI image generation.
 Focus on: setting, lighting, character poses, dramatic action, atmosphere.
 Style: digital fantasy painting, dramatic lighting, rich colors.
 Do NOT include character names. Instead, describe each character by their
 race, gender, and class (e.g. "a female elf wizard", "a male dwarf fighter").
 IMPORTANT: Every character visible in the scene MUST be described with their
-race and gender from the character list. This is critical for visual accuracy."""
+race and gender from the character list. This is critical for visual accuracy.
+COMBAT SCENES: Clearly distinguish the PARTY (the player characters listed
+below) from their ENEMIES. Show the party fighting AGAINST monsters, undead,
+or NPCs — never against each other. Use spatial composition to make sides
+obvious: party members grouped together facing their foes. Describe enemies
+by their creature type (e.g. "rotting ghouls", "a red dragon", "bandits")
+to clearly separate them from the party's races and classes."""
 
 # Maximum log entries to include in scene context
 SCENE_CONTEXT_ENTRIES = 10
@@ -454,9 +460,13 @@ class ImageGenerator:
                 visual_desc = " ".join(visual_parts)
                 char_desc.append(f"- {name} = {visual_desc}")
             context_parts.append(
-                "Character visual references (use these exact race/gender/class "
-                "descriptions when depicting characters in the scene):\n"
+                "THE PLAYER PARTY (these are allies who fight TOGETHER, "
+                "never against each other — use these exact race/gender/class "
+                "descriptions when depicting them in the scene):\n"
                 + "\n".join(char_desc)
+                + "\n\nAny other creatures or NPCs mentioned in the narrative "
+                "are NOT party members. In combat, they are the ENEMIES the "
+                "party fights against."
             )
 
         user_message = "\n\n".join(context_parts)
