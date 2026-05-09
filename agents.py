@@ -6,6 +6,7 @@ node functions for the LangGraph state machine.
 """
 
 import logging
+import re
 from datetime import UTC, datetime
 from typing import Literal
 
@@ -729,6 +730,24 @@ def _extract_response_text(response: object) -> str:
     # Nothing found
     logger.warning("No text extracted from response: content=%r", content)
     return ""
+
+
+# Matches Gemma's internal tool-error reasoning lines that leak into responses,
+# e.g. "FileNotFound: Error: The tool `pc_roll_dice` was called, but..."
+_TOOL_ERROR_LINE_RE = re.compile(r"^\s*FileNotFound:", re.MULTILINE)
+
+
+def _strip_tool_error_preamble(text: str) -> str:
+    """Remove model-internal tool-error lines from response text.
+
+    Gemma (and similar local LLMs) sometimes emit diagnostic paragraphs like
+    'FileNotFound: Error: The tool `pc_roll_dice` was called, but...' before
+    the actual narrative. Split on paragraph boundaries and drop any paragraph
+    that starts with this pattern.
+    """
+    paragraphs = re.split(r"\n\n", text)
+    cleaned = [p for p in paragraphs if not _TOOL_ERROR_LINE_RE.match(p)]
+    return "\n\n".join(cleaned).strip()
 
 
 def get_llm(provider: str, model: str, timeout: int | None = None) -> BaseChatModel:
@@ -2080,6 +2099,14 @@ def dm_turn(state: GameState) -> GameState:
         _log_llm_error(llm_error)
         raise llm_error from e
 
+    # Strip any model-internal tool-error lines before writing to the narrative
+    response_content = _strip_tool_error_preamble(response_content)
+    if not response_content:
+        response_content = (
+            "*A moment of stillness falls over the scene. The adventurers "
+            "sense that something significant is about to unfold...*"
+        )
+
     # Create new state (never mutate input)
     new_log = state["ground_truth_log"].copy()
     # Append sheet change notifications before DM narrative (Story 8.5)
@@ -2743,6 +2770,14 @@ def pc_turn(state: GameState, agent_name: str) -> GameState:
         )
         _log_llm_error(llm_error)
         raise llm_error from e
+
+    # Strip any model-internal tool-error lines before writing to the narrative
+    response_content = _strip_tool_error_preamble(response_content)
+    if not response_content:
+        response_content = (
+            f"*{character_config.name} observes the situation carefully, "
+            "ready to act when the moment is right.*"
+        )
 
     # Create new state (never mutate input)
     new_log = state["ground_truth_log"].copy()
