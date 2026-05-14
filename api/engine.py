@@ -294,6 +294,33 @@ class GameEngine:
                 new_entries = list(chunk_log[streamed_log_len:])
                 streamed_log_len = len(chunk_log)
                 last_entry = chunk_log[-1] if chunk_log else ""
+
+                # Persist the partial round to disk so a mid-round crash
+                # doesn't lose completed turns. The end-of-round save in
+                # graph.run_single_round will overwrite this with identical
+                # content when the round closes cleanly.
+                turn_number = len(chunk_log)
+                if turn_number > 0:
+                    try:
+                        from persistence import (
+                            save_checkpoint,
+                            save_fork_checkpoint,
+                        )
+                        active_fork_id = chunk_state.get("active_fork_id")
+                        if active_fork_id is not None:
+                            save_fork_checkpoint(
+                                chunk_state,
+                                self._session_id,
+                                active_fork_id,
+                                turn_number,
+                            )
+                        else:
+                            save_checkpoint(
+                                chunk_state, self._session_id, turn_number
+                            )
+                    except Exception:
+                        logger.exception("Per-turn checkpoint save failed")
+
                 event = {
                     "type": "turn_update",
                     "turn": len(chunk_log),
