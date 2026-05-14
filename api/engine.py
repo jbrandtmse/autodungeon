@@ -42,7 +42,7 @@ class GameEngine:
     MAX_ACTION_LENGTH: int = 2000
     MAX_NUDGE_LENGTH: int = 1000
     VALID_SPEEDS: frozenset[str] = frozenset({"slow", "normal", "fast"})
-    ROUND_TIMEOUT: int = 2700  # 45 minutes max per round (9 Ollama agents @ ~300s each)
+    ROUND_TIMEOUT: int = 18000  # 5 hours max per round (Qwen thinking-mode agents can run 30+ min each)
 
     def __init__(self, session_id: str) -> None:
         """Initialize the engine for a session.
@@ -275,6 +275,38 @@ class GameEngine:
                 self._state.get("ground_truth_log", [])
             )
 
+            # Build a thread-safe callback that broadcasts each per-node
+            # state update to connected WebSocket clients as the round
+            # progresses. The graph runs in a thread, so we schedule the
+            # async broadcast back onto this event loop.
+            loop = asyncio.get_running_loop()
+            streamed_log_len = pre_round_log_len
+
+            def _on_node_complete(chunk_state: dict[str, Any]) -> None:
+                nonlocal streamed_log_len
+                chunk_log = chunk_state.get("ground_truth_log", [])
+                if len(chunk_log) <= streamed_log_len:
+                    return
+                new_entries = list(chunk_log[streamed_log_len:])
+                streamed_log_len = len(chunk_log)
+                last_entry = chunk_log[-1] if chunk_log else ""
+                event = {
+                    "type": "turn_update",
+                    "turn": len(chunk_log),
+                    "agent": chunk_state.get("current_turn", "dm"),
+                    "content": last_entry,
+                    "new_entries": new_entries,
+                    "state": {
+                        "session_id": self._session_id,
+                        "turn_number": len(chunk_log),
+                        "current_turn": chunk_state.get("current_turn", ""),
+                        "message_count": len(chunk_log),
+                    },
+                }
+                asyncio.run_coroutine_threadsafe(
+                    self._broadcast(event), loop
+                )
+
             # Run the synchronous graph in a thread with a hard timeout.
             # If a round exceeds ROUND_TIMEOUT (e.g. Ollama hangs), we
             # bail out instead of blocking forever. The orphaned thread
@@ -282,7 +314,9 @@ class GameEngine:
             # timeout (ChatOllama default 300s).
             try:
                 result = await asyncio.wait_for(
-                    asyncio.to_thread(run_single_round, self._state),
+                    asyncio.to_thread(
+                        run_single_round, self._state, _on_node_complete
+                    ),
                     timeout=self.ROUND_TIMEOUT,
                 )
             except asyncio.TimeoutError:
@@ -338,12 +372,15 @@ class GameEngine:
             self._last_error = None
             self._retry_count = 0
 
-            # Build turn event with new log entries (delta since last round)
+            # Build end-of-round event. Per-node broadcasts already streamed
+            # the new log entries via _on_node_complete, so the post-round
+            # event only sends entries the streaming callback missed (e.g.
+            # if streaming was skipped for some reason).
             log = self._state.get("ground_truth_log", [])
             turn_number = len(log)
             current_turn = self._state.get("current_turn", "dm")
             last_entry = log[-1] if log else ""
-            new_entries = log[pre_round_log_len:]
+            new_entries = log[streamed_log_len:]
 
             turn_event: dict[str, Any] = {
                 "type": "turn_update",

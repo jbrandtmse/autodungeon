@@ -15,6 +15,7 @@ for subsequent rounds.
 """
 
 import logging
+from typing import Callable
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
@@ -581,7 +582,10 @@ def _append_transcript_for_new_entries(
             pass
 
 
-def run_single_round(state: GameState) -> GameStateWithError:
+def run_single_round(
+    state: GameState,
+    on_node_complete: Callable[[GameState], None] | None = None,
+) -> GameStateWithError:
     """Execute one complete round (DM + all PCs).
 
     Convenience function that runs the workflow until the DM's next turn,
@@ -599,6 +603,10 @@ def run_single_round(state: GameState) -> GameStateWithError:
 
     Args:
         state: Initial game state for this round.
+        on_node_complete: Optional callback invoked with the full state after
+            each graph node completes. Used by the engine to broadcast
+            per-turn updates over WebSocket without waiting for the round
+            to finish. Callback exceptions are caught and logged.
 
     Returns:
         Updated state after all agents have acted once. If an error occurred,
@@ -634,12 +642,21 @@ def run_single_round(state: GameState) -> GameStateWithError:
     recursion_limit = turn_count + 2
 
     try:
-        # Run the workflow with recursion limit to prevent infinite loops
-        # The limit is set to turn count + 2 to allow one full round
-        result: GameState = workflow.invoke(
+        # Stream the workflow node-by-node so callers can broadcast per-turn
+        # updates. stream_mode='values' yields the full state after each
+        # node executes; the first yielded value is the initial state.
+        result: GameState = state  # type: ignore[assignment]
+        for chunk in workflow.stream(
             state,
             config={"recursion_limit": recursion_limit},
-        )  # type: ignore[assignment]
+            stream_mode="values",
+        ):
+            result = chunk  # type: ignore[assignment]
+            if on_node_complete is not None:
+                try:
+                    on_node_complete(chunk)
+                except Exception:
+                    logger.exception("on_node_complete callback failed")
         print(
             f"[{_time.strftime('%H:%M:%S')}] run_single_round: COMPLETE — "
             f"elapsed {_time.time() - _round_start:.1f}s",

@@ -6,15 +6,15 @@ default_model: gemini-3-flash-preview
 agents:
   dm:
     provider: ollama
-    model: huihui_ai/gemma-4-abliterated:31b
+    model: huihui_ai/Qwen3.6-abliterated:27b
     token_limit: 16000
   summarizer:
     provider: ollama
-    model: huihui_ai/gemma-4-abliterated:31b
+    model: huihui_ai/Qwen3.6-abliterated:27b
     token_limit: 16000
   extractor:
     provider: ollama
-    model: huihui_ai/gemma-4-abliterated:31b
+    model: huihui_ai/Qwen3.6-abliterated:27b
     token_limit: 16000
 
 # Game defaults
