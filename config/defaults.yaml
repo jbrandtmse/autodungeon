@@ -2,19 +2,19 @@
 default_provider: gemini
 default_model: gemini-3-flash-preview
 
-# Per-agent defaults (can override)
+# Per-agent defaults (can override via user-settings.yaml from the UI)
 agents:
   dm:
-    provider: ollama
-    model: huihui_ai/Qwen3.6-abliterated:27b
+    provider: gemini
+    model: gemini-3-flash-preview
     token_limit: 16000
   summarizer:
-    provider: ollama
-    model: huihui_ai/Qwen3.6-abliterated:27b
+    provider: gemini
+    model: gemini-3-flash-preview
     token_limit: 16000
   extractor:
-    provider: ollama
-    model: huihui_ai/Qwen3.6-abliterated:27b
+    provider: gemini
+    model: gemini-3-flash-preview
     token_limit: 16000
 
 # Game defaults

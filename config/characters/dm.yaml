@@ -1,6 +1,6 @@
 # Dungeon Master configuration
 name: "Dungeon Master"
-provider: "ollama"
-model: "huihui_ai/gemma-4-abliterated:31b"
+provider: "gemini"
+model: "gemini-3-flash-preview"
 token_limit: 16000
 color: "#D4A574"
