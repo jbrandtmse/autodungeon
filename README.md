@@ -4,6 +4,8 @@
 
 *"Nostalgia for D&D, made accessible for people who can't coordinate 4 friends."*
 
+![autodungeon in play — narrative panel with party portrait illustration](docs/screenshots/game-session.png)
+
 ---
 
 ## What is autodungeon?
