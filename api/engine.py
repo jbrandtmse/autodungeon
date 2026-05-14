@@ -284,6 +284,10 @@ class GameEngine:
 
             def _on_node_complete(chunk_state: dict[str, Any]) -> None:
                 nonlocal streamed_log_len
+                # Publish the partial state to the engine so concurrent reads
+                # (e.g. image-generation requests during a round) see the
+                # latest log. Reference-replacement is GIL-atomic.
+                self._state = chunk_state  # type: ignore[assignment]
                 chunk_log = chunk_state.get("ground_truth_log", [])
                 if len(chunk_log) <= streamed_log_len:
                     return
