@@ -186,7 +186,7 @@ development_status:
   15-5-combat-ui-indicators: done
   15-6-combat-end-conditions: done
   15-7-npc-damage-tracking: done
-  15-8-auto-end-combat: backlog
+  15-8-auto-end-combat: review
 
   # ===========================================
   # v2.0 UI FRAMEWORK MIGRATION

@@ -894,6 +894,22 @@ class CombatState(BaseModel):
         ge=0,
         description="Index into initiative_order for the entry currently being processed",
     )
+    defeat_nudge_emitted: bool = Field(
+        default=False,
+        description=(
+            "True once the all-NPCs-defeated system message has been emitted "
+            "for the current encounter (Story 15.8). Reset to False by "
+            "CombatState() defaults when combat ends."
+        ),
+    )
+    defeat_nudge_round: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Round number when defeat_nudge_emitted was set to True. Used by "
+            "the auto-end fallback to detect DM inaction (Story 15.8)."
+        ),
+    )
 
 
 # =============================================================================

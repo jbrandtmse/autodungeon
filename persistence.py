@@ -353,6 +353,16 @@ def deserialize_game_state(json_str: str) -> GameState:
             initiative_rolls=combat_state_raw.get("initiative_rolls", {}),
             original_turn_queue=combat_state_raw.get("original_turn_queue", []),
             npc_profiles=npc_profiles,
+            # Story 15.3: initiative cursor — backward-compatible default of 0
+            # (carry-over fix originally noted in 15-7; resuming a checkpoint
+            # mid-combat without this restarts the round at the first slot
+            # instead of resuming where it left off).
+            current_initiative_index=combat_state_raw.get(
+                "current_initiative_index", 0
+            ),
+            # Story 15.8: nudge tracking fields with backward-compatible defaults
+            defeat_nudge_emitted=combat_state_raw.get("defeat_nudge_emitted", False),
+            defeat_nudge_round=combat_state_raw.get("defeat_nudge_round", 0),
         )
     else:
         combat_state = CombatState()

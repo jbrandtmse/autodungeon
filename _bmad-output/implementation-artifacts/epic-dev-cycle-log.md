@@ -2429,3 +2429,39 @@ Completed in separate cycle sessions (not logged here).
 | 15-8-auto-end-combat | 🔄 in queue | (pending) |
 
 ---
+
+## Story: 15-7-npc-damage-tracking
+
+**Status:** Completed (2026-05-15)
+**Commits:** f6c2716 (impl + review), 9b7640c (testarch expansion)
+
+### Files Touched
+- `tools.py` (modified) — `dm_update_npc` @tool
+- `agents.py` (modified) — `_execute_npc_update`, `_npc_status_label`, `_build_dm_context` injection, `dm_turn` dispatch + index sync, `pc_turn` index alignment, `DM_COMBAT_NARRATIVE_ADDENDUM`
+- `graph.py` (modified) — defeated-NPC skip in `route_to_next_agent`
+- `tests/test_agents.py` (modified) — exports snapshot
+- `tests/test_story_15_7_npc_damage_tracking.py` (new, 87 tests)
+- `_bmad-output/implementation-artifacts/stories/15-7-npc-damage-tracking.md` (new, 22 ACs)
+- `_bmad-output/planning-artifacts/sprint-change-proposal-2026-05-15.md` (new)
+
+### Key Design Decisions
+- 5-tier NPC HP status labels (full / lightly wounded / wounded / critically wounded / DEFEATED) at 25%/50%/75% thresholds
+- DM combat addendum runs on ALL combat turns (regular, bookend, NPC-control) per AC #11
+- Defeated-NPC routing: router skips locally + consuming nodes persist `current_initiative_index` advancement
+- Case-insensitive NPC name resolution against profile keys AND display names
+- `hp_change=0` no-op confirmations omit the "(+0)" suffix to keep the SHEET log clean
+- No `defeated: bool` field added to NpcProfile — `hp_current == 0` is the load-bearing signal
+
+### Issues Auto-Resolved
+- **HIGH** — Defeated-NPC routing skip not synchronized with persistent `current_initiative_index`. Without the fix, the *exact bug Story 15-7 was meant to cure* would have shipped (router skipped locally, but consuming nodes read stale persistent index → played dead NPC turns). 2 regression-guard tests added.
+- **MEDIUM** — `_execute_npc_update` `tool_args` annotation widened to `dict[str, object] | str` matching LangChain's runtime behavior.
+- **LOW** — Redundant elif branch collapsed; "(+0)" no-op suffix removed from confirmations.
+- **LOW (deferred)** — Combat addendum on NPC-control turns (AC-mandated); overly defensive test assertion (cosmetic); pyright "Unnecessary isinstance" warnings (defensive against `None`).
+
+### Discovered Out-of-Scope Issues
+- Persistence layer: `deserialize_game_state()` does NOT restore `combat_state.current_initiative_index` (always resets to 0). Mid-combat campaign reload would replay from start of round. Documented in story file Completion Notes; not Story 15-7's responsibility.
+
+### User Input Required
+- 0 (autopilot ran end-to-end with auto-resolution)
+
+---

@@ -171,6 +171,92 @@ def context_manager(state: GameState) -> GameState:
                 "[System]: Combat ended after reaching the maximum round limit.",
             ]
 
+    # Story 15.8: Auto-detect encounter resolution
+    # If every NPC in the active encounter is at 0 HP, prompt the DM to call
+    # dm_end_combat (idempotent per encounter via defeat_nudge_emitted). If
+    # the DM ignores the nudge for 3+ additional rounds, force-end combat.
+    #
+    # This is INDEPENDENT of and ADDITIVE to the Story 15-6 max_combat_rounds
+    # safety valve above (AC #10): both can be eligible to fire in the same
+    # round; whichever runs first force-ends combat, after which the other
+    # branch's `combat.active` guard becomes False and short-circuits.
+    #
+    # Re-read combat_state because the max-rounds block above may have just
+    # reset it to CombatState() defaults (active=False), in which case the
+    # `combat.active` guard below correctly skips this block (AC #5).
+    combat_after_round = updated_state.get("combat_state")
+    if (
+        isinstance(combat_after_round, CombatState)
+        and combat_after_round.active
+        and combat_after_round.npc_profiles  # AC #4: skip on empty NPC dict
+        and all(p.hp_current == 0 for p in combat_after_round.npc_profiles.values())
+    ):
+        # All-NPCs-defeated branch: emit nudge once per encounter (AC #1, #2).
+        if not combat_after_round.defeat_nudge_emitted:
+            updated_state["combat_state"] = combat_after_round.model_copy(
+                update={
+                    "defeat_nudge_emitted": True,
+                    "defeat_nudge_round": combat_after_round.round_number,
+                }
+            )
+            updated_state["ground_truth_log"] = [
+                *updated_state["ground_truth_log"],
+                "[System]: All hostile combatants are defeated. "
+                "The DM should end this encounter.",
+            ]
+            logger.info(
+                "Auto-end nudge emitted: all %d NPCs defeated in round %d",
+                len(combat_after_round.npc_profiles),
+                combat_after_round.round_number,
+            )
+    else:
+        # AC #9: revival case — at least one NPC is alive (or npc_profiles
+        # was emptied). Reset stale nudge flags so a future re-defeat can
+        # re-fire the nudge. Only applies while combat is still active.
+        if (
+            isinstance(combat_after_round, CombatState)
+            and combat_after_round.active
+            and combat_after_round.defeat_nudge_emitted
+        ):
+            updated_state["combat_state"] = combat_after_round.model_copy(
+                update={
+                    "defeat_nudge_emitted": False,
+                    "defeat_nudge_round": 0,
+                }
+            )
+
+    # Story 15.8 force-end fallback (AC #6, #10).
+    # Re-read again because the nudge-emit block above may have just set
+    # defeat_nudge_emitted/defeat_nudge_round on the same invocation.
+    combat_for_fallback = updated_state.get("combat_state")
+    if (
+        isinstance(combat_for_fallback, CombatState)
+        and combat_for_fallback.active
+        and combat_for_fallback.defeat_nudge_emitted
+        and combat_for_fallback.npc_profiles
+        and all(p.hp_current == 0 for p in combat_for_fallback.npc_profiles.values())
+        and combat_for_fallback.round_number - combat_for_fallback.defeat_nudge_round
+        >= 3
+    ):
+        rounds_since_nudge = (
+            combat_for_fallback.round_number - combat_for_fallback.defeat_nudge_round
+        )
+        logger.warning(
+            "Combat force-ended via auto-end fallback: %d rounds since defeat nudge",
+            rounds_since_nudge,
+        )
+        # Restore turn queue from backup (mirror Story 15-6)
+        if combat_for_fallback.original_turn_queue:
+            updated_state["turn_queue"] = list(combat_for_fallback.original_turn_queue)
+        # Reset combat state — also clears defeat_nudge_* via defaults
+        updated_state["combat_state"] = CombatState()
+        # Append system notification
+        updated_state["ground_truth_log"] = [
+            *updated_state["ground_truth_log"],
+            "[System]: Combat force-ended after DM failed to call "
+            "dm_end_combat following NPC defeat.",
+        ]
+
     return updated_state
 
 

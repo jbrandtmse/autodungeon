@@ -58,6 +58,7 @@ logger = logging.getLogger("autodungeon")
 __all__ = [
     "CLASS_GUIDANCE",
     "DEFAULT_MODELS",
+    "DM_COMBAT_ALL_DEFEATED_ADDENDUM",
     "DM_COMBAT_BOOKEND_PROMPT_TEMPLATE",
     "DM_COMBAT_NARRATIVE_ADDENDUM",
     "DM_CONTEXT_PLAYER_ENTRIES_LIMIT",
@@ -293,6 +294,20 @@ You are narrating the start of combat round {round_number}. Your role is to set 
 {combatant_summary}
 
 Keep this narration concise (2-4 sentences). Focus on atmosphere and tactical awareness.
+"""
+
+# Reinforcement appended ONLY after the all-NPCs-defeated nudge has fired —
+# pushes the DM to actually call dm_end_combat (Story 15.8). Layered on top
+# of (does NOT replace) DM_COMBAT_NARRATIVE_ADDENDUM, so the standard
+# damage-tracking guidance still applies (e.g. for NPC revival edge cases).
+DM_COMBAT_ALL_DEFEATED_ADDENDUM = """
+## Encounter Resolution — REQUIRED
+
+All hostile NPCs have been reduced to 0 HP. You SHOULD call `dm_end_combat` after narrating the resolution of the fight.
+
+- Do NOT continue narrating attacks from defeated enemies.
+- Narrate the end of the encounter in this same response, then call `dm_end_combat` to formally close combat.
+- Failure to end combat will trigger an automatic force-end after 3 more rounds.
 """
 
 # Combat narrative addendum appended to DM system prompt on ALL combat turns
@@ -1996,6 +2011,14 @@ def dm_turn(state: GameState) -> GameState:
             and _combat_st_for_addendum.active
         ):
             system_prompt_parts.append(DM_COMBAT_NARRATIVE_ADDENDUM)
+
+            # Story 15.8: After the all-defeated nudge has fired, layer an
+            # additional reinforcement that explicitly pushes the DM toward
+            # dm_end_combat. Layered on top of (not replacing) the standard
+            # narrative addendum so the dm_update_npc reminder still applies
+            # in case any NPC is revived between this turn and end-combat.
+            if _combat_st_for_addendum.defeat_nudge_emitted:
+                system_prompt_parts.append(DM_COMBAT_ALL_DEFEATED_ADDENDUM)
 
         full_system_prompt = "\n\n".join(system_prompt_parts)
 
