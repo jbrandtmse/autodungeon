@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
+from agents import _extract_response_text
 from models import ImageGenerationConfig, SceneImage, create_scene_image
 from persistence import get_session_dir
 
@@ -690,11 +691,7 @@ class ImageGenerator:
                         HumanMessage(content=formatted_full),
                     ]
                 )
-                content = (
-                    response.content
-                    if isinstance(response.content, str)
-                    else str(response.content)
-                )
+                content = _extract_response_text(response)
                 turn_number, rationale = self._parse_scanner_response(content)
                 chunked = False
             else:
