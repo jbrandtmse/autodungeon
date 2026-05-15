@@ -673,3 +673,510 @@ class TestAddendumConstants:
     def test_constant_distinct_from_narrative_addendum(self) -> None:
         """Layered design — the two constants must be different objects."""
         assert DM_COMBAT_ALL_DEFEATED_ADDENDUM != DM_COMBAT_NARRATIVE_ADDENDUM
+
+
+# =============================================================================
+# TestComposabilityWithMaxRounds (additional coverage — Story 15-6 + 15-8 stack)
+# =============================================================================
+
+
+class TestComposabilityWithMaxRounds:
+    """Verify the Story 15-6 max-rounds path and the Story 15-8 force-end
+    fallback compose correctly when both could fire on the same round (AC #10).
+
+    Per `context_manager()` ordering: the max-rounds block runs FIRST and can
+    reset combat to `CombatState()` (active=False). Once that happens, the
+    15-8 block's `combat.active` guard short-circuits and 15-8 does NOT also
+    append a duplicate `[System]:` line. The losing path becomes a no-op.
+    """
+
+    def test_max_rounds_wins_when_both_eligible_same_round(self) -> None:
+        """Both 15-6 max-rounds AND 15-8 force-end eligible -> 15-6 fires
+        first; 15-8 must NOT also append its force-end log line."""
+        # round_number=10 -> bumps to 11. With max_combat_rounds=10, 15-6
+        # fires (new_round 11 > max_rounds 10). 15-8 would ALSO fire on
+        # the same invocation (defeat_nudge_round=5, delta=11-5=6 >= 3),
+        # but the 15-6 reset must short-circuit it.
+        cs = _make_combat_state(
+            round_number=10,
+            defeat_nudge_emitted=True,
+            defeat_nudge_round=5,
+        )
+        config = GameConfig(
+            combat_mode="Tactical",  # type: ignore[arg-type]
+            summarizer_model="gemini-1.5-flash",
+            party_size=3,
+            max_combat_rounds=10,
+        )
+        state = _make_game_state(combat_state=cs, game_config=config)
+
+        result = context_manager(state)
+
+        new_cs = result["combat_state"]
+        assert isinstance(new_cs, CombatState)
+        # Combat fully reset (could be by either branch).
+        assert new_cs.active is False
+        assert new_cs == CombatState()
+        # Crucial assertion: ONLY ONE force-end-style [System]: line.
+        log = result["ground_truth_log"]
+        max_rounds_msgs = [
+            e for e in log if "Combat ended after reaching the maximum round limit" in e
+        ]
+        force_end_msgs = [
+            e
+            for e in log
+            if "Combat force-ended after DM failed to call dm_end_combat" in e
+        ]
+        nudge_msgs = [e for e in log if "All hostile combatants are defeated" in e]
+        assert len(max_rounds_msgs) == 1, "15-6 max-rounds line should appear once"
+        assert len(force_end_msgs) == 0, (
+            "15-8 force-end MUST NOT also fire after 15-6 reset combat"
+        )
+        # Pre-flagged nudge state from before should not get re-emitted either.
+        assert len(nudge_msgs) == 0
+
+    def test_combat_state_fully_resets_when_both_paths_eligible(self) -> None:
+        """When 15-6 fires and resets combat, the new (fresh) CombatState
+        must have defeat_nudge_emitted=False and defeat_nudge_round=0,
+        regardless of whether the prior state had them set."""
+        cs = _make_combat_state(
+            round_number=10,
+            defeat_nudge_emitted=True,
+            defeat_nudge_round=5,
+        )
+        config = GameConfig(
+            combat_mode="Tactical",  # type: ignore[arg-type]
+            summarizer_model="gemini-1.5-flash",
+            party_size=3,
+            max_combat_rounds=10,
+        )
+        state = _make_game_state(combat_state=cs, game_config=config)
+
+        result = context_manager(state)
+
+        new_cs = result["combat_state"]
+        assert isinstance(new_cs, CombatState)
+        assert new_cs.defeat_nudge_emitted is False
+        assert new_cs.defeat_nudge_round == 0
+
+
+# =============================================================================
+# TestMultiEncounterSequence (additional coverage — encounter A -> B isolation)
+# =============================================================================
+
+
+class TestMultiEncounterSequence:
+    """Verify nudge state isolates cleanly across encounters.
+
+    Encounter A: nudge fires -> DM calls dm_end_combat -> CombatState reset.
+    Encounter B: fresh combat starts -> nudge can fire again without being
+    suppressed by stale flags from encounter A.
+    """
+
+    def test_nudge_can_fire_in_second_encounter_after_first_ended(self) -> None:
+        """End encounter A via _execute_end_combat; start encounter B fresh
+        via CombatState(active=True, ...); confirm context_manager() emits
+        a fresh nudge for B."""
+        # === Encounter A: fully defeated, nudge already emitted ===
+        cs_a = _make_combat_state(
+            round_number=4,
+            defeat_nudge_emitted=True,
+            defeat_nudge_round=3,
+        )
+        state_a = _make_game_state(combat_state=cs_a)
+
+        # End combat A (mirrors what dm_end_combat triggers).
+        _, reset_cs, _ = _execute_end_combat(state_a)
+        assert reset_cs.defeat_nudge_emitted is False
+        assert reset_cs.defeat_nudge_round == 0
+        assert reset_cs.active is False
+
+        # === Encounter B: brand-new combat, all NPCs immediately at 0 HP ===
+        # (Simulating: PCs nuke a fresh encounter on round 1 with a fireball.)
+        cs_b = CombatState(
+            active=True,
+            round_number=1,
+            initiative_order=["dm", "shadowmere", "dm:goblin_chief"],
+            initiative_rolls={"shadowmere": 18, "dm:goblin_chief": 6},
+            original_turn_queue=["dm", "shadowmere", "thorin", "gandalf"],
+            npc_profiles={
+                "goblin_chief": _make_npc(name="Goblin Chief", hp_current=0, hp_max=20),
+            },
+        )
+        state_b = _make_game_state(combat_state=cs_b)
+
+        result_b = context_manager(state_b)
+        new_cs_b = result_b["combat_state"]
+
+        assert isinstance(new_cs_b, CombatState)
+        # Nudge MUST fire for the new encounter (not suppressed by stale state).
+        assert new_cs_b.defeat_nudge_emitted is True
+        # round_number bumped 1 -> 2 by the round-tracking block.
+        assert new_cs_b.defeat_nudge_round == 2
+        log = result_b["ground_truth_log"]
+        assert any(
+            "[System]: All hostile combatants are defeated" in e for e in log
+        )
+
+    def test_end_combat_then_start_combat_preserves_nudge_isolation(self) -> None:
+        """Double-check: a CombatState() reconstruction (as _execute_end_combat
+        returns) discards nudge state; constructing a NEW CombatState(active=True)
+        does NOT inherit nudge fields from the prior encounter."""
+        # This exercises the type-level guarantee: nudge state lives only on
+        # the current CombatState instance, not via any module-level cache.
+        prior = CombatState(
+            active=True,
+            round_number=8,
+            defeat_nudge_emitted=True,
+            defeat_nudge_round=3,
+        )
+        # Simulate _execute_end_combat: returns CombatState() defaults.
+        ended = CombatState()
+        assert ended.defeat_nudge_emitted is False
+        assert ended.defeat_nudge_round == 0
+        # The prior instance is untouched (Pydantic immutable-ish via copy).
+        assert prior.defeat_nudge_emitted is True
+        # New combat has independent state.
+        fresh = CombatState(active=True, round_number=1)
+        assert fresh.defeat_nudge_emitted is False
+        assert fresh.defeat_nudge_round == 0
+
+
+# =============================================================================
+# TestPersistenceFullFieldRoundTrip (additional coverage — bug-class regression)
+# =============================================================================
+
+
+class TestPersistenceFullFieldRoundTrip:
+    """Combined round-trip of ALL three CombatState fields touched by the
+    Story 15-7/15-8 work: `current_initiative_index` (15-7 carry-over fix
+    rolled into 15-8 review), `defeat_nudge_emitted` (15-8), and
+    `defeat_nudge_round` (15-8). Single-test omnibus to catch any ordering /
+    keyword-argument regressions in `deserialize_game_state()`."""
+
+    def test_round_trip_preserves_all_new_fields_together(self) -> None:
+        """Single state with non-default values for ALL three fields must
+        round-trip cleanly."""
+        cs = _make_combat_state(
+            round_number=5,
+            defeat_nudge_emitted=True,
+            defeat_nudge_round=3,
+        )
+        cs = cs.model_copy(update={"current_initiative_index": 4})
+        state = _make_game_state(combat_state=cs)
+
+        json_str = serialize_game_state(state)
+        restored = deserialize_game_state(json_str)
+        restored_cs = restored["combat_state"]
+
+        assert isinstance(restored_cs, CombatState)
+        assert restored_cs.current_initiative_index == 4
+        assert restored_cs.defeat_nudge_emitted is True
+        assert restored_cs.defeat_nudge_round == 3
+        # And the unrelated fields are preserved too (sanity).
+        assert restored_cs.round_number == 5
+        assert restored_cs.active is True
+        assert len(restored_cs.npc_profiles) == 3
+        # NPCs round-trip with hp_current=0 (the defeated state that drove
+        # the nudge in the first place).
+        assert all(p.hp_current == 0 for p in restored_cs.npc_profiles.values())
+
+    def test_legacy_checkpoint_missing_all_three_fields(self) -> None:
+        """Pre-15-7 checkpoint: combat_state subdict lacks all three new
+        fields. deserialize_game_state() must back-fill safe defaults
+        for each independently."""
+        import json
+
+        state = _make_game_state(combat_state=_make_combat_state())
+        json_str = serialize_game_state(state)
+        as_dict = json.loads(json_str)
+        # Strip ALL three new fields from the combat_state subdict.
+        as_dict["combat_state"].pop("defeat_nudge_emitted", None)
+        as_dict["combat_state"].pop("defeat_nudge_round", None)
+        as_dict["combat_state"].pop("current_initiative_index", None)
+        legacy_json = json.dumps(as_dict)
+
+        restored = deserialize_game_state(legacy_json)
+        restored_cs = restored["combat_state"]
+
+        assert isinstance(restored_cs, CombatState)
+        assert restored_cs.defeat_nudge_emitted is False
+        assert restored_cs.defeat_nudge_round == 0
+        assert restored_cs.current_initiative_index == 0
+
+
+# =============================================================================
+# TestSystemPromptAddendumStacking (additional coverage — order + simultaneous)
+# =============================================================================
+
+
+class TestSystemPromptAddendumStacking:
+    """When both DM_COMBAT_NARRATIVE_ADDENDUM (15-7) and
+    DM_COMBAT_ALL_DEFEATED_ADDENDUM (15-8) are eligible, the assembled
+    SystemMessage must contain BOTH, in the documented order
+    (NARRATIVE first, ALL_DEFEATED second). Code Review verdict #1 noted
+    the "layered, not replaced" design — this guards that explicitly."""
+
+    @patch("agents.get_llm")
+    def test_both_addenda_present_in_correct_order(
+        self, mock_get_llm: MagicMock
+    ) -> None:
+        """All-defeated nudge active -> SystemMessage contains both
+        addenda; NARRATIVE addendum appears BEFORE ALL_DEFEATED addendum."""
+        from langchain_core.messages import AIMessage
+
+        from agents import dm_turn
+
+        captured: list[Any] = []
+
+        def fake_invoke(msgs: list[Any]) -> Any:
+            captured.append(msgs)
+            return AIMessage(content="The Mist-Stalkers lie defeated.")
+
+        mock_model = MagicMock()
+        mock_model.bind_tools.return_value = mock_model
+        mock_model.invoke.side_effect = fake_invoke
+        mock_get_llm.return_value = mock_model
+
+        cs = _make_combat_state(
+            round_number=4,
+            defeat_nudge_emitted=True,
+            defeat_nudge_round=4,
+        )
+        state = _make_game_state(combat_state=cs, current_turn="dm")
+        dm_turn(state)
+
+        sys_content = captured[0][0].content
+        # Both signature phrases must be present.
+        narrative_marker = "Combat Damage Tracking"
+        all_defeated_marker = "Encounter Resolution"
+        assert narrative_marker in sys_content
+        assert all_defeated_marker in sys_content
+        # NARRATIVE (15-7) must precede ALL_DEFEATED (15-8) — the layering
+        # order is load-bearing because the all-defeated reinforcement
+        # builds on the narrative addendum's dm_update_npc reminder.
+        assert sys_content.index(narrative_marker) < sys_content.index(
+            all_defeated_marker
+        ), "NARRATIVE addendum must appear before ALL_DEFEATED addendum"
+
+    @patch("agents.get_llm")
+    def test_all_defeated_addendum_skipped_when_combat_inactive(
+        self, mock_get_llm: MagicMock
+    ) -> None:
+        """Even if defeat_nudge_emitted=True (stale), combat.active=False
+        means NEITHER addendum should appear — the gating is on active."""
+        from langchain_core.messages import AIMessage
+
+        from agents import dm_turn
+
+        captured: list[Any] = []
+
+        def fake_invoke(msgs: list[Any]) -> Any:
+            captured.append(msgs)
+            return AIMessage(content="Exploration narrative.")
+
+        mock_model = MagicMock()
+        mock_model.bind_tools.return_value = mock_model
+        mock_model.invoke.side_effect = fake_invoke
+        mock_get_llm.return_value = mock_model
+
+        # Inactive combat with stale nudge flag set (defensive scenario).
+        cs = _make_combat_state(
+            active=False,
+            round_number=4,
+            defeat_nudge_emitted=True,
+            defeat_nudge_round=4,
+        )
+        state = _make_game_state(combat_state=cs, current_turn="dm")
+        dm_turn(state)
+
+        sys_content = captured[0][0].content
+        assert "Combat Damage Tracking" not in sys_content
+        assert "Encounter Resolution" not in sys_content
+
+
+# =============================================================================
+# TestRevivalThenRedefeatRefiresNudge (additional coverage — AC #9 follow-on)
+# =============================================================================
+
+
+class TestRevivalThenRedefeatRefiresNudge:
+    """The existing TestRevivalResetsNudge test verifies the FIRST half of
+    AC #9 (revival clears the flag). This class verifies the LATTER half —
+    the rationale documented in AC #9: "if all NPCs go to 0 HP again later,
+    the nudge should fire again". Three-state machine: defeated -> revived
+    -> re-defeated, end-to-end."""
+
+    def test_revival_then_redefeat_fires_nudge_again(self) -> None:
+        """Sequence:
+        1. All defeated, nudge fires (round_number bumps 3 -> 4, nudge_round=4).
+        2. Revive one NPC to hp=5; context_manager() resets the flag.
+        3. Re-defeat the revived NPC (hp=0 again); context_manager() must
+           emit a SECOND [System]: line and re-flag defeat_nudge_emitted=True
+           with the NEW round_number.
+        """
+        # === Step 1: all defeated, nudge fires ===
+        cs1 = _make_combat_state(round_number=3)
+        state1 = _make_game_state(combat_state=cs1)
+        result1 = context_manager(state1)
+
+        cs_after_1 = result1["combat_state"]
+        assert isinstance(cs_after_1, CombatState)
+        assert cs_after_1.defeat_nudge_emitted is True
+        first_nudge_round = cs_after_1.defeat_nudge_round
+        assert first_nudge_round == 4  # bumped from 3
+        first_nudge_count = sum(
+            1
+            for e in result1["ground_truth_log"]
+            if "[System]: All hostile combatants are defeated" in e
+        )
+        assert first_nudge_count == 1
+
+        # === Step 2: revive one NPC; flag should clear ===
+        revived_profiles = {
+            "mist-stalker_alpha": _make_npc(hp_current=5),  # REVIVED
+            "mist-stalker_beta": _make_npc(name="Mist-Stalker Beta", hp_current=0),
+            "mist-stalker_gamma": _make_npc(name="Mist-Stalker Gamma", hp_current=0),
+        }
+        cs2 = cs_after_1.model_copy(update={"npc_profiles": revived_profiles})
+        # Carry the prior log forward so we can compare lengths later.
+        state2 = {**state1, **result1, "combat_state": cs2}
+        result2 = context_manager(state2)
+
+        cs_after_2 = result2["combat_state"]
+        assert isinstance(cs_after_2, CombatState)
+        assert cs_after_2.defeat_nudge_emitted is False
+        assert cs_after_2.defeat_nudge_round == 0
+
+        # === Step 3: re-defeat. Nudge must fire AGAIN. ===
+        redefeated_profiles = {
+            "mist-stalker_alpha": _make_npc(hp_current=0),  # killed again
+            "mist-stalker_beta": _make_npc(name="Mist-Stalker Beta", hp_current=0),
+            "mist-stalker_gamma": _make_npc(name="Mist-Stalker Gamma", hp_current=0),
+        }
+        cs3 = cs_after_2.model_copy(update={"npc_profiles": redefeated_profiles})
+        state3 = {**state1, **result2, "combat_state": cs3}
+        result3 = context_manager(state3)
+
+        cs_after_3 = result3["combat_state"]
+        assert isinstance(cs_after_3, CombatState)
+        # Nudge re-fires.
+        assert cs_after_3.defeat_nudge_emitted is True
+        # New nudge_round MUST differ from the first (round_number kept
+        # incrementing across the three calls).
+        assert cs_after_3.defeat_nudge_round != first_nudge_round
+        assert cs_after_3.defeat_nudge_round > first_nudge_round
+
+        # Total [System]: nudge lines in the log = 2 (first + re-fire).
+        nudge_count = sum(
+            1
+            for e in result3["ground_truth_log"]
+            if "[System]: All hostile combatants are defeated" in e
+        )
+        assert nudge_count == 2
+
+
+# =============================================================================
+# TestForceEndEdgeCases (additional coverage — Block E corner cases)
+# =============================================================================
+
+
+class TestForceEndEdgeCases:
+    """Edge-case behavior of the Story 15-8 force-end fallback (Block E)
+    not covered by the existing TestForceEndFallback class."""
+
+    def test_force_end_with_empty_original_turn_queue_does_not_modify_queue(
+        self,
+    ) -> None:
+        """If `original_turn_queue` is empty (defensive: should never
+        happen in practice — _execute_start_combat always saves it — but
+        the production code's `if combat_for_fallback.original_turn_queue:`
+        guard means we don't clobber `turn_queue` when the backup is
+        empty). Combat itself is still force-ended."""
+        cs = _make_combat_state(
+            round_number=8,
+            defeat_nudge_emitted=True,
+            defeat_nudge_round=4,
+            original_turn_queue=[],  # empty backup
+        )
+        existing_queue = ["dm", "shadowmere", "thorin", "gandalf"]
+        state = _make_game_state(
+            combat_state=cs,
+            turn_queue=existing_queue,
+        )
+
+        result = context_manager(state)
+
+        new_cs = result["combat_state"]
+        assert isinstance(new_cs, CombatState)
+        # Combat still force-ended.
+        assert new_cs.active is False
+        assert new_cs == CombatState()
+        # turn_queue NOT overwritten (empty backup -> no restore).
+        assert result["turn_queue"] == existing_queue
+        # System line still appended.
+        assert any(
+            "Combat force-ended after DM failed to call dm_end_combat" in e
+            for e in result["ground_truth_log"]
+        )
+
+    def test_force_end_only_one_system_line_appended(self) -> None:
+        """A single context_manager() invocation that triggers force-end
+        must append exactly ONE force-end [System]: line — not duplicate it
+        if the function were re-entered (but we only call it once here, this
+        is a single-invocation invariant guard)."""
+        cs = _make_combat_state(
+            round_number=8,
+            defeat_nudge_emitted=True,
+            defeat_nudge_round=4,
+        )
+        state = _make_game_state(combat_state=cs)
+
+        result = context_manager(state)
+
+        force_end_count = sum(
+            1
+            for e in result["ground_truth_log"]
+            if "Combat force-ended after DM failed to call dm_end_combat" in e
+        )
+        assert force_end_count == 1
+
+    def test_force_end_after_revival_then_redefeat_uses_new_nudge_round(
+        self,
+    ) -> None:
+        """Subtle: after revival -> re-defeat (Block D resets nudge_round
+        to 0, then Block C re-emits at the new round_number), the force-end
+        countdown must restart from the NEW nudge_round, not the original.
+        Otherwise a slow revival would falsely accelerate force-end.
+
+        Setup: combat at round 10. Pre-flagged with nudge_round=2 (would
+        normally trigger force-end immediately, delta=8). But one NPC is
+        alive — Block D should reset both flags. Combat continues.
+        """
+        cs = _make_combat_state(
+            round_number=10,
+            defeat_nudge_emitted=True,
+            defeat_nudge_round=2,  # very stale — would force-end if not reset
+            npc_profiles={
+                "mist-stalker_alpha": _make_npc(hp_current=5),  # alive
+                "mist-stalker_beta": _make_npc(name="Mist-Stalker Beta", hp_current=0),
+                "mist-stalker_gamma": _make_npc(name="Mist-Stalker Gamma", hp_current=0),
+            },
+        )
+        state = _make_game_state(combat_state=cs)
+
+        result = context_manager(state)
+
+        new_cs = result["combat_state"]
+        assert isinstance(new_cs, CombatState)
+        # Critical: combat MUST still be active. Block D must reset BEFORE
+        # Block E reads. If the order were inverted, the stale (round=11,
+        # nudge_round=2, delta=9) would force-end despite the revival.
+        assert new_cs.active is True
+        assert new_cs.defeat_nudge_emitted is False
+        assert new_cs.defeat_nudge_round == 0
+        # No force-end line appended.
+        assert not any(
+            "Combat force-ended after DM failed to call dm_end_combat" in e
+            for e in result["ground_truth_log"]
+        )

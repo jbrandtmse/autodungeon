@@ -2465,3 +2465,55 @@ Completed in separate cycle sessions (not logged here).
 - 0 (autopilot ran end-to-end with auto-resolution)
 
 ---
+
+## Story: 15-8-auto-end-combat
+
+**Status:** Completed (2026-05-15)
+**Commits:** a4d4e76 (impl + review), [next commit] (testarch expansion)
+
+### Files Touched
+- `models.py` (modified) — `defeat_nudge_emitted: bool`, `defeat_nudge_round: int` on `CombatState`
+- `persistence.py` (modified) — backward-compat reads + bonus fix for `current_initiative_index` carry-over from 15-7
+- `graph.py` (modified) — defeat-detection block in `context_manager`: nudge / revival reset / 3-round force-end
+- `agents.py` (modified) — `DM_COMBAT_ALL_DEFEATED_ADDENDUM` template, `dm_turn` injection
+- `tests/test_story_15_8_auto_end_combat.py` (new, 32 tests)
+- `_bmad-output/implementation-artifacts/stories/15-8-auto-end-combat.md` (new)
+
+### Key Design Decisions
+- 3-round grace window for force-end (hardcoded; promote to GameConfig later if telemetry warrants)
+- Two new fields instead of one: `defeat_nudge_emitted` for idempotency, `defeat_nudge_round` for the timer anchor (avoids conflating `round_number=0` semantic)
+- New addendum is LAYERED on top of Story 15-7's `DM_COMBAT_NARRATIVE_ADDENDUM`, not replacing — DM still needs the `dm_update_npc` reminder during revival
+- Block ordering in `context_manager`: 15-6 max-rounds → 15-8 nudge → 15-8 revival reset → 15-8 force-end fallback
+
+### Issues Auto-Resolved
+- **MEDIUM** — Story 15-7's persistence carry-over fixed: `deserialize_game_state` now restores `current_initiative_index`. Was silently restarting mid-combat reloads at index 0.
+- **LOW (deferred)** — Hardcoded 3-round grace, `__all__` alphabetical ordering, Block E doesn't reset `current_turn` (mirrors 15-6).
+
+### User Input Required
+- 0 (autopilot end-to-end with auto-resolution)
+
+---
+
+# Epic 15 - Cycle Complete
+
+**Completion Time:** 2026-05-15
+**Total Stories Processed:** 2 (15-7, 15-8)
+**Epic Status:** done (all 8 stories — 15-1 through 15-8 — complete)
+
+## Overall Statistics
+- Total files touched: 8 (3 new — 15-7 story, 15-8 story, 15-8 test file; 2 implementation files modified across both stories — `agents.py`, `graph.py` — plus `tools.py`, `models.py`, `persistence.py`, `tests/test_agents.py`, and 15-7's test file)
+- Total design decisions: 11
+- Total issues auto-resolved: 5 (1 HIGH + 3 MEDIUM + 1 carry-over MEDIUM in 15-8 picked up the 15-7 leftover)
+- Total user interventions: 0
+- Total new tests: 119 (87 in 15-7, 32 in 15-8)
+
+## Stories Completed This Cycle
+1. **15-7-npc-damage-tracking** — `dm_update_npc` tool, NPC HP mutation, `_build_dm_context` combat-state injection, defeated-NPC routing skip with persistent index sync, 5-tier status labels.
+2. **15-8-auto-end-combat** — All-NPCs-defeated detection in `context_manager`, idempotent `[System]:` nudge, revival reset, 3-round force-end fallback, layered DM prompt addendum.
+
+## Recommendations
+- Run epic retrospective: `/bmad-bmm-retrospective`
+- Restart uvicorn to load Stories 15-7/15-8 code
+- Validate live: start a fresh combat encounter; watch for proper HP decrement, nudge emission, and clean encounter resolution
+- Session 017's existing Mist-Stalker encounter was discussed in the change proposal — should be ended via Drop In or by waiting for the manual nudge sent earlier
+

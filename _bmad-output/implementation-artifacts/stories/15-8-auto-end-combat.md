@@ -499,3 +499,34 @@ claude-opus-4-7[1m]
 - Final test status: **20/20 Story 15-8 tests pass**, no new regressions
 - Lint: clean except for one pre-existing unrelated `UP035` warning
 - **Verdict: READY FOR COMMIT** (status remains `review` pending user-driven commit; HIGH/MEDIUM issues fully resolved).
+
+## testarch-automate Coverage Expansion (2026-05-15)
+
+**Workflow:** `_bmad/bmm/workflows/testarch/automate`
+**Reviewer:** claude-opus-4-7[1m]
+**Scope:** Identify ADDITIONAL coverage gaps the dev-story + code-review tests don't address.
+
+### New tests added (12, across 6 new classes)
+
+Total in file: **20 -> 32 tests**, all passing.
+
+| New class | Tests | Gap covered |
+|---|---|---|
+| `TestComposabilityWithMaxRounds` | 2 | AC #10 deeper: when both 15-6 max-rounds AND 15-8 force-end fire on the SAME round, only ONE `[System]:` line appears (15-6 wins; 15-8 short-circuits). Also confirms reset to fresh `CombatState()` zeroes the new fields. |
+| `TestMultiEncounterSequence` | 2 | Encounter A nudge -> `_execute_end_combat` -> Encounter B fresh combat -> nudge fires AGAIN with no carry-over from A. |
+| `TestPersistenceFullFieldRoundTrip` | 2 | Combined round-trip of all three fields the 15-7/15-8 work touched (`current_initiative_index` + `defeat_nudge_emitted` + `defeat_nudge_round`); legacy checkpoint missing all three back-fills correctly. |
+| `TestSystemPromptAddendumStacking` | 2 | NARRATIVE addendum (15-7) MUST appear BEFORE ALL_DEFEATED addendum (15-8) in the SystemMessage; both skipped when `combat.active=False` even if the nudge flag is stale. |
+| `TestRevivalThenRedefeatRefiresNudge` | 1 | Three-state machine: defeated -> revived -> re-defeated. Verifies the LATTER half of AC #9 (the rationale "if all NPCs go to 0 HP again later, the nudge should fire again"). Counts log entries to prove the nudge fires twice with different `defeat_nudge_round` values. |
+| `TestForceEndEdgeCases` | 3 | (a) Empty `original_turn_queue` -> combat force-ends but `turn_queue` is NOT clobbered. (b) Single-invocation invariant: exactly ONE force-end `[System]:` line per fire. (c) `context_manager()` block-ordering invariant: revival reset (Block D) MUST run before force-end check (Block E) — otherwise a stale pre-revival `defeat_nudge_round` would falsely trigger force-end despite the encounter being live again. |
+
+### Coverage gaps identified but NOT covered (with reasoning)
+
+1. **End-to-end LangGraph integration test** — none of the new tests exercise the full `create_game_workflow().invoke()` path with the nudge mechanism active. Reasoning: the existing 15-x suites cover graph integration generally; the 15-8-specific contract is fully expressible at `context_manager()` and `dm_turn()` unit-test scope.
+2. **Concurrency / WebSocket broadcast test for the new `[System]:` lines** — would require `api/websocket.py` test scaffolding. The system messages use the same `ground_truth_log` append path as Story 15-6's force-end notification, which is already broadcast-tested elsewhere; no new path to cover.
+3. **Frontend rendering of the nudge `[System]:` line** — frontend already renders `[System]:` entries via existing log-entry parsing (see Dev Notes "Reference: Existing System-Message Format"). No new frontend code to test.
+4. **DM actually calling `dm_end_combat` after seeing the addendum** — that's an LLM-behavior assertion, not a deterministic code path. The autopilot/integration suites cover this empirically over long campaigns.
+
+### Suite verification
+
+- `python -m pytest tests/test_story_15_8_auto_end_combat.py -xvs` -> **32 passed in 26.54s** (was 20, +12 new).
+- `python -m pytest tests/test_story_15_*.py` -> 381 passed, 20 failed. The 20 failures are the **same pre-existing failures** documented in the original Dev Agent Record (combat_mode default flip in Session 014 commit `fd7032c`, etc.) — none introduced by this expansion.
