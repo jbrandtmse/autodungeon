@@ -22,6 +22,7 @@ __all__ = [
     "dm_roll_dice",
     "dm_start_combat",
     "dm_update_character_sheet",
+    "dm_update_npc",
     "dm_whisper_to_agent",
     "pc_roll_dice",
     "resolve_inline_dice_notation",
@@ -170,7 +171,9 @@ def roll_dice(notation: str | None = None) -> DiceResult:
         if dice_match:
             count_str = dice_match.group(1)
             sides_str = dice_match.group(2)
-            keep_mode_raw = dice_match.group(3)  # "kh", "kl", "h", "l", "H", "L", or None
+            keep_mode_raw = dice_match.group(
+                3
+            )  # "kh", "kl", "h", "l", "H", "L", or None
             keep_count_str = dice_match.group(4)  # number to keep, or None
             # Normalize keep mode: "h"/"H"/"kh"/"k" -> "kh", "l"/"L"/"kl" -> "kl"
             # Bare "k" (Roll20 style) defaults to keep-highest
@@ -712,6 +715,59 @@ def dm_update_character_sheet(character_name: str, updates: dict[str, Any]) -> s
     # The @tool decorator is for LangChain schema binding only.
     # Actual execution happens in agents.py _execute_sheet_update().
     return f"Sheet update for {character_name}: {updates}"
+
+
+@tool
+def dm_update_npc(
+    npc_name: str,
+    hp_change: int = 0,
+    conditions_add: list[str] | None = None,
+    conditions_remove: list[str] | None = None,
+) -> str:
+    """Update an NPC's combat state during an active encounter.
+
+    `hp_change` is a DELTA, not an absolute value. Negative values apply damage
+    (e.g., -7 means the NPC took 7 damage). Positive values heal.
+
+    HP is clamped to [0, hp_max]. Overkill values do not produce negative HP, and
+    over-heal values do not exceed hp_max.
+
+    When `hp_current` reaches 0, the NPC is marked defeated and will be skipped
+    in subsequent rounds. Narrate the defeat in the same response.
+
+    Use this tool after PC actions resolve to record:
+    - Damage dealt to NPCs
+    - Conditions applied or removed (poisoned, prone, frightened, etc.)
+    - NPC deaths (when hp_current reaches 0)
+
+    Args:
+        npc_name: The NPC's display name (e.g., "Goblin 1", "Mist-Stalker Alpha").
+            Case-insensitive lookup via name sanitization.
+        hp_change: HP delta to apply. Negative = damage, positive = healing.
+            Defaults to 0 (no HP change, useful for condition-only updates).
+        conditions_add: Optional list of condition names to apply
+            (deduplicated case-insensitively against existing conditions).
+        conditions_remove: Optional list of condition names to clear
+            (case-insensitive match).
+
+    Returns:
+        Confirmation string describing the change, or error message if the
+        NPC was not found or combat is inactive.
+
+    Examples:
+        - Damage: dm_update_npc(npc_name="Goblin 1", hp_change=-7)
+        - Heal: dm_update_npc(npc_name="Mist-Stalker Alpha", hp_change=5)
+        - Defeat + condition: dm_update_npc(npc_name="Klarg", hp_change=-12, conditions_add=["unconscious"])
+        - Remove condition: dm_update_npc(npc_name="Spider", conditions_remove=["webbed"])
+        - Apply condition only: dm_update_npc(npc_name="Wolf", conditions_add=["frightened"])
+    """
+    # This tool's execution is intercepted in dm_turn() which has access to game
+    # state. The @tool decorator is for LangChain schema binding only.
+    # Actual execution happens in agents.py _execute_npc_update().
+    return (
+        f"NPC update for {npc_name}: hp_change={hp_change}, "
+        f"conditions_add={conditions_add}, conditions_remove={conditions_remove}"
+    )
 
 
 @tool

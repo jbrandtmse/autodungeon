@@ -46,6 +46,7 @@ from tools import (
     dm_roll_dice,
     dm_start_combat,
     dm_update_character_sheet,
+    dm_update_npc,
     dm_whisper_to_agent,
     pc_roll_dice,
     roll_initiative,
@@ -58,6 +59,7 @@ __all__ = [
     "CLASS_GUIDANCE",
     "DEFAULT_MODELS",
     "DM_COMBAT_BOOKEND_PROMPT_TEMPLATE",
+    "DM_COMBAT_NARRATIVE_ADDENDUM",
     "DM_CONTEXT_PLAYER_ENTRIES_LIMIT",
     "DM_CONTEXT_RECENT_EVENTS_LIMIT",
     "DM_NPC_TURN_PROMPT_TEMPLATE",
@@ -80,10 +82,12 @@ __all__ = [
     "_build_pc_context",
     "_get_combat_turn_type",
     "_execute_end_combat",
+    "_execute_npc_update",
     "_execute_reveal",
     "_execute_sheet_update",
     "_execute_start_combat",
     "_execute_whisper",
+    "_npc_status_label",
     "_parse_module_json",
     "build_pc_system_prompt",
     "categorize_error",
@@ -289,6 +293,18 @@ You are narrating the start of combat round {round_number}. Your role is to set 
 {combatant_summary}
 
 Keep this narration concise (2-4 sentences). Focus on atmosphere and tactical awareness.
+"""
+
+# Combat narrative addendum appended to DM system prompt on ALL combat turns
+# (regular narrative, bookend, AND NPC-control turns) - Story 15.7
+DM_COMBAT_NARRATIVE_ADDENDUM = """
+## Combat Damage Tracking — REQUIRED
+
+Combat is currently ACTIVE. You have a `dm_update_npc` tool — call it after PC actions resolve to record damage dealt to NPCs, conditions applied (poisoned, prone, frightened, etc.), and deaths. Use negative `hp_change` for damage and positive for healing.
+
+- Do NOT let an NPC at 0 HP continue acting.
+- When an NPC reaches 0 HP, narrate their defeat in the same response.
+- Refer to the "Active Combat — Round N" section in your context for the live HP and condition state of every NPC. The state shown there is authoritative — do not contradict it.
 """
 
 # NPC turn prompt template (Story 15.4)
@@ -822,6 +838,7 @@ def create_dm_agent(config: DMConfig) -> Runnable:  # type: ignore[type-arg]
         [
             dm_roll_dice,
             dm_update_character_sheet,
+            dm_update_npc,
             dm_whisper_to_agent,
             dm_reveal_secret,
             dm_start_combat,
@@ -1364,6 +1381,41 @@ def format_callback_suggestions(
     return "\n".join(lines).rstrip()
 
 
+def _npc_status_label(hp_current: int, hp_max: int) -> str:
+    """Return the status label suffix for an NPC's HP line.
+
+    Story 15.7 (AC #9). Maps hp_current/hp_max ratio to a human-readable label:
+
+    | hp_current                             | Label                  |
+    |----------------------------------------|------------------------|
+    | 0                                      | " (DEFEATED)"          |
+    | (0, 0.25 * hp_max]                     | " (critically wounded)"|
+    | (0.25 * hp_max, 0.75 * hp_max]         | " (wounded)"           |
+    | (0.75 * hp_max, hp_max)                | " (lightly wounded)"   |
+    | hp_max (full)                          | "" (empty)             |
+
+    Args:
+        hp_current: Current hit points (>= 0).
+        hp_max: Maximum hit points (>= 1).
+
+    Returns:
+        Leading-space-prefixed status label, or empty string when at full HP.
+        Returns empty string if hp_max <= 0 (defensive).
+    """
+    if hp_max <= 0:
+        return ""
+    if hp_current <= 0:
+        return " (DEFEATED)"
+    if hp_current >= hp_max:
+        return ""
+    ratio = hp_current / hp_max
+    if ratio <= 0.25:
+        return " (critically wounded)"
+    if ratio <= 0.75:
+        return " (wounded)"
+    return " (lightly wounded)"
+
+
 def _build_dm_context(state: GameState) -> str:
     """Build the context string for the DM from all agent memories.
 
@@ -1407,6 +1459,45 @@ def _build_dm_context(state: GameState) -> str:
         sheets_context = format_all_sheets_context(character_sheets)
         if sheets_context:
             context_parts.append(sheets_context)
+
+    # Story 15.7: Inject live combat state when combat is active.
+    # This section gives the DM authoritative HP/condition state for all NPCs
+    # on every turn (not just bookends), so damage applied via `dm_update_npc`
+    # is visible immediately and defeated NPCs stop being narrated as active.
+    # CRITICAL: Wholly gated on combat.active — zero behavioral diff in exploration.
+    combat_for_context = state.get("combat_state")
+    if isinstance(combat_for_context, CombatState) and combat_for_context.active:
+        combat_lines: list[str] = [
+            f"## Active Combat — Round {combat_for_context.round_number}",
+            "",
+            "### NPCs (DM-controlled):",
+        ]
+        # Collect NPC entries in initiative order, deduped by key
+        seen_keys: set[str] = set()
+        npc_lines: list[str] = []
+        for entry in combat_for_context.initiative_order:
+            if not entry.startswith("dm:"):
+                continue
+            npc_key = entry.split(":", 1)[1]
+            if npc_key in seen_keys:
+                continue
+            seen_keys.add(npc_key)
+            npc = combat_for_context.npc_profiles.get(npc_key)
+            if npc is None:
+                continue
+            status_label = _npc_status_label(npc.hp_current, npc.hp_max)
+            conditions_suffix = (
+                f" — conditions: {', '.join(npc.conditions)}" if npc.conditions else ""
+            )
+            npc_lines.append(
+                f"- {npc.name}: HP {npc.hp_current}/{npc.hp_max}"
+                f"{status_label}{conditions_suffix}"
+            )
+        if not npc_lines:
+            # AC #19: empty npc_profiles → emit placeholder, do not omit section
+            npc_lines.append("- (no NPCs in this encounter)")
+        combat_lines.extend(npc_lines)
+        context_parts.append("\n".join(combat_lines))
 
     # DM reads ALL agent memories (asymmetric access per architecture)
     agent_knowledge: list[str] = []
@@ -1756,7 +1847,9 @@ def _build_npc_turn_prompt(state: GameState, npc_key: str) -> str:
         logger.warning(
             "NPC '%s' not found in npc_profiles. Available: %s",
             npc_key,
-            ", ".join(sorted(combat.npc_profiles.keys())) if combat.npc_profiles else "none",
+            ", ".join(sorted(combat.npc_profiles.keys()))
+            if combat.npc_profiles
+            else "none",
         )
         return f"It is now {npc_key}'s turn. Narrate their action."
 
@@ -1803,6 +1896,14 @@ def dm_turn(state: GameState) -> GameState:
 
     # Combat initiative tracking: set current_turn to the correct initiative
     # entry so _get_combat_turn_type and NPC prompt building work properly.
+    #
+    # Story 15.7 FIX: Before reading the index, advance the persistent
+    # current_initiative_index past any defeated NPC slots. The router
+    # (route_to_next_agent) advances only its LOCAL copy when skipping
+    # defeated NPCs — without this re-alignment, dm_turn would read a
+    # stale index pointing at a dead NPC and play that dead NPC's turn
+    # (the exact bug that motivated Story 15.7). Persisting the skip here
+    # keeps the router-local skip and the consuming-node index in sync.
     combat_st = state.get("combat_state")
     if (
         combat_st
@@ -1811,7 +1912,26 @@ def dm_turn(state: GameState) -> GameState:
         and combat_st.initiative_order
     ):
         idx = combat_st.current_initiative_index
-        if idx < len(combat_st.initiative_order):
+        order_len = len(combat_st.initiative_order)
+        # Advance past defeated NPC slots (mirrors route_to_next_agent's loop)
+        while idx < order_len:
+            entry = combat_st.initiative_order[idx]
+            if not entry.startswith("dm:"):
+                break
+            npc_key = entry[3:]
+            npc = combat_st.npc_profiles.get(npc_key)
+            if npc is None or npc.hp_current > 0:
+                break
+            logger.debug(
+                "dm_turn: advancing persistent index past defeated NPC slot %s",
+                entry,
+            )
+            idx += 1
+        if idx != combat_st.current_initiative_index:
+            # Persist the alignment so subsequent index += 1 advances correctly
+            combat_st = combat_st.model_copy(update={"current_initiative_index": idx})
+            state["combat_state"] = combat_st
+        if idx < order_len:
             state["current_turn"] = combat_st.initiative_order[idx]
 
     print(
@@ -1864,6 +1984,18 @@ def dm_turn(state: GameState) -> GameState:
         elif combat_turn_type == "npc_turn":
             npc_key = state["current_turn"].split(":", 1)[1]
             system_prompt_parts.append(_build_npc_turn_prompt(state, npc_key))
+
+        # Story 15.7: append damage-tracking guidance on ALL combat turns
+        # (regular narrative, bookend, AND NPC-control turns). The bookend and
+        # NPC-turn templates already exist for their narrow purposes; this
+        # addendum specifically pushes the DM to call dm_update_npc whenever
+        # combat is active, regardless of turn type.
+        _combat_st_for_addendum = state.get("combat_state")
+        if (
+            isinstance(_combat_st_for_addendum, CombatState)
+            and _combat_st_for_addendum.active
+        ):
+            system_prompt_parts.append(DM_COMBAT_NARRATIVE_ADDENDUM)
 
         full_system_prompt = "\n\n".join(system_prompt_parts)
 
@@ -1963,6 +2095,29 @@ def dm_turn(state: GameState) -> GameState:
                     )
                     # Collect successful update notifications (Story 8.5)
                     if not tool_result.startswith("Error"):
+                        sheet_notifications.append(tool_result)
+
+                # Execute the NPC update tool (Story 15.7)
+                elif tool_name == "dm_update_npc":
+                    # Use the most up-to-date working CombatState: prefer any
+                    # update from a prior tool call this turn (e.g., a chained
+                    # dm_update_npc), otherwise read from state.
+                    working_combat_state = (
+                        updated_combat_state
+                        if updated_combat_state is not None
+                        else state.get("combat_state", CombatState())
+                    )
+                    tool_result, new_combat_state = _execute_npc_update(
+                        tool_args, working_combat_state
+                    )
+                    logger.info(
+                        "DM updated NPC: %s -> %s",
+                        tool_args,
+                        tool_result,
+                    )
+                    if not tool_result.startswith("Error"):
+                        updated_combat_state = new_combat_state
+                        # Reuse Story 8.5 [SHEET]: notification pipeline
                         sheet_notifications.append(tool_result)
 
                 # Execute the whisper tool (Story 10.2)
@@ -2167,8 +2322,7 @@ def dm_turn(state: GameState) -> GameState:
 
     # Story 15.6: Restore turn queue when combat ends
     turn_queue_for_return = (
-        restored_turn_queue if restored_turn_queue is not None
-        else state["turn_queue"]
+        restored_turn_queue if restored_turn_queue is not None else state["turn_queue"]
     )
 
     # Return new state with current_turn set appropriately
@@ -2439,6 +2593,173 @@ def _execute_sheet_update(
         return f"Error updating {character_name}: {e}"
 
 
+def _execute_npc_update(
+    tool_args: dict[str, object] | str,
+    combat_state: CombatState,
+) -> tuple[str, CombatState]:
+    """Execute an NPC damage/condition update from a DM tool call.
+
+    Mutates an NPC's `hp_current` (clamped to [0, hp_max]) and updates the
+    conditions list (case-insensitive add with dedupe, case-insensitive
+    remove). Returns a confirmation string and a NEW CombatState — never
+    mutates input. On error (combat inactive, unknown NPC), returns an
+    error string and the unchanged combat_state.
+
+    Story 15.7: NPC Damage Tracking & Combat-State Injection.
+
+    Args:
+        tool_args: Tool call arguments. Accepted shape:
+            - npc_name: str (required)
+            - hp_change: int delta (negative = damage, positive = healing)
+            - conditions_add: list[str] (optional)
+            - conditions_remove: list[str] (optional)
+            LangChain may pass these as a dict OR as a JSON-encoded string,
+            so this parameter is typed as `dict[str, object] | str` and the
+            string path is decoded below.
+        combat_state: Current CombatState (immutable, treated read-only).
+
+    Returns:
+        Tuple of (confirmation_or_error_string, possibly_updated_combat_state).
+        On success, the returned state has `npc_profiles[key]` replaced with a
+        new NpcProfile via model_copy. On error, the input combat_state is
+        returned unchanged.
+    """
+    import json
+
+    from tools import _sanitize_npc_name
+
+    # Tolerate JSON-encoded string for the whole args dict (mirrors
+    # _execute_sheet_update which accepts JSON-stringified updates). The
+    # parameter is typed `dict | str` so pyright considers both branches.
+    parsed_args: dict[str, object]
+    if isinstance(tool_args, str):
+        parsed_args = {}
+        try:
+            decoded = json.loads(tool_args)
+            if isinstance(decoded, dict):
+                parsed_args = decoded
+        except json.JSONDecodeError:
+            pass
+    else:
+        parsed_args = tool_args
+
+    # Extract arguments with safe defaults
+    npc_name_raw = parsed_args.get("npc_name", "")
+    npc_name = str(npc_name_raw) if npc_name_raw is not None else ""
+
+    hp_change_raw = parsed_args.get("hp_change", 0)
+    try:
+        hp_change = int(hp_change_raw) if hp_change_raw is not None else 0
+    except (TypeError, ValueError):
+        hp_change = 0
+
+    conditions_add_raw = parsed_args.get("conditions_add") or []
+    conditions_remove_raw = parsed_args.get("conditions_remove") or []
+    conditions_add: list[str] = (
+        [str(c) for c in conditions_add_raw]
+        if isinstance(conditions_add_raw, list)
+        else []
+    )
+    conditions_remove: list[str] = (
+        [str(c) for c in conditions_remove_raw]
+        if isinstance(conditions_remove_raw, list)
+        else []
+    )
+
+    # AC #7: combat must be active
+    if not combat_state.active:
+        return ("Error: No combat is currently active.", combat_state)
+
+    if not npc_name.strip():
+        available = ", ".join(combat_state.npc_profiles.keys()) or "none"
+        return (
+            f"Error: NPC '' not found in active combat. Available: {available}",
+            combat_state,
+        )
+
+    # AC #4: case-insensitive lookup via _sanitize_npc_name, with a fuzzy
+    # fallback against profile name fields and existing keys.
+    sanitized_key = _sanitize_npc_name(npc_name)
+    npc_key: str | None = None
+    if sanitized_key in combat_state.npc_profiles:
+        npc_key = sanitized_key
+    else:
+        # Fuzzy lookup: try lowercase comparison against keys and display names
+        lower_target = npc_name.strip().lower()
+        for k, profile in combat_state.npc_profiles.items():
+            if k.lower() == lower_target or profile.name.lower() == lower_target:
+                npc_key = k
+                break
+
+    if npc_key is None:
+        available = ", ".join(combat_state.npc_profiles.keys()) or "none"
+        return (
+            f"Error: NPC '{npc_name}' not found in active combat. "
+            f"Available: {available}",
+            combat_state,
+        )
+
+    npc = combat_state.npc_profiles[npc_key]
+
+    # AC #4, #17: compute clamped new HP
+    old_hp = npc.hp_current
+    new_hp = max(0, min(old_hp + hp_change, npc.hp_max))
+
+    # AC #5, #18: case-insensitive condition add (dedupe) and remove
+    existing_conditions = list(npc.conditions)
+    existing_lower = {c.lower() for c in existing_conditions}
+    added_display: list[str] = []
+    for c in conditions_add:
+        c_stripped = c.strip()
+        if not c_stripped:
+            continue
+        if c_stripped.lower() in existing_lower:
+            continue
+        existing_conditions.append(c_stripped)
+        existing_lower.add(c_stripped.lower())
+        added_display.append(c_stripped)
+
+    remove_lower = {c.strip().lower() for c in conditions_remove if c.strip()}
+    new_conditions: list[str] = []
+    removed_display: list[str] = []
+    for c in existing_conditions:
+        if c.lower() in remove_lower:
+            removed_display.append(c)
+        else:
+            new_conditions.append(c)
+
+    # AC #4: build a NEW NpcProfile via model_copy (never mutate in place)
+    new_npc = npc.model_copy(
+        update={"hp_current": new_hp, "conditions": new_conditions}
+    )
+
+    # AC #14: build a NEW CombatState with updated npc_profiles dict
+    new_profiles = {**combat_state.npc_profiles, npc_key: new_npc}
+    new_combat_state = combat_state.model_copy(update={"npc_profiles": new_profiles})
+
+    # AC #8: build confirmation string. The (defeated) suffix applies whenever
+    # the resulting HP is 0 (newly defeated OR already-defeated no-op). For
+    # non-fatal changes, emit the delta — except hp_change=0 with no actual HP
+    # change collapses to "HP X -> X" without the noisy "(+0)" suffix.
+    if new_hp == 0:
+        confirmation = f"Updated {npc.name}: HP {old_hp} -> 0 (defeated)"
+    elif hp_change == 0 and new_hp == old_hp:
+        confirmation = f"Updated {npc.name}: HP {old_hp} -> {new_hp}"
+    else:
+        confirmation = f"Updated {npc.name}: HP {old_hp} -> {new_hp} ({hp_change:+d})"
+
+    # Append condition deltas if present
+    condition_parts: list[str] = []
+    if added_display:
+        condition_parts.append("+" + ", +".join(added_display))
+    if removed_display:
+        condition_parts.append("-" + ", -".join(removed_display))
+    if condition_parts:
+        confirmation += f". Conditions: {', '.join(condition_parts)}."
+
+    return (confirmation, new_combat_state)
+
+
 def _execute_start_combat(
     tool_args: dict[str, object],
     state: GameState,
@@ -2608,6 +2929,36 @@ def pc_turn(state: GameState, agent_name: str) -> GameState:
         file=sys.stderr,
         flush=True,
     )
+
+    # Story 15.7 FIX: align persistent current_initiative_index to this PC's
+    # actual position in initiative_order. The router may have skipped past
+    # defeated NPCs (advancing only its LOCAL idx) to land on this PC; if we
+    # don't realign, the +1 advancement at the end of this turn would land
+    # on a stale (already-skipped) defeated NPC slot.
+    combat_pc = state.get("combat_state")
+    if (
+        combat_pc
+        and isinstance(combat_pc, CombatState)
+        and combat_pc.active
+        and combat_pc.initiative_order
+    ):
+        start_idx = combat_pc.current_initiative_index
+        for scan_idx in range(start_idx, len(combat_pc.initiative_order)):
+            if combat_pc.initiative_order[scan_idx] == agent_name:
+                if scan_idx != start_idx:
+                    logger.debug(
+                        "pc_turn[%s]: aligning persistent index %d -> %d "
+                        "(router skipped defeated NPCs)",
+                        agent_name,
+                        start_idx,
+                        scan_idx,
+                    )
+                    combat_pc = combat_pc.model_copy(
+                        update={"current_initiative_index": scan_idx}
+                    )
+                    state["combat_state"] = combat_pc
+                break
+
     # Get character config from state
     character_config = state["characters"][agent_name]
 

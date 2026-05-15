@@ -2412,3 +2412,20 @@ Completed in separate cycle sessions (not logged here).
 - Run epic retrospective: /bmad-bmm-retrospective
 - Check sprint status: /bmad-bmm-sprint-status
 - Visually verify: open adventures list, check gallery icons, switch sessions, test lightbox nav
+
+
+# Epic Development Cycle Log - 2026-05-15
+
+**Project:** autodungeon
+**Epic:** 15 - Combat Initiative System (extension)
+**Started:** 2026-05-15
+**Triggered by:** [sprint-change-proposal-2026-05-15.md](../planning-artifacts/sprint-change-proposal-2026-05-15.md) — Session 017 forensic analysis revealed NPC HP never decrements, causing combat encounters to never resolve
+
+## Cycle Overview
+
+| Story | Status | Phase |
+|-------|--------|-------|
+| 15-7-npc-damage-tracking | 🔄 in queue | (pending) |
+| 15-8-auto-end-combat | 🔄 in queue | (pending) |
+
+---

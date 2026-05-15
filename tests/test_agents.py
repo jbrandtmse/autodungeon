@@ -338,6 +338,10 @@ class TestModuleExports:
             "_build_combatant_summary",
             "_build_combat_bookend_prompt",
             "_build_npc_turn_prompt",
+            # Story 15.7: NPC Damage Tracking & Combat-State Injection
+            "DM_COMBAT_NARRATIVE_ADDENDUM",
+            "_execute_npc_update",
+            "_npc_status_label",
         }
 
         assert set(agents.__all__) == expected_exports

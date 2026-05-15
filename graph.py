@@ -138,7 +138,12 @@ def context_manager(state: GameState) -> GameState:
     # _execute_start_combat() sets round_number=1 when combat begins mid-round.
     # Subsequent rounds (2, 3, ...) are incremented here.
     combat = updated_state.get("combat_state")
-    if combat and isinstance(combat, CombatState) and combat.active and combat.round_number >= 1:
+    if (
+        combat
+        and isinstance(combat, CombatState)
+        and combat.active
+        and combat.round_number >= 1
+    ):
         updated_state["combat_state"] = combat.model_copy(
             update={
                 "round_number": combat.round_number + 1,
@@ -231,6 +236,31 @@ def route_to_next_agent(state: GameState) -> str:
         if current_idx >= len(order):
             return END  # type: ignore[return-value]
         next_agent = order[current_idx]
+
+        # Story 15.7: skip defeated NPC slots. If the slot at current_idx is an
+        # NPC (dm:<key>) whose hp_current == 0, advance locally until we find a
+        # live entry or fall off the end. PC entries are never skipped on this
+        # basis — PC death handling is out of scope.
+        #
+        # Note: this loop only advances the LOCAL current_idx for the purpose
+        # of finding the next live entry to return. The persistent
+        # combat_state.current_initiative_index is advanced by the consuming
+        # node (dm_turn) after its turn executes — so each successful turn
+        # produces exactly one index advance, just as before.
+        while (
+            current_idx < len(order)
+            and next_agent.startswith("dm:")
+            and combat.npc_profiles.get(next_agent[3:]) is not None
+            and combat.npc_profiles[next_agent[3:]].hp_current == 0
+        ):
+            logger.debug(
+                "route_to_next_agent: skipping defeated NPC slot %s", next_agent
+            )
+            current_idx += 1
+            if current_idx >= len(order):
+                # AC #13: all remaining entries were defeated NPCs → end round
+                return END  # type: ignore[return-value]
+            next_agent = order[current_idx]
     else:
         try:
             current_idx = order.index(current)
@@ -326,7 +356,10 @@ def human_intervention_node(state: GameState) -> GameState:
     combat_for_return = state.get("combat_state", CombatState())
     if isinstance(combat_for_return, CombatState) and combat_for_return.active:
         combat_for_return = combat_for_return.model_copy(
-            update={"current_initiative_index": combat_for_return.current_initiative_index + 1}
+            update={
+                "current_initiative_index": combat_for_return.current_initiative_index
+                + 1
+            }
         )
 
     # Build updated state (includes combat_state passthrough for Story 15-3)
@@ -371,9 +404,7 @@ def human_intervention_node(state: GameState) -> GameState:
         # Fork-aware save routing (Story 12.2)
         active_fork_id = updated_state.get("active_fork_id")
         if active_fork_id is not None:
-            save_fork_checkpoint(
-                updated_state, session_id, active_fork_id, turn_number
-            )
+            save_fork_checkpoint(updated_state, session_id, active_fork_id, turn_number)
         else:
             save_checkpoint(updated_state, session_id, turn_number)
 
@@ -397,15 +428,19 @@ def _safe_pc_turn(state: GameState, agent_name: str) -> GameState:
     try:
         return pc_turn(state, agent_name)
     except LLMError as e:
-        logger.warning(
-            "PC turn failed for %s, using fallback: %s", agent_name, e
-        )
+        logger.warning("PC turn failed for %s, using fallback: %s", agent_name, e)
         # Build fallback response
         characters = state.get("characters", {})
         char_config = characters.get(agent_name)
-        char_name = char_config.name if char_config and hasattr(char_config, "name") else agent_name.title()
+        char_name = (
+            char_config.name
+            if char_config and hasattr(char_config, "name")
+            else agent_name.title()
+        )
 
-        fallback_entry = f"[{agent_name}]: *{char_name} holds position, watchful and alert.*"
+        fallback_entry = (
+            f"[{agent_name}]: *{char_name} holds position, watchful and alert.*"
+        )
 
         # Append to ground truth log
         new_log = list(state.get("ground_truth_log", []))
@@ -429,13 +464,11 @@ def _safe_pc_turn(state: GameState, agent_name: str) -> GameState:
 
         # Advance combat initiative index if combat is active
         combat_st = state.get("combat_state")
-        if (
-            combat_st
-            and isinstance(combat_st, CombatState)
-            and combat_st.active
-        ):
+        if combat_st and isinstance(combat_st, CombatState) and combat_st.active:
             combat_st = combat_st.model_copy(
-                update={"current_initiative_index": combat_st.current_initiative_index + 1}
+                update={
+                    "current_initiative_index": combat_st.current_initiative_index + 1
+                }
             )
 
         updated: GameState = {
@@ -635,7 +668,12 @@ def run_single_round(
 
     # Compute recursion limit: use the longer of turn_queue or initiative_order (Story 15-3)
     combat = state.get("combat_state")
-    if combat and isinstance(combat, CombatState) and combat.active and combat.initiative_order:
+    if (
+        combat
+        and isinstance(combat, CombatState)
+        and combat.active
+        and combat.initiative_order
+    ):
         turn_count = max(len(state["turn_queue"]), len(combat.initiative_order))
     else:
         turn_count = len(state["turn_queue"])
