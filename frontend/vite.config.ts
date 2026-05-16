@@ -14,7 +14,10 @@ export default defineConfig({
 			'/api': {
 				target: 'http://localhost:8000',
 				changeOrigin: true,
-				timeout: 120000,
+				// 10 min — accommodates slow LLM calls like module discovery
+				// against a local 27B+ model that takes 3-9 min to respond.
+				timeout: 600000,
+				proxyTimeout: 600000,
 			},
 			'/ws': {
 				target: 'http://localhost:8000',

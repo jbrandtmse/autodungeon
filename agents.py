@@ -3239,12 +3239,13 @@ def pc_turn(state: GameState, agent_name: str) -> GameState:
 MODULE_DISCOVERY_MAX_RETRIES = 2
 
 # Initial module discovery prompt
-MODULE_DISCOVERY_PROMPT = """You are the dungeon master in a dungeons and dragons game.
+MODULE_DISCOVERY_PROMPT = """/no_think
+You are the dungeon master in a dungeons and dragons game.
 
 What dungeons and dragons modules do you know from your training?
 
-Return exactly 100 modules in JSON format. Each module must have:
-- number: Integer from 1 to 100
+Return exactly 20 well-known modules in JSON format. Each module must have:
+- number: Integer from 1 to 20
 - name: The official module name
 - description: A 1-2 sentence description of the adventure
 
@@ -3256,15 +3257,16 @@ Example format:
 ]
 ```
 
-Include modules from different editions (AD&D, 2e, 3e, 4e, 5e) and various campaign settings (Forgotten Realms, Greyhawk, Dragonlance, Ravenloft, Eberron, etc.).
+Pick a varied set across editions (AD&D, 2e, 3e, 4e, 5e) and settings (Forgotten Realms, Greyhawk, Dragonlance, Ravenloft, Eberron). Favor iconic modules likely to be recognized.
 
-Return ONLY the JSON array, no additional text."""
+Return ONLY the JSON array, no additional text or commentary. Be concise."""
 
 # Retry prompt with more explicit JSON instructions
-MODULE_DISCOVERY_RETRY_PROMPT = """Your previous response could not be parsed as valid JSON.
+MODULE_DISCOVERY_RETRY_PROMPT = """/no_think
+Your previous response could not be parsed as valid JSON.
 
-Please return exactly 100 D&D modules as a valid JSON array. Each object must have these exact keys:
-- "number": integer (1-100)
+Please return exactly 20 D&D modules as a valid JSON array. Each object must have these exact keys:
+- "number": integer (1-20)
 - "name": string (module name)
 - "description": string (brief description)
 
@@ -3377,7 +3379,10 @@ def discover_modules(dm_config: DMConfig) -> "ModuleDiscoveryResult":
     """
     import json
 
-    llm = get_llm(dm_config.provider, dm_config.model)
+    # 20 min timeout — slow local 27B+ models with thinking-mode can take
+    # 5-15 min for the discovery response, even with /no_think directive
+    # in the prompt and the prompt reduced to 20 modules.
+    llm = get_llm(dm_config.provider, dm_config.model, timeout=1200)
     retry_count = 0
 
     for attempt in range(MODULE_DISCOVERY_MAX_RETRIES + 1):
