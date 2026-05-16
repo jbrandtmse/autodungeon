@@ -112,13 +112,39 @@ export interface CharacterSheetHP {
   temp: number;
 }
 
+/**
+ * Mirrors the backend NpcProfile Pydantic model (models.py:832-860).
+ * Full NPC/monster profile for an active combat encounter. Player-visible
+ * via the NpcPanel/NpcSheetModal (Story 15-9). All nine fields here MUST
+ * stay field-for-field aligned with `models.NpcProfile` — adding a field
+ * on the backend without widening this interface will silently drop it
+ * from the snapshot consumed by the UI.
+ */
+export interface NpcProfile {
+  name: string;
+  initiative_modifier: number;
+  hp_max: number;
+  hp_current: number;
+  ac: number;
+  personality: string;
+  tactics: string;
+  secret: string;
+  conditions: string[];
+}
+
 export interface CombatState {
   active: boolean;
   round_number: number;
   initiative_order: string[];
   initiative_rolls: Record<string, number>;
-  current_combatant: string;
-  npc_profiles: Record<string, { name: string }>;
+  /** Legacy field — backend snapshot does not populate this; kept for back-compat with existing CombatInitiative.svelte. */
+  current_combatant?: string;
+  /** Mirrors backend CombatState.current_initiative_index (Story 13). */
+  current_initiative_index?: number;
+  npc_profiles: Record<string, NpcProfile>;
+  original_turn_queue?: string[];
+  defeat_nudge_emitted?: boolean;
+  defeat_nudge_round?: number;
 }
 
 export interface AgentSecrets {

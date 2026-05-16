@@ -177,8 +177,8 @@ development_status:
   # v1.2 COMBAT INITIATIVE SYSTEM
   # ===========================================
 
-  # Epic 15: Combat Initiative System (8 stories — 15-7/15-8 added 2026-05-15 per sprint-change-proposal-2026-05-15.md)
-  epic-15: done
+  # Epic 15: Combat Initiative System (9 stories — 15-9 added 2026-05-16 per sprint-change-proposal-2026-05-16.md)
+  epic-15: in-progress
   15-1-combat-state-model: done
   15-2-initiative-rolling: done
   15-3-combat-aware-routing: done
@@ -187,6 +187,7 @@ development_status:
   15-6-combat-end-conditions: done
   15-7-npc-damage-tracking: done
   15-8-auto-end-combat: done
+  15-9-npc-profile-visibility: done
 
   # ===========================================
   # v2.0 UI FRAMEWORK MIGRATION

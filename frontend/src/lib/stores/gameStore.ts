@@ -33,18 +33,37 @@ export function handleServerMessage(msg: WsServerEvent): void {
 			// Append new log entries from this round. The backend sends
 			// `new_entries` (the delta since the last broadcast) so we
 			// don't need the full log in every event.
+			//
+			// Story 15-9: turn_update's payload `state` snapshot now carries
+			// the live `combat_state` (with mutated `npc_profiles.hp_current`
+			// from Story 15-7's `dm_update_npc`). Merge fields from the
+			// snapshot so the NpcPanel / NpcSheetModal see live tactical
+			// data without waiting for a fresh `session_state` event
+			// (which only arrives on initial connect / reconnect).
 			gameState.update((state) => {
 				if (!state) return state;
 				const newEntries = msg.new_entries;
 				const updatedLog = newEntries?.length
 					? [...state.ground_truth_log, ...newEntries]
 					: state.ground_truth_log;
-				return {
+				const snapshot = (msg.state ?? {}) as Partial<GameState>;
+				const merged: GameState = {
 					...state,
 					ground_truth_log: updatedLog,
 					current_turn: msg.agent,
 					turn_number: msg.turn,
 				};
+				// Selectively merge live-tactical fields from the snapshot.
+				// Avoid blanket-spreading `snapshot` to preserve fields that
+				// turn_update intentionally omits (ground_truth_log capping,
+				// agent_memories, etc.).
+				if ('combat_state' in snapshot) {
+					merged.combat_state = snapshot.combat_state;
+				}
+				if (snapshot.characters !== undefined) {
+					merged.characters = snapshot.characters;
+				}
+				return merged;
 			});
 			break;
 

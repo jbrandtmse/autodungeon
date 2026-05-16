@@ -16,6 +16,7 @@ vi.mock('$lib/stores', () => {
     autoScroll: true,
     settingsOpen: false,
     characterSheetName: null,
+    npcSheetName: null,
     comparisonForkId: null,
   });
   return {

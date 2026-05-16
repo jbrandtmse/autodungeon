@@ -42,6 +42,7 @@ from api.schemas import (
     ModelListResponse,
     ModuleDiscoveryResponse,
     ModuleInfoResponse,
+    NpcProfileResponse,
     SceneImageResponse,
     SessionCreateRequest,
     SessionCreateResponse,
@@ -123,9 +124,7 @@ async def _aio_load_yaml_defaults() -> dict[str, Any]:
 # =============================================================================
 
 
-async def _get_state_for_image_gen(
-    session_id: str, request: Request
-) -> dict[str, Any]:
+async def _get_state_for_image_gen(session_id: str, request: Request) -> dict[str, Any]:
     """Get game state for image generation, preferring in-memory engine state.
 
     Falls back to loading the latest checkpoint from disk when no active
@@ -142,9 +141,7 @@ async def _get_state_for_image_gen(
         raise HTTPException(status_code=400, detail="Session has no checkpoints")
     state = await _aio_load_checkpoint(session_id, latest_turn)
     if state is None:
-        raise HTTPException(
-            status_code=500, detail="Failed to load latest checkpoint"
-        )
+        raise HTTPException(status_code=500, detail="Failed to load latest checkpoint")
     return state
 
 
@@ -841,9 +838,9 @@ async def update_session_config(
         dm_provider=new_dm.provider,
         dm_model=new_dm.model,
         dm_token_limit=new_dm.token_limit,
-        image_generation_enabled=bool(image_gen_fields.get(
-            "image_generation_enabled", default_img_enabled
-        )),
+        image_generation_enabled=bool(
+            image_gen_fields.get("image_generation_enabled", default_img_enabled)
+        ),
         image_provider=image_gen_fields.get(
             "image_provider", img_cfg.get("image_provider", "gemini")
         ),
@@ -896,7 +893,9 @@ async def get_user_settings() -> UserSettingsResponse:
     # Image generation: user-settings overrides yaml defaults
     yaml_defaults = await _aio_load_yaml_defaults()
     img_cfg = yaml_defaults.get("image_generation", {})
-    img_enabled = settings.get("image_generation_enabled", img_cfg.get("enabled", False))
+    img_enabled = settings.get(
+        "image_generation_enabled", img_cfg.get("enabled", False)
+    )
 
     img_model = settings.get(
         "image_model", img_cfg.get("image_model", "imagen-4.0-generate-001")
@@ -1992,14 +1991,18 @@ async def switch_to_fork(session_id: str, fork_id: str) -> dict[str, str]:
     _validate_and_check_session(session_id)
     _validate_fork_id_param(fork_id)
 
-    latest_turn = await asyncio.to_thread(get_latest_fork_checkpoint, session_id, fork_id)
+    latest_turn = await asyncio.to_thread(
+        get_latest_fork_checkpoint, session_id, fork_id
+    )
     if latest_turn is None:
         raise HTTPException(
             status_code=404,
             detail=f"Fork '{fork_id}' not found or has no checkpoints",
         )
 
-    state = await asyncio.to_thread(load_fork_checkpoint, session_id, fork_id, latest_turn)
+    state = await asyncio.to_thread(
+        load_fork_checkpoint, session_id, fork_id, latest_turn
+    )
     if state is None:
         raise HTTPException(
             status_code=500,
@@ -2480,6 +2483,98 @@ async def get_character_sheet(
         conditions=_get(sheet, "conditions", []),  # type: ignore[arg-type]
         death_saves=death_resp,
     )
+
+
+# =============================================================================
+# NPC Profile Endpoint (Story 15.9)
+# =============================================================================
+
+
+@router.get(
+    "/sessions/{session_id}/npcs/{npc_key}",
+    response_model=NpcProfileResponse,
+)
+async def get_npc_profile(session_id: str, npc_key: str) -> NpcProfileResponse:
+    """Get the full NPC profile for an active combat encounter.
+
+    Loads the latest game state and extracts the NPC from
+    `combat_state.npc_profiles`. Returns 404 if combat is inactive or
+    the NPC key is unknown. Mirrors the PC `get_character_sheet`
+    endpoint contract (Story 16-10) for path-traversal validation,
+    case-insensitive lookup, and 404 detail-string format.
+
+    Args:
+        session_id: Session ID string.
+        npc_key: NPC key from `combat_state.npc_profiles`
+            (case-insensitive lookup).
+
+    Returns:
+        Full NPC profile data (NpcProfileResponse).
+
+    Raises:
+        HTTPException: 400 for invalid session ID or path-traversal
+            characters in npc_key; 404 if session/combat/NPC not found.
+    """
+    _validate_and_check_session(session_id)
+
+    # Path-traversal & null-byte guard (mirror get_character_sheet).
+    if any(c in npc_key for c in ("/", "\\", "\x00")) or ".." in npc_key:
+        raise HTTPException(
+            status_code=400,
+            detail="NPC key contains invalid characters",
+        )
+
+    latest_turn = await _aio_get_latest_checkpoint(session_id)
+    if latest_turn is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Session has no checkpoints",
+        )
+
+    state = await _aio_load_checkpoint(session_id, latest_turn)
+    if state is None:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to load latest checkpoint",
+        )
+
+    combat = state.get("combat_state")
+    if combat is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No active combat in session",
+        )
+
+    # Handle both Pydantic model and dict shapes (defensive).
+    if hasattr(combat, "active"):
+        active = bool(getattr(combat, "active", False))
+        npc_profiles = getattr(combat, "npc_profiles", {}) or {}
+    else:
+        active = bool(combat.get("active", False))
+        npc_profiles = combat.get("npc_profiles", {}) or {}
+
+    if not active or not npc_profiles:
+        raise HTTPException(
+            status_code=404,
+            detail="No active combat in session",
+        )
+
+    # Case-insensitive key lookup (mirror get_character_sheet).
+    npc: Any = None
+    lookup = npc_key.lower()
+    for key, profile in npc_profiles.items():
+        if key.lower() == lookup:
+            npc = profile
+            break
+
+    if npc is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"NPC '{npc_key}' not found in active combat",
+        )
+
+    npc_data = npc.model_dump() if hasattr(npc, "model_dump") else dict(npc)
+    return NpcProfileResponse(**npc_data)
 
 
 # =============================================================================
@@ -3160,15 +3255,11 @@ async def download_all_session_images(session_id: str) -> Any:
                 generation_mode = "scene"
                 if metadata_path.exists():
                     try:
-                        data = _json.loads(
-                            metadata_path.read_text(encoding="utf-8")
-                        )
+                        data = _json.loads(metadata_path.read_text(encoding="utf-8"))
                         turn_number = int(data.get("turn_number", 0))
                         raw_mode = data.get("generation_mode", "scene")
                         generation_mode = (
-                            raw_mode
-                            if raw_mode in _VALID_GENERATION_MODES
-                            else "scene"
+                            raw_mode if raw_mode in _VALID_GENERATION_MODES else "scene"
                         )
                     except (KeyError, ValueError, OSError, TypeError):
                         pass

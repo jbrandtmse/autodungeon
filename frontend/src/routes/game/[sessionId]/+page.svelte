@@ -4,6 +4,7 @@
 	import NarrativePanel from '$lib/components/NarrativePanel.svelte';
 	import ForkComparison from '$lib/components/ForkComparison.svelte';
 	import CharacterSheetModal from '$lib/components/CharacterSheetModal.svelte';
+	import NpcSheetModal from '$lib/components/NpcSheetModal.svelte';
 	import GalleryModal from '$lib/components/GalleryModal.svelte';
 	import { createGameConnection, type GameConnection } from '$lib/ws';
 	import { connectionStatus, lastError, wsSend, sendCommand } from '$lib/stores/connectionStore';
@@ -14,6 +15,7 @@
 	const sessionId = $derived($page.params.sessionId ?? '');
 	const comparisonForkId = $derived($uiState.comparisonForkId);
 	const characterSheetName = $derived($uiState.characterSheetName);
+	const npcSheetName = $derived($uiState.npcSheetName);
 
 	function closeComparison(): void {
 		uiState.update((s) => ({ ...s, comparisonForkId: null }));
@@ -21,6 +23,10 @@
 
 	function closeCharacterSheet(): void {
 		uiState.update((s) => ({ ...s, characterSheetName: null }));
+	}
+
+	function closeNpcSheet(): void {
+		uiState.update((s) => ({ ...s, npcSheetName: null }));
 	}
 
 	let connection: GameConnection | undefined;
@@ -125,6 +131,13 @@
 	{sessionId}
 	characterName={characterSheetName ?? ''}
 	onClose={closeCharacterSheet}
+/>
+
+<NpcSheetModal
+	open={!!npcSheetName}
+	{sessionId}
+	npcKey={npcSheetName ?? ''}
+	onClose={closeNpcSheet}
 />
 
 <GalleryModal />

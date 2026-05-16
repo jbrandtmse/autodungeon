@@ -10,6 +10,7 @@ const DEFAULT_UI_STATE: UiState = {
   autoScroll: true,
   settingsOpen: false,
   characterSheetName: null,
+  npcSheetName: null,
   comparisonForkId: null,
 };
 
@@ -25,6 +26,7 @@ describe('uiStore', () => {
     expect(state.autoScroll).toBe(true);
     expect(state.settingsOpen).toBe(false);
     expect(state.characterSheetName).toBeNull();
+    expect(state.npcSheetName).toBeNull();
     expect(state.comparisonForkId).toBeNull();
     expect(state.selectedCharacter).toBeNull();
   });

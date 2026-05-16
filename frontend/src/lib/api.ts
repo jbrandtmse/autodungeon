@@ -12,6 +12,7 @@ import type {
   CheckpointInfo,
   CheckpointPreview,
   CharacterSheetFull,
+  NpcProfile,
   UserSettings,
   UserSettingsUpdate,
   ModuleDiscoveryResponse,
@@ -292,6 +293,26 @@ export async function getCharacterSheet(
 ): Promise<CharacterSheetFull> {
   return request<CharacterSheetFull>(
     `/api/sessions/${encodeURIComponent(sessionId)}/character-sheets/${encodeURIComponent(name)}`,
+  );
+}
+
+// === NPC Profile API (Story 15.9) ===
+
+/**
+ * Fetch the full NPC profile for an NPC in the active combat encounter.
+ *
+ * Mirrors getCharacterSheet (Story 16-10). Returns the same shape as the
+ * NpcProfile already present in the live WebSocket snapshot, but provides
+ * a hard contract for the on-demand sheet view (NpcSheetModal).
+ *
+ * 404 if the session has no active combat or the npc_key is unknown.
+ */
+export async function getNpcProfile(
+  sessionId: string,
+  npcKey: string,
+): Promise<NpcProfile> {
+  return request<NpcProfile>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/npcs/${encodeURIComponent(npcKey)}`,
   );
 }
 

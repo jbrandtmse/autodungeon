@@ -2517,3 +2517,10 @@ Completed in separate cycle sessions (not logged here).
 - Validate live: start a fresh combat encounter; watch for proper HP decrement, nudge emission, and clean encounter resolution
 - Session 017's existing Mist-Stalker encounter was discussed in the change proposal — should be ended via Drop In or by waiting for the manual nudge sent earlier
 
+
+# Epic Development Cycle Log - 2026-05-16 (Epic 15, Story 15-9)
+
+**Story Queue:** 15-9-npc-profile-visibility (backlog)
+
+Per sprint-change-proposal-2026-05-16.md (approved 2026-05-16)
+

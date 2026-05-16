@@ -42,7 +42,9 @@ class GameEngine:
     MAX_ACTION_LENGTH: int = 2000
     MAX_NUDGE_LENGTH: int = 1000
     VALID_SPEEDS: frozenset[str] = frozenset({"slow", "normal", "fast"})
-    ROUND_TIMEOUT: int = 18000  # 5 hours max per round (Qwen thinking-mode agents can run 30+ min each)
+    ROUND_TIMEOUT: int = (
+        18000  # 5 hours max per round (Qwen thinking-mode agents can run 30+ min each)
+    )
 
     def __init__(self, session_id: str) -> None:
         """Initialize the engine for a session.
@@ -162,9 +164,7 @@ class GameEngine:
 
         # Try to load existing checkpoint (run in thread to avoid blocking
         # the event loop — checkpoint files for large sessions can be 10+ MB).
-        latest_turn = await asyncio.to_thread(
-            get_latest_checkpoint, self._session_id
-        )
+        latest_turn = await asyncio.to_thread(get_latest_checkpoint, self._session_id)
         if latest_turn is not None:
             loaded = await asyncio.to_thread(
                 load_checkpoint, self._session_id, latest_turn
@@ -271,9 +271,7 @@ class GameEngine:
 
             # Record log length before the round so we can compute the
             # delta (new entries) to send to the frontend.
-            pre_round_log_len = len(
-                self._state.get("ground_truth_log", [])
-            )
+            pre_round_log_len = len(self._state.get("ground_truth_log", []))
 
             # Build a thread-safe callback that broadcasts each per-node
             # state update to connected WebSocket clients as the round
@@ -306,6 +304,7 @@ class GameEngine:
                             save_checkpoint,
                             save_fork_checkpoint,
                         )
+
                         active_fork_id = chunk_state.get("active_fork_id")
                         if active_fork_id is not None:
                             save_fork_checkpoint(
@@ -315,9 +314,7 @@ class GameEngine:
                                 turn_number,
                             )
                         else:
-                            save_checkpoint(
-                                chunk_state, self._session_id, turn_number
-                            )
+                            save_checkpoint(chunk_state, self._session_id, turn_number)
                     except Exception:
                         logger.exception("Per-turn checkpoint save failed")
 
@@ -334,9 +331,7 @@ class GameEngine:
                         "message_count": len(chunk_log),
                     },
                 }
-                asyncio.run_coroutine_threadsafe(
-                    self._broadcast(event), loop
-                )
+                asyncio.run_coroutine_threadsafe(self._broadcast(event), loop)
 
             # Run the synchronous graph in a thread with a hard timeout.
             # If a round exceeds ROUND_TIMEOUT (e.g. Ollama hangs), we
@@ -345,9 +340,7 @@ class GameEngine:
             # timeout (ChatOllama default 300s).
             try:
                 result = await asyncio.wait_for(
-                    asyncio.to_thread(
-                        run_single_round, self._state, _on_node_complete
-                    ),
+                    asyncio.to_thread(run_single_round, self._state, _on_node_complete),
                     timeout=self.ROUND_TIMEOUT,
                 )
             except asyncio.TimeoutError:
@@ -600,13 +593,15 @@ class GameEngine:
                         backoff,
                         error_msg,
                     )
-                    await self._broadcast({
-                        "type": "autopilot_retry",
-                        "attempt": consecutive_errors,
-                        "max_attempts": max_consecutive_errors,
-                        "backoff_seconds": backoff,
-                        "error": error_msg,
-                    })
+                    await self._broadcast(
+                        {
+                            "type": "autopilot_retry",
+                            "attempt": consecutive_errors,
+                            "max_attempts": max_consecutive_errors,
+                            "backoff_seconds": backoff,
+                            "error": error_msg,
+                        }
+                    )
                     # Sleep in 10s chunks, broadcasting heartbeat each chunk
                     # so the monitor knows we're alive (not stalled)
                     remaining = backoff
@@ -615,11 +610,13 @@ class GameEngine:
                         await asyncio.sleep(chunk)
                         remaining -= chunk
                         if remaining > 0:
-                            await self._broadcast({
-                                "type": "autopilot_heartbeat",
-                                "status": "backoff",
-                                "remaining_seconds": remaining,
-                            })
+                            await self._broadcast(
+                                {
+                                    "type": "autopilot_heartbeat",
+                                    "status": "backoff",
+                                    "remaining_seconds": remaining,
+                                }
+                            )
                     continue
 
                 # Success — reset error counter and log
@@ -656,9 +653,7 @@ class GameEngine:
                 file=sys.stderr,
                 flush=True,
             )
-            await self._broadcast(
-                {"type": "autopilot_stopped", "reason": "error"}
-            )
+            await self._broadcast({"type": "autopilot_stopped", "reason": "error"})
 
     def pause(self) -> None:
         """Pause autopilot execution.
@@ -707,8 +702,7 @@ class GameEngine:
             turn_queue = self._state.get("turn_queue", [])
             if character not in turn_queue or character == "dm":
                 raise ValueError(
-                    f"Cannot drop in as '{character}'. "
-                    f"Must be a PC in the turn queue."
+                    f"Cannot drop in as '{character}'. Must be a PC in the turn queue."
                 )
 
         if self.is_running:
@@ -875,6 +869,22 @@ class GameEngine:
         # from user-settings so the UI can show/hide image features).
         game_config_snapshot = self._build_game_config_snapshot()
 
+        # Story 15-9: Surface combat_state (incl. live npc_profiles HP) to
+        # the frontend so the NpcPanel/NpcSheetModal can show live tactical
+        # data that Story 15-7's `dm_update_npc` mutates each turn. Mirror
+        # the characters-handler pattern: dump Pydantic models, pass through
+        # dicts, preserve None (the GameState TypedDict declares CombatState
+        # non-Optional but legacy/exploration sessions can hold None — handle
+        # it defensively).
+        combat_state_raw: Any = self._state.get("combat_state")
+        combat_state_snapshot: Any
+        if combat_state_raw is None:
+            combat_state_snapshot = None
+        elif hasattr(combat_state_raw, "model_dump"):
+            combat_state_snapshot = combat_state_raw.model_dump()
+        else:
+            combat_state_snapshot = dict(combat_state_raw)
+
         snapshot: dict[str, Any] = {
             "session_id": self._session_id,
             "turn_number": len(log),
@@ -888,11 +898,12 @@ class GameEngine:
                 k: v.model_dump() if hasattr(v, "model_dump") else v
                 for k, v in self._state.get("characters", {}).items()
             },
+            "combat_state": combat_state_snapshot,
             "game_config": game_config_snapshot,
         }
         if full_log:
             # Cap to last N entries to avoid oversized WebSocket messages
-            snapshot["ground_truth_log"] = list(log[-self.INITIAL_LOG_CAP:])
+            snapshot["ground_truth_log"] = list(log[-self.INITIAL_LOG_CAP :])
         return snapshot
 
     def _build_game_config_snapshot(self) -> dict[str, Any]:
@@ -949,7 +960,11 @@ class GameEngine:
         for name, char in characters.items():
             if name == "dm":
                 continue
-            provider = getattr(char, "provider", "").lower() if hasattr(char, "provider") else ""
+            provider = (
+                getattr(char, "provider", "").lower()
+                if hasattr(char, "provider")
+                else ""
+            )
             if provider == "ollama":
                 # Resolve base URL same way as get_llm
                 from agents import _get_effective_api_key
@@ -969,17 +984,14 @@ class GameEngine:
                 resp = await client.get(f"{ollama_url}/api/tags")
                 resp.raise_for_status()
         except Exception as e:
-            logger.error(
-                "Ollama health check failed (url=%s): %s", ollama_url, e
-            )
+            logger.error("Ollama health check failed (url=%s): %s", ollama_url, e)
             error = create_user_error(
                 error_type="connection",
                 provider="ollama",
                 agent="health_check",
                 retry_count=self._retry_count,
                 detail_message=(
-                    f"Ollama server at {ollama_url} is not responding. "
-                    f"Error: {e}"
+                    f"Ollama server at {ollama_url} is not responding. Error: {e}"
                 ),
             )
             self._last_error = error
@@ -1008,7 +1020,11 @@ class GameEngine:
             for name, char in characters.items():
                 if name == "dm":
                     continue
-                provider = getattr(char, "provider", "").lower() if hasattr(char, "provider") else ""
+                provider = (
+                    getattr(char, "provider", "").lower()
+                    if hasattr(char, "provider")
+                    else ""
+                )
                 if provider == "ollama":
                     return max(base_delay, self.OLLAMA_MIN_DELAY)
 

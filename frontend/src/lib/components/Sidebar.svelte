@@ -4,6 +4,7 @@
 	import GameControls from './GameControls.svelte';
 	import PartyPanel from './PartyPanel.svelte';
 	import CombatInitiative from './CombatInitiative.svelte';
+	import NpcPanel from './NpcPanel.svelte';
 	import HumanControls from './HumanControls.svelte';
 	import WhisperPanel from './WhisperPanel.svelte';
 	import ForkPanel from './ForkPanel.svelte';
@@ -37,6 +38,8 @@
 	<PartyPanel />
 
 	<CombatInitiative />
+
+	<NpcPanel />
 
 	<hr class="sidebar-divider" />
 

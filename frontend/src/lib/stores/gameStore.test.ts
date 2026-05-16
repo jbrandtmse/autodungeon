@@ -27,6 +27,7 @@ describe('gameStore', () => {
       autoScroll: true,
       settingsOpen: false,
       characterSheetName: null,
+      npcSheetName: null,
       comparisonForkId: null,
     });
   });
@@ -96,6 +97,126 @@ describe('gameStore', () => {
       });
       const gs = get(gameState);
       expect(gs!.ground_truth_log).toEqual(['[dm]: Start']);
+    });
+
+    it('Story 15-9: merges combat_state from turn_update snapshot for live NPC HP', () => {
+      // Story 15-9 / code-review fix: the engine widens the turn_update snapshot
+      // with combat_state (carrying mutated npc_profiles.hp_current). Without
+      // this merge, the NpcPanel would freeze at the values from the last
+      // session_state event and never reflect live HP changes.
+      gameState.set(
+        makeGameState({
+          combat_state: {
+            active: true,
+            round_number: 1,
+            initiative_order: [],
+            initiative_rolls: {},
+            npc_profiles: {
+              goblin_1: {
+                name: 'Goblin 1',
+                initiative_modifier: 2,
+                hp_max: 10,
+                hp_current: 10,
+                ac: 13,
+                personality: '',
+                tactics: '',
+                secret: '',
+                conditions: [],
+              },
+            },
+          },
+        }),
+      );
+      handleServerMessage({
+        type: 'turn_update',
+        turn: 2,
+        agent: 'fighter',
+        content: '[fighter]: I swing.',
+        new_entries: ['[fighter]: I swing.'],
+        state: {
+          combat_state: {
+            active: true,
+            round_number: 1,
+            initiative_order: [],
+            initiative_rolls: {},
+            npc_profiles: {
+              goblin_1: {
+                name: 'Goblin 1',
+                initiative_modifier: 2,
+                hp_max: 10,
+                hp_current: 4, // <-- live mutation from dm_update_npc
+                ac: 13,
+                personality: '',
+                tactics: '',
+                secret: '',
+                conditions: ['bleeding'],
+              },
+            },
+          },
+        } as unknown as Record<string, unknown>,
+      });
+      const gs = get(gameState);
+      expect(gs!.combat_state?.npc_profiles.goblin_1.hp_current).toBe(4);
+      expect(gs!.combat_state?.npc_profiles.goblin_1.conditions).toEqual(['bleeding']);
+    });
+
+    it('Story 15-9: combat_state=null in snapshot clears prior combat_state (combat ended)', () => {
+      gameState.set(
+        makeGameState({
+          combat_state: {
+            active: true,
+            round_number: 1,
+            initiative_order: [],
+            initiative_rolls: {},
+            npc_profiles: {
+              g: {
+                name: 'g',
+                initiative_modifier: 0,
+                hp_max: 1,
+                hp_current: 1,
+                ac: 10,
+                personality: '',
+                tactics: '',
+                secret: '',
+                conditions: [],
+              },
+            },
+          },
+        }),
+      );
+      handleServerMessage({
+        type: 'turn_update',
+        turn: 3,
+        agent: 'dm',
+        content: '[dm]: Combat ends.',
+        new_entries: ['[dm]: Combat ends.'],
+        state: { combat_state: null } as unknown as Record<string, unknown>,
+      });
+      const gs = get(gameState);
+      expect(gs!.combat_state).toBeNull();
+    });
+
+    it('Story 15-9: omitted combat_state in snapshot preserves prior combat_state', () => {
+      // If the backend ever sends a snapshot without combat_state (e.g., an
+      // intermediate event before the field exists), DO NOT clobber the
+      // existing one. Only update when the key is present.
+      const cs = {
+        active: true,
+        round_number: 4,
+        initiative_order: [],
+        initiative_rolls: {},
+        npc_profiles: {},
+      };
+      gameState.set(makeGameState({ combat_state: cs }));
+      handleServerMessage({
+        type: 'turn_update',
+        turn: 5,
+        agent: 'rogue',
+        content: '[rogue]: sneaky',
+        state: {} as Record<string, unknown>,
+      });
+      const gs = get(gameState);
+      expect(gs!.combat_state).toEqual(cs);
     });
 
     it('returns null when gameState is null (no crash)', () => {

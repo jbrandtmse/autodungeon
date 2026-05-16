@@ -80,7 +80,9 @@ class GameConfigResponse(BaseModel):
         description="Max messages to render in narrative area",
     )
     dm_provider: str = Field(default="gemini", description="DM agent LLM provider")
-    dm_model: str = Field(default="gemini-3-flash-preview", description="DM agent model name")
+    dm_model: str = Field(
+        default="gemini-3-flash-preview", description="DM agent model name"
+    )
     dm_token_limit: int = Field(
         default=8000, ge=1, description="DM agent context token limit"
     )
@@ -478,6 +480,44 @@ class CharacterSheetResponse(BaseModel):
 
 
 # =============================================================================
+# NPC Profile Schemas (Story 15.9)
+# =============================================================================
+
+
+class NpcProfileResponse(BaseModel):
+    """NPC profile response for GET /sessions/{id}/npcs/{npc_key}.
+
+    Field-for-field mirror of `models.NpcProfile`. Surfaces live combat
+    NPC data (HP, AC, conditions, personality, tactics, secret) to the
+    player UI via the `<NpcSheetModal />` (Story 15-9).
+
+    The `secret` field is intentionally exposed (per the approved
+    sprint-change-proposal-2026-05-16); the frontend renders it behind a
+    collapsible <details> disclosure so the player opts in.
+    """
+
+    name: str = Field(..., min_length=1, description="NPC display name")
+    initiative_modifier: int = Field(
+        default=0, description="Added to d20 for initiative roll"
+    )
+    hp_max: int = Field(default=1, ge=1, description="Maximum hit points")
+    hp_current: int = Field(
+        default=1, ge=0, description="Current hit points (0 = defeated)"
+    )
+    ac: int = Field(default=10, ge=0, description="Armor class")
+    personality: str = Field(
+        default="", description="Personality traits for DM roleplay"
+    )
+    tactics: str = Field(default="", description="Combat tactics for DM to follow")
+    secret: str = Field(
+        default="", description="Hidden info, player-visible via opt-in disclosure"
+    )
+    conditions: list[str] = Field(
+        default_factory=list, description="Active conditions (poisoned, prone, etc.)"
+    )
+
+
+# =============================================================================
 # User Settings Schemas
 # =============================================================================
 
@@ -523,9 +563,7 @@ class UserSettingsUpdateRequest(BaseModel):
     image_generation_enabled: bool | None = Field(
         default=None, description="Whether image generation is enabled"
     )
-    image_model: str | None = Field(
-        default=None, description="Image generation model"
-    )
+    image_model: str | None = Field(default=None, description="Image generation model")
 
 
 # =============================================================================
