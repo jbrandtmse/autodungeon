@@ -2524,3 +2524,97 @@ Completed in separate cycle sessions (not logged here).
 
 Per sprint-change-proposal-2026-05-16.md (approved 2026-05-16)
 
+
+## Story: 15-9-npc-profile-visibility
+
+**Status:** Completed
+**Phases:** create-story → dev-story → code-review (auto-fix) → commit + push → testarch-automate → commit + push
+
+### Files Touched (21)
+
+**Backend (4):**
+- `api/engine.py` — `_get_state_snapshot()` now serializes `combat_state` (with full `npc_profiles`) on every `turn_update`
+- `api/schemas.py` — `NpcProfileResponse`
+- `api/routes.py` — `GET /api/sessions/{id}/npcs/{npc_key}`
+- `tests/test_story_15_9_npc_profile_visibility.py` (NEW)
+
+**Frontend (12):**
+- `frontend/src/lib/types.ts` — widened `CombatState.npc_profiles` to full `NpcProfile`
+- `frontend/src/lib/api.ts` — `getNpcProfile()`
+- `frontend/src/lib/stores/uiStore.ts` + `.test.ts` — `npcSheetName`
+- `frontend/src/lib/stores/gameStore.ts` + `.test.ts` — turn_update merges `combat_state` + `characters` (HIGH fix from review)
+- `frontend/src/lib/components/NpcPanel.svelte` + `.test.ts` (NEW)
+- `frontend/src/lib/components/NpcCard.svelte` + `.test.ts` (NEW)
+- `frontend/src/lib/components/NpcSheetModal.svelte` + `.test.ts` (NEW)
+- `frontend/src/lib/components/Sidebar.svelte` — mounts `<NpcPanel />`
+- `frontend/src/lib/components/CharacterCard.test.ts` — mock updates for `npcSheetName`
+- `frontend/src/routes/game/[sessionId]/+page.svelte` — mounts `<NpcSheetModal />`
+
+**Docs:**
+- `_bmad-output/implementation-artifacts/stories/15-9-npc-profile-visibility.md` (NEW)
+- `_bmad-output/planning-artifacts/sprint-change-proposal-2026-05-16.md` (NEW)
+- `_bmad-output/implementation-artifacts/sprint-status.yaml`
+- `_bmad-output/implementation-artifacts/epic-dev-cycle-log.md`
+
+### Test Counts
+| Phase | Tests added | Total story tests | Suite size after |
+|---|---|---|---|
+| dev-story | +61 | 61 | 254 → 284 (frontend) |
+| testarch-automate | +26 | 87 (frontend 50, backend 37) | 284 → 307 (frontend) |
+
+All 110 Story 15-9 tests passing (37 backend + 73 frontend). Pre-existing ~20 failures verified unrelated (reproduce on clean HEAD with stash).
+
+### Key Design Decisions
+1. **Widened snapshot, not new event type.** `combat_state` now rides on every existing `turn_update` rather than a dedicated `combat_update` event — keeps the WebSocket contract narrow and avoids ordering issues between two streams.
+2. **Mirror the character-sheets endpoint pattern.** `GET /npcs/{npc_key}` uses the same path-traversal validation and case-insensitive lookup; same `NpcProfileResponse` Pydantic shape as `CharacterSheetResponse`.
+3. **TypeScript widening was non-trivial.** Added optional `current_initiative_index`, `original_turn_queue`, `defeat_nudge_emitted`, `defeat_nudge_round` to match Pydantic CombatState. Demoted obsolete `current_combatant` to optional (not on backend model) for back-compat with `CombatInitiative.svelte`.
+4. **AC #11 auto-close handled modal-side** via `$effect` watching `combat_state.active` — modal owns its visibility lifecycle.
+5. **`'combat_state' in snapshot` guard** in gameStore distinguishes absent (preserve prior) from explicit `null` (combat ended → clear). Tested in both directions.
+
+### Issues Auto-Resolved (3)
+
+**HIGH (1):**
+- `gameStore.ts` `turn_update` handler dropped `msg.state.combat_state`, silently breaking AC #1's live HP promise. Fix: selective merge of `combat_state` + `characters` from snapshot, with 3 regression tests.
+
+**MEDIUM (2):**
+- `NpcSheetModal` keydown bound twice (`<svelte:window>` + backdrop div) — Escape fired `onClose()` twice. Removed backdrop handler.
+- Dev Notes line falsely claimed the `gameStore` merge was unnecessary — corrected in story Senior Developer Review section.
+
+### LOW Issues Documented (5)
+1. `CombatInitiative.svelte:13` reads obsolete `current_combatant` (dead code, out-of-scope per story §Non-Goals)
+2. `NpcSheetModal` focus-trap math testing → addressed in testarch phase
+3. `NpcCard.svelte:25` defense-in-depth null guard on conditions → addressed in testarch phase
+4. Untracked `_snapshot*.txt` / `_session_017_full.txt` working-tree debug files (housekeeping)
+5. Markdownlint cosmetics in story file
+
+### Commits
+- `0930b30` feat(15-9): NPC profile visibility in frontend
+- `b9624ef` test(15-9): Expand NPC profile visibility test coverage
+
+### User Input Required
+None. The story spec from sprint-change-proposal-2026-05-16.md was already user-approved and the create-story agent caught one ambiguity (snapshot `combat_state` missing entirely vs. partial fields) and resolved it correctly during authoring.
+
+---
+
+# Epic 15 — Cycle Complete
+
+**Completion Time:** 2026-05-16
+**Total Stories:** 9 (all done)
+**Epic Status:** done
+
+## Overall Statistics for Story 15-9 Cycle
+- Files touched: 21
+- Issues auto-resolved: 3 (1 HIGH + 2 MEDIUM)
+- LOW issues documented as follow-up: 5
+- User interventions during cycle: 0 (autopilot stop was a logistics call before workflow start)
+- Tests added: 87 (61 dev + 26 testarch)
+
+## Epic 15 Trajectory
+- 15-1 through 15-6: original combat initiative system (v1.2)
+- 15-7 (NPC damage tracking) + 15-8 (auto-end-combat): added 2026-05-15 per sprint-change-proposal for combat tracking gap
+- 15-9 (NPC profile visibility): added 2026-05-16 to surface what 15-7/15-8 made visible-worthy
+
+## Recommendations
+- Run epic retrospective: `/bmad-bmm-retrospective`
+- Restart FastAPI backend to pick up `_get_state_snapshot` change before resuming Session XIX autopilot
+- LOW follow-ups: schedule cleanup of obsolete `current_combatant` field in `CombatInitiative.svelte` + `.gitignore` for `_snapshot*.txt`
