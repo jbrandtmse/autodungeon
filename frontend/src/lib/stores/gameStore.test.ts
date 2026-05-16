@@ -219,6 +219,138 @@ describe('gameStore', () => {
       expect(gs!.combat_state).toEqual(cs);
     });
 
+    // =========================================================================
+    // Gap-coverage additions (testarch-automate, 2026-05-16)
+    // Snapshot merge edge-cases not covered by the 3 existing Story 15-9 tests.
+    // =========================================================================
+
+    it('Story 15-9: characters in snapshot are merged on turn_update', () => {
+      // The Story 15-9 gameStore fix merges BOTH combat_state and characters
+      // from the turn_update snapshot. Without merging characters, character
+      // HP/XP changes (from non-combat tool calls) would also stall.
+      gameState.set(
+        makeGameState({
+          characters: {
+            fighter: { name: 'Fighter', hp_current: 30, hp_max: 30 },
+          } as unknown as GameState['characters'],
+        }),
+      );
+      handleServerMessage({
+        type: 'turn_update',
+        turn: 2,
+        agent: 'dm',
+        content: '[dm]: An attack lands.',
+        new_entries: ['[dm]: An attack lands.'],
+        state: {
+          characters: {
+            fighter: { name: 'Fighter', hp_current: 22, hp_max: 30 },
+          },
+        } as unknown as Record<string, unknown>,
+      });
+      const gs = get(gameState);
+      expect((gs!.characters as Record<string, { hp_current: number }>).fighter.hp_current).toBe(
+        22,
+      );
+    });
+
+    it('Story 15-9: combat_state AND characters can be merged in one turn_update', () => {
+      // Realistic scenario: an attack mutates both an NPC's HP (combat_state)
+      // and a PC's HP (characters) in the same round. The merge must apply
+      // both selectively without dropping either.
+      gameState.set(
+        makeGameState({
+          characters: {
+            fighter: { name: 'Fighter', hp_current: 30, hp_max: 30 },
+          } as unknown as GameState['characters'],
+          combat_state: {
+            active: true,
+            round_number: 1,
+            initiative_order: [],
+            initiative_rolls: {},
+            npc_profiles: {
+              orc: {
+                name: 'Orc',
+                initiative_modifier: 1,
+                hp_max: 20,
+                hp_current: 20,
+                ac: 13,
+                personality: '',
+                tactics: '',
+                secret: '',
+                conditions: [],
+              },
+            },
+          },
+        }),
+      );
+      handleServerMessage({
+        type: 'turn_update',
+        turn: 2,
+        agent: 'dm',
+        content: '[dm]: Trade of blows.',
+        new_entries: ['[dm]: Trade of blows.'],
+        state: {
+          characters: {
+            fighter: { name: 'Fighter', hp_current: 22, hp_max: 30 },
+          },
+          combat_state: {
+            active: true,
+            round_number: 1,
+            initiative_order: [],
+            initiative_rolls: {},
+            npc_profiles: {
+              orc: {
+                name: 'Orc',
+                initiative_modifier: 1,
+                hp_max: 20,
+                hp_current: 12,
+                ac: 13,
+                personality: '',
+                tactics: '',
+                secret: '',
+                conditions: [],
+              },
+            },
+          },
+        } as unknown as Record<string, unknown>,
+      });
+      const gs = get(gameState);
+      expect((gs!.characters as Record<string, { hp_current: number }>).fighter.hp_current).toBe(
+        22,
+      );
+      expect(gs!.combat_state?.npc_profiles.orc.hp_current).toBe(12);
+    });
+
+    it('Story 15-9: missing snapshot (state=undefined) does not crash', () => {
+      // Defense in depth: an older backend or a malformed event might omit
+      // `state` entirely. The merge should treat it as empty and update only
+      // log/agent/turn — not throw.
+      gameState.set(
+        makeGameState({
+          combat_state: {
+            active: true,
+            round_number: 1,
+            initiative_order: [],
+            initiative_rolls: {},
+            npc_profiles: {},
+          },
+        }),
+      );
+      handleServerMessage({
+        type: 'turn_update',
+        turn: 9,
+        agent: 'dm',
+        content: '[dm]: tick',
+        new_entries: ['[dm]: tick'],
+        // intentionally no `state` field
+      } as unknown as WsServerEvent);
+      const gs = get(gameState);
+      expect(gs).not.toBeNull();
+      expect(gs!.turn_number).toBe(9);
+      // Prior combat_state preserved.
+      expect(gs!.combat_state?.round_number).toBe(1);
+    });
+
     it('returns null when gameState is null (no crash)', () => {
       expect(get(gameState)).toBeNull();
       handleServerMessage({

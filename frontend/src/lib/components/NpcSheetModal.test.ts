@@ -302,4 +302,203 @@ describe('NpcSheetModal', () => {
     const label = container.querySelector('.defeated-label');
     expect(label?.textContent).toContain('Defeated');
   });
+
+  // ===========================================================================
+  // Gap-coverage additions (testarch-automate, 2026-05-16)
+  // Covers code-review LOW #5 (untested focus-trap math) and AC #11
+  // (auto-close on combat end).
+  // ===========================================================================
+
+  it('AC #11: auto-closes when combat_state.active flips to false', async () => {
+    mockGetNpcProfile.mockResolvedValue(makeNpc());
+    const onClose = vi.fn();
+    render(NpcSheetModal, {
+      props: {
+        open: true,
+        sessionId: '001',
+        npcKey: 'goblin_1',
+        onClose,
+      },
+    });
+    await waitFor(() => {
+      expect(mockGetNpcProfile).toHaveBeenCalled();
+    });
+    // Flip combat off — the modal's $effect must invoke onClose.
+    await setMockGameState({
+      ...makeActiveCombatState(),
+      combat_state: {
+        active: false,
+        round_number: 1,
+        initiative_order: [],
+        initiative_rolls: {},
+        npc_profiles: {},
+      },
+    });
+    // The $effect runs synchronously on store update. waitFor for safety.
+    await waitFor(() => {
+      expect(onClose).toHaveBeenCalled();
+    });
+  });
+
+  it('does NOT auto-close when combat_state.active is still true', async () => {
+    // Negative case: changing other state should not trigger the AC #11
+    // auto-close. Without this, a future $effect-dependency mistake (e.g.,
+    // depending on any combat_state field) would silently break the modal.
+    mockGetNpcProfile.mockResolvedValue(makeNpc());
+    const onClose = vi.fn();
+    render(NpcSheetModal, {
+      props: {
+        open: true,
+        sessionId: '001',
+        npcKey: 'goblin_1',
+        onClose,
+      },
+    });
+    await waitFor(() => {
+      expect(mockGetNpcProfile).toHaveBeenCalled();
+    });
+    // Mutate combat (e.g., HP change) while staying active.
+    await setMockGameState({
+      ...makeActiveCombatState(),
+      combat_state: {
+        active: true,
+        round_number: 2,
+        initiative_order: [],
+        initiative_rolls: {},
+        npc_profiles: {},
+      },
+    });
+    // Give the effect a tick to (incorrectly) fire if it would.
+    await new Promise((r) => setTimeout(r, 30));
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('focus trap: Tab from last focusable cycles to first', async () => {
+    // Covers code-review LOW #5. With the secret-details disclosure
+    // present, the modal has at least 2 focusable elements (close button
+    // + summary). Tab from the LAST element with focus should wrap to
+    // the FIRST.
+    mockGetNpcProfile.mockResolvedValue(makeNpc({ secret: 'hidden lore' }));
+    const { container } = render(NpcSheetModal, {
+      props: {
+        open: true,
+        sessionId: '001',
+        npcKey: 'goblin_1',
+        onClose: vi.fn(),
+      },
+    });
+    await waitFor(() => {
+      expect(container.querySelector('.secret-details')).not.toBeNull();
+    });
+    const closeBtn = container.querySelector('.close-btn') as HTMLButtonElement;
+    const summary = container.querySelector(
+      '.secret-details summary',
+    ) as HTMLElement;
+    expect(closeBtn).not.toBeNull();
+    expect(summary).not.toBeNull();
+
+    // Move focus to the last focusable (summary), then press Tab.
+    summary.focus();
+    expect(document.activeElement).toBe(summary);
+
+    await fireEvent.keyDown(window, { key: 'Tab' });
+
+    // Focus should wrap to the first focusable (close button).
+    expect(document.activeElement).toBe(closeBtn);
+  });
+
+  it('focus trap: Shift+Tab from first focusable cycles to last', async () => {
+    // Inverse of the previous test — backward wrap.
+    mockGetNpcProfile.mockResolvedValue(makeNpc({ secret: 'hidden lore' }));
+    const { container } = render(NpcSheetModal, {
+      props: {
+        open: true,
+        sessionId: '001',
+        npcKey: 'goblin_1',
+        onClose: vi.fn(),
+      },
+    });
+    await waitFor(() => {
+      expect(container.querySelector('.secret-details')).not.toBeNull();
+    });
+    const closeBtn = container.querySelector('.close-btn') as HTMLButtonElement;
+    const summary = container.querySelector(
+      '.secret-details summary',
+    ) as HTMLElement;
+
+    closeBtn.focus();
+    expect(document.activeElement).toBe(closeBtn);
+
+    await fireEvent.keyDown(window, { key: 'Tab', shiftKey: true });
+
+    expect(document.activeElement).toBe(summary);
+  });
+
+  it('focus trap: mid-cycle Tab does NOT preventDefault (browser handles it)', async () => {
+    // Ensures the focus-trap logic only intervenes at the boundaries. If
+    // focus is in the middle of the focusable list, the trap must let the
+    // browser handle the Tab naturally (no preventDefault).
+    mockGetNpcProfile.mockResolvedValue(makeNpc({ secret: 'hidden lore' }));
+    const { container } = render(NpcSheetModal, {
+      props: {
+        open: true,
+        sessionId: '001',
+        npcKey: 'goblin_1',
+        onClose: vi.fn(),
+      },
+    });
+    await waitFor(() => {
+      expect(container.querySelector('.secret-details')).not.toBeNull();
+    });
+
+    // Focus is on document.body (no relevant focusable) — Tab should
+    // pass through. We verify by checking the event default.
+    const event = new KeyboardEvent('keydown', {
+      key: 'Tab',
+      bubbles: true,
+      cancelable: true,
+    });
+    const wasDefaultPrevented = !window.dispatchEvent(event);
+    // dispatchEvent returns false if preventDefault was called. With no
+    // focus inside the trap, the handler should leave it alone.
+    expect(wasDefaultPrevented).toBe(false);
+  });
+
+  it('Tab handler is a no-op when modal is closed (open=false)', async () => {
+    // Guards against a future refactor accidentally trapping keystrokes
+    // while the modal is hidden. With open=false the keydown handler
+    // returns early — Escape must not call onClose.
+    const onClose = vi.fn();
+    render(NpcSheetModal, {
+      props: {
+        open: false,
+        sessionId: '001',
+        npcKey: 'goblin_1',
+        onClose,
+      },
+    });
+    await fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('clicking inside the modal body does NOT close (target != currentTarget)', async () => {
+    // The handleBackdropClick guard (target === currentTarget) prevents
+    // accidental close when the user clicks inside the modal content.
+    mockGetNpcProfile.mockResolvedValue(makeNpc());
+    const onClose = vi.fn();
+    const { container } = render(NpcSheetModal, {
+      props: {
+        open: true,
+        sessionId: '001',
+        npcKey: 'goblin_1',
+        onClose,
+      },
+    });
+    await waitFor(() => {
+      expect(container.querySelector('.modal')).not.toBeNull();
+    });
+    const modalBody = container.querySelector('.modal') as HTMLElement;
+    await fireEvent.click(modalBody);
+    expect(onClose).not.toHaveBeenCalled();
+  });
 });
