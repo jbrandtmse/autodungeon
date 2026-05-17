@@ -1826,6 +1826,83 @@ _PC_DAMAGE_PATTERN = re.compile(
 )
 
 
+def _detect_unrecorded_death_saves(state: GameState) -> str | None:
+    """Detect PC-narrated death saving throws not reflected in character_sheets.
+
+    For each PC at HP 0 with 'unconscious' condition, counts death save rolls
+    in their recent narrations and compares to the count stored in
+    `character_sheets[name]['death_saves']`. If narrative > recorded, returns
+    a structured reminder for the DM prompt; else None.
+
+    Session XIX exposed this gap: PCs roleplayed multiple death saves while
+    their dict counters stayed at {successes: 0, failures: 0}, meaning the
+    party could neither stabilize nor die mechanically — combat stalemate.
+
+    Tactical-mode only (gated upstream by callers).
+    """
+    sheets = state.get("character_sheets", {})
+    if not isinstance(sheets, dict) or not sheets:
+        return None
+
+    log = state.get("ground_truth_log", [])
+    if not log:
+        return None
+
+    death_save_re = re.compile(r"\bDeath\s+Sav(?:e|ing\s+Throw)\b", re.IGNORECASE)
+
+    narrative_saves_per_pc: dict[str, int] = {}
+    for entry in reversed(log):
+        if not isinstance(entry, str):
+            continue
+        if entry.startswith("[DM]"):
+            break
+        if entry.startswith("[SHEET]"):
+            continue
+        if not (entry.startswith("[") and "]" in entry):
+            continue
+        speaker = entry[1 : entry.index("]")]
+        if death_save_re.search(entry):
+            narrative_saves_per_pc[speaker] = (
+                narrative_saves_per_pc.get(speaker, 0) + 1
+            )
+
+    if not narrative_saves_per_pc:
+        return None
+
+    gaps: list[tuple[str, int, int]] = []
+    for pc_name, narr_count in narrative_saves_per_pc.items():
+        sheet = sheets.get(pc_name)
+        if not isinstance(sheet, dict):
+            continue
+        hp = sheet.get("hit_points_current", 1)
+        conds = sheet.get("conditions") or []
+        if hp != 0 or "unconscious" not in conds:
+            continue
+        ds = sheet.get("death_saves") or {"successes": 0, "failures": 0}
+        recorded = int(ds.get("successes", 0)) + int(ds.get("failures", 0))
+        if narr_count > recorded:
+            gaps.append((pc_name, narr_count, recorded))
+
+    if not gaps:
+        return None
+
+    summary = "; ".join(
+        f"{name}: narrative shows {n} roll(s), sheet records {r}"
+        for name, n, r in gaps
+    )
+    return (
+        "## URGENT: Missed Death Save Updates Detected\n\n"
+        "PCs at 0 HP are rolling death saving throws in narration but their "
+        "`character_sheets[name]['death_saves']` counters are out of sync:\n\n"
+        f"- {summary}\n\n"
+        "Before writing any new narration this turn, call `dm_update_character_sheet` "
+        'for each affected PC with `updates={"death_saves": {"successes": N, '
+        '"failures": M}}` reflecting the most recent rolls visible in the log. '
+        "A PC dies at 3 failures and stabilizes at 3 successes — without updating "
+        "this counter, the combat cannot resolve mechanically."
+    )
+
+
 def _detect_unrecorded_npc_damage(state: GameState) -> str | None:
     """Detect PC-narrated damage not reflected in CombatState NPC HP.
 
@@ -2173,6 +2250,14 @@ def dm_turn(state: GameState) -> GameState:
             _pending_reminder = _detect_unrecorded_npc_damage(state)
             if _pending_reminder is not None:
                 system_prompt_parts.append(_pending_reminder)
+
+            # Same backstop for death saves — Session XIX exposed PCs
+            # roleplaying death save rolls while the dict counters stayed at
+            # {successes: 0, failures: 0}, meaning nobody could ever
+            # stabilize or die mechanically.
+            _ds_reminder = _detect_unrecorded_death_saves(state)
+            if _ds_reminder is not None:
+                system_prompt_parts.append(_ds_reminder)
 
             # Story 15.8: After the all-defeated nudge has fired, layer an
             # additional reinforcement that explicitly pushes the DM toward
