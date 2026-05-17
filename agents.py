@@ -231,6 +231,22 @@ not one with `name: "Goblins"`. Adding NPCs mid-combat is not supported; if you 
 **Do NOT skip combat by narrating the entire fight yourself.** Call dm_start_combat first, \
 then narrate each round as initiative plays out. NPCs get their own turns in initiative order.
 
+## Encounter Variety
+
+When you invent a new encounter, draw from the module's bestiary and the setting's appropriate \
+creatures. Avoid defaulting to the same monster type you used in the previous unrelated encounter \
+just because it is fresh in your mind.
+
+This guidance does NOT apply when narrative continuity calls for the same monster:
+
+- A boss or named antagonist returning after the party retreated
+- The party re-entering an area they previously cleared partially
+- A module-specified recurring threat (e.g., Strahd's recurring appearances in Curse of Strahd)
+- Reinforcements logically arriving from the same enemy group
+
+In those cases, story coherence trumps variety. The rule targets lazy reuse, not intentional \
+callbacks. When in doubt, ask: "Did this monster choose to return, or did I just pick the same one again?"
+
 ## Private Whispers
 
 Use the dm_whisper_to_agent tool to send private information to individual characters:
@@ -1793,6 +1809,118 @@ def _get_combat_turn_type(
     return "bookend"
 
 
+# Patterns PCs commonly use to declare damage. Loose by design — false positives
+# trigger an extra reminder but cost nothing; misses are what we are guarding
+# against. We do NOT try to attribute damage to a specific NPC — only sum it and
+# compare to the gap between max HP and current HP across all NPCs in combat.
+_PC_DAMAGE_PATTERN = re.compile(
+    # Parenthesized "(Damage: 7)" or bare "Damage: 7"
+    r"\(?\s*Damage\s*:?\s*(\d+)\s*\)?"
+    r"|"
+    # "for 7 slashing damage" / "for 7 points of fire damage" / "for 5 damage"
+    r"\bfor\s+(\d+)\s+(?:points?\s+of\s+)?"
+    r"(?:slashing|piercing|bludgeoning|fire|cold|acid|necrotic|"
+    r"radiant|psychic|thunder|lightning|poison|force|"
+    r"\w+\s+)?damage\b",
+    re.IGNORECASE,
+)
+
+
+def _detect_unrecorded_npc_damage(state: GameState) -> str | None:
+    """Detect PC-narrated damage not reflected in CombatState NPC HP.
+
+    Walks back through the log to find PC turns since the most recent DM
+    entry, sums damage notations in those turns, and compares to the sum of
+    HP reductions across all NPCs. If PCs claim more damage than the NPC
+    block records, returns a structured reminder for the DM prompt; else
+    None.
+
+    Used to backstop the prompt-level guidance when the model selectively
+    forgets `dm_update_npc` despite the addendum (Session XIX showed Qwen 3.6
+    happily updating PC sheets while skipping NPC ones for 4+ rounds).
+    """
+    combat_state = state.get("combat_state")
+    if not isinstance(combat_state, CombatState) or not combat_state.active:
+        return None
+
+    npc_profiles = combat_state.npc_profiles
+    if not npc_profiles:
+        return None
+
+    log = state.get("ground_truth_log", [])
+    if not log:
+        return None
+
+    # Collect PC narrations since the previous DM entry. PCs are the only
+    # canonical source of damage declarations — NPC turns are narrated by DM.
+    pc_entries: list[str] = []
+    for entry in reversed(log):
+        if not isinstance(entry, str):
+            continue
+        if entry.startswith("[DM]"):
+            break
+        if entry.startswith("[SHEET]"):
+            continue
+        if entry.startswith("["):
+            pc_entries.append(entry)
+
+    if not pc_entries:
+        return None
+
+    total_pc_damage = 0
+    damage_lines: list[tuple[str, int]] = []
+    for entry in pc_entries:
+        speaker = "unknown"
+        if entry.startswith("[") and "]" in entry:
+            speaker = entry[1 : entry.index("]")]
+        for match in _PC_DAMAGE_PATTERN.finditer(entry):
+            for grp in match.groups():
+                if grp is not None:
+                    try:
+                        dmg = int(grp)
+                    except (TypeError, ValueError):
+                        continue
+                    if dmg > 0:
+                        total_pc_damage += dmg
+                        damage_lines.append((speaker, dmg))
+                    break  # only count one capture group per match
+
+    if total_pc_damage == 0:
+        return None
+
+    total_npc_hp_reduction = sum(
+        max(0, p.hp_max - p.hp_current) for p in npc_profiles.values()
+    )
+
+    damage_gap = total_pc_damage - total_npc_hp_reduction
+    if damage_gap <= 0:
+        return None
+
+    damage_summary = "; ".join(
+        f"{speaker} narrated {dmg} damage" for speaker, dmg in damage_lines
+    )
+    npc_list = ", ".join(
+        f"{p.name} (HP {p.hp_current}/{p.hp_max})" for p in npc_profiles.values()
+    )
+
+    return (
+        "## URGENT: Missed NPC Updates Detected\n\n"
+        "Damage narrated by PCs in the most recent round is NOT reflected in "
+        "`combat_state.npc_profiles`. You must reconcile before any new narration:\n\n"
+        f"- Damage narrations this round: {damage_summary}\n"
+        f"- Total PC damage narrated: {total_pc_damage}\n"
+        f"- Total NPC HP reduction recorded: {total_npc_hp_reduction}\n"
+        f"- **Gap: {damage_gap} HP unaccounted for**\n\n"
+        f"Current NPC HP block (authoritative): {npc_list}\n\n"
+        "Before writing any new narration this turn, call `dm_update_npc` for each "
+        "unrecorded hit. Use the PC narration context to decide which NPC each PC "
+        "was attacking, then apply negative `hp_change` to bring HP down. If the "
+        "math does not perfectly align (e.g., area effects, partial misses, "
+        "rounded damage), use your best judgment — closing the gap matters more "
+        "than perfect attribution."
+    )
+
+
 def _build_combatant_summary(state: GameState) -> str:
     """Build a brief combatant status summary for the DM bookend prompt.
 
@@ -2036,6 +2164,15 @@ def dm_turn(state: GameState) -> GameState:
             and _combat_st_for_addendum.active
         ):
             system_prompt_parts.append(DM_COMBAT_NARRATIVE_ADDENDUM)
+
+            # Post-15-9: programmatic backstop for the dm_update_npc gap.
+            # If PCs narrated damage in the last round that does not appear in
+            # the NPC HP block, inject an URGENT reminder at the top of the
+            # combat section so the model cannot easily ignore it. Only fires
+            # when an actual gap is detectable from the log.
+            _pending_reminder = _detect_unrecorded_npc_damage(state)
+            if _pending_reminder is not None:
+                system_prompt_parts.append(_pending_reminder)
 
             # Story 15.8: After the all-defeated nudge has fired, layer an
             # additional reinforcement that explicitly pushes the DM toward
